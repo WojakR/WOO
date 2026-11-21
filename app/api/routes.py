@@ -5,8 +5,9 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Header
 
-from app.domain.cycle import EvaluationCycle, Status
-from app.domain.errors import NotAuthorized, NotFound
+from app.domain.cycle import STATUS_LABELS, EvaluationCycle, Status
+from app.domain.errors import FieldLocked, NotAuthorized, NotFound
+from app.domain.scoring import Outcome, compute_result
 
 from . import assistant_mapping as m
 from . import schemas as s
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/api")
 AI_FEATURES = {
     "przygotowanie_rozmowy": True,
     "podpowiedz_kryteriow": False,
-    "szkic_uzasadnienia": False,
+    "szkic_uzasadnienia": True,
     "klasyfikacja_notatek": False,
     "hr_partner": False,
 }
@@ -30,6 +31,18 @@ def _evaluation(st: DemoState, evaluation_id: int) -> EvaluationCycle:
     if cycle is None:
         raise NotFound(f"Nie ma oceny o identyfikatorze {evaluation_id}.")
     return cycle
+
+
+def _evaluator_only(cycle: EvaluationCycle, user_id: str | None, what: str) -> None:
+    """Demo identity is the X-User-Id header (contract rule 6); without it the check is skipped."""
+    if user_id is not None and user_id != cycle.evaluator_id:
+        raise NotAuthorized(f"{what} widzi tylko oceniający.")
+
+
+# draft kind -> the arkusz field it is a draft for (all of them are part II, editable at the evaluation stage)
+_DRAFT_FIELD = {"UZASADNIENIE": "justification", "IPRZ": "iprz_conclusions", "UMOTYWOWANIE_STOPNIA": "justification"}
+_DRAFT_LABEL = {"UZASADNIENIE": "uzasadnienia oceny", "IPRZ": "wniosków do IPRZ",
+                "UMOTYWOWANIE_STOPNIA": "umotywowania wniosku o stopień"}
 
 
 @router.get("/meta", response_model=s.MetaOut, tags=["sesja"])
@@ -59,11 +72,37 @@ def conversation_prep(
     """The evaluator's one-page note before a conversation. No scores in it; works with AI off (templates).
     Without `rodzaj`: a starting conversation until the employee confirms the criteria, an evaluating one after."""
     cycle = _evaluation(st, evaluation_id)
-    if x_user_id is not None and x_user_id != cycle.evaluator_id:
-        raise NotAuthorized("Notatkę na rozmowę widzi tylko oceniający.")
+    _evaluator_only(cycle, x_user_id, "Notatkę na rozmowę")
     kind = rodzaj or ("ROZPOCZYNAJACA" if cycle.status in _BEFORE_CRITERIA_CONFIRMED else "OCENIAJACA")
     prep = st.assistant.conversation_prep(
         cycle, st.directory.get(cycle.employee_id), st.directory.get(cycle.evaluator_id),
         notes=[],  # no notes store yet (🟢 POST /api/evaluations/{id}/notes comes later)
         today=st.clock.today(), kind=kind, absences=cycle.absences)
     return m.to_conversation_prep_out(prep)
+
+
+@router.post("/evaluations/{evaluation_id}/ai/draft", response_model=s.DraftOut, tags=["asystent"])
+def draft(
+    evaluation_id: int,
+    body: s.DraftIn,
+    x_user_id: str | None = Header(default=None),
+    st: DemoState = Depends(get_state),
+) -> s.DraftOut:
+    """A proposal of the justification, IPRZ conclusions or grade motivation for the evaluator to edit.
+    Never saved into the evaluation and never sets scores (AI only suggests). JSON only for now (no SSE)."""
+    cycle = _evaluation(st, evaluation_id)
+    _evaluator_only(cycle, x_user_id, "Szkic")
+    if not cycle.is_editable(_DRAFT_FIELD[body.rodzaj]):
+        raise FieldLocked(
+            f"Szkic {_DRAFT_LABEL[body.rodzaj]} można przygotować dopiero po rozmowie oceniającej, "
+            f"gdy wpisuje się część II arkusza (teraz: {STATUS_LABELS[cycle.status]}).")
+    if body.rodzaj == "UMOTYWOWANIE_STOPNIA":  # § 11 ust. 5: Part III only with a positive evaluation
+        ids = cycle.criteria_ids(st.evaluations.rules)
+        result = cycle.result or (compute_result([cycle.scores[c] for c in ids], st.evaluations.rules)
+                                  if ids and all(c in cycle.scores for c in ids) else None)
+        if result is None or result.outcome is not Outcome.POSITIVE:
+            raise FieldLocked("Wniosek o kolejny stopień służbowy można umotywować tylko przy ocenie pozytywnej "
+                              "(§ 11 ust. 5) – najpierw wpisz wszystkie oceny cząstkowe.")
+    d = st.assistant.draft(body.rodzaj, cycle, st.directory.get(cycle.employee_id),
+                           notes=[])  # no notes store yet (🟢 POST /api/evaluations/{id}/notes comes later)
+    return m.to_draft_out(d)
