@@ -21,10 +21,11 @@ STAGE_OF_STATUS = {
     "ROZMOWA_OCENIAJACA": 4,
     "OCENA_DO_ZAPOZNANIA": 5,
     "ZAKONCZONA": DONE,
-    "SPRZECIW": DONE,
+    "SPRZECIW": 5,  # objection: the evaluation waits for the director general's decision
     "ANULOWANA": DONE,
 }
 WAITING_FOR_EMPLOYEE = {"KRYTERIA_DO_POTWIERDZENIA", "OCENA_DO_ZAPOZNANIA"}
+WAITING_FOR_REVIEWER = {"SPRZECIW"}
 
 STATUS_LABEL = {
     "KRYTERIA_DO_WYZNACZENIA": "Wyznaczenie kryteriów",
@@ -33,7 +34,7 @@ STATUS_LABEL = {
     "ROZMOWA_OCENIAJACA": "Sporządzenie oceny",
     "OCENA_DO_ZAPOZNANIA": "Czeka na zapoznanie się z oceną",
     "ZAKONCZONA": "Zakończona",
-    "SPRZECIW": "Sprzeciw",
+    "SPRZECIW": "Sprzeciw – czeka na rozstrzygnięcie",
     "ANULOWANA": "Anulowana",
 }
 LEVEL_LABEL = {
@@ -53,6 +54,7 @@ ACTION_LABEL = {
     "POTWIERDZ_ZAPOZNANIE": "Potwierdzam zapoznanie się z oceną",
     "FIKCJA_ZAPOZNANIA": "Stwierdź fikcję zapoznania",
     "ZLOZ_SPRZECIW": "Złóż sprzeciw",
+    "ROZPATRZ_SPRZECIW": "Rozstrzygnij sprzeciw",
 }
 ACTION_DONE = {
     "ZATWIERDZ_KRYTERIA": "Kryteria zatwierdzone i przekazane ocenianemu.",
@@ -60,6 +62,8 @@ ACTION_DONE = {
     "ROZPOCZNIJ_ROZMOWE": "Zapisano rozmowę oceniającą – można wypełnić arkusz.",
     "ZATWIERDZ_OCENE": "Ocena zatwierdzona i przekazana ocenianemu.",
     "POTWIERDZ_ZAPOZNANIE": "Potwierdzono zapoznanie się z oceną.",
+    "ZLOZ_SPRZECIW": "Sprzeciw złożony – rozstrzygnie go dyrektor generalny.",
+    "ROZPATRZ_SPRZECIW": "Zapisano rozstrzygnięcie sprzeciwu.",
 }
 WHO_LABEL = {"OCENIAJACY": "oceniający", "OCENIANY": "oceniany", "KADRY": "kadry", "NIKT": "–"}
 EMPLOYMENT_LABEL = {"PRACOWNIK": "Pracownik służby cywilnej", "URZEDNIK": "Urzędnik służby cywilnej"}
@@ -101,6 +105,8 @@ def stage_state(ev: dict, stage: int) -> tuple[str, str]:
         return "todo", "oczekuje"
     if status in WAITING_FOR_EMPLOYEE:
         return "waiting", "czeka na ocenianego"
+    if status in WAITING_FOR_REVIEWER:
+        return "waiting", "sprzeciw – czeka na decyzję"
     return "active", "w trakcie"
 
 

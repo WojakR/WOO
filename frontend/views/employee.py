@@ -17,12 +17,46 @@ def _my_evaluation_id(me: dict) -> int | None:
     return mine[0]["evaluation_id"] if mine else None
 
 
+def _my_evaluations(api: Api, me: dict) -> list[dict]:
+    """All my evaluations, newest first. No list endpoint yet, so read ids up to the newest one in the office list
+    as the user – the server returns only what I may see (403 for the others)."""
+    top = max((i["evaluation_id"] or 0 for i in as_hr().dashboard()["pozycje"]), default=0)
+    out = []
+    for eid in range(top + 3, 0, -1):
+        try:
+            ev = api.evaluation(eid)
+        except ApiError:
+            continue
+        if ev["oceniany"]["id"] == me["pracownik"]["id"]:
+            out.append(ev)
+    return out
+
+
+def _requests(api: Api, me: dict) -> None:
+    from frontend.views.evaluation import objection_panel
+
+    evs = _my_evaluations(api, me)
+    shown = False
+    for ev in evs:
+        if ev.get("sprzeciw") or "ZLOZ_SPRZECIW" in ev["dozwolone_akcje"]:
+            st.markdown(f"**Ocena sporządzona {ui.fmt(ev['czesc_ii'].get('data_sporzadzenia'))}** – "
+                        f"{(ev['czesc_ii'].get('wynik') or '').lower()}")
+            objection_panel(api, ev)
+            shown = True
+    if not shown:
+        st.info("Sprzeciw od oceny możesz złożyć w ciągu 7 dni od zapoznania się z oceną – teraz nie masz oceny, "
+                "od której przysługuje sprzeciw.")
+    st.caption("Wniosek o zmianę terminu oceny: w API jest już podgląd zmian terminu, ale nie ma jeszcze składania "
+               "wniosku przez pracownika – pojawi się tutaj, gdy koledzy go dodadzą.")
+
+
 def render(api: Api, me: dict, page: str = "ocena") -> None:
     person = me["pracownik"]
     st.subheader(f"Moje wnioski – {name(person)}" if page == "wnioski" else f"Moja ocena okresowa – {name(person)}")
+    for kind, text in st.session_state.pop("flash", []):
+        (st.error if kind == "error" else st.success)(text)
     if page == "wnioski":
-        st.info("Wnioski pracownika (zmiana terminu oceny, sprzeciw) czekają na obsługę w backendzie – w API nie ma "
-                "jeszcze endpointów do ich składania. Gdy koledzy je dodadzą, pojawią się tutaj.")
+        _requests(api, me)
         return
     eid = _my_evaluation_id(me)
     if eid is None:
@@ -33,9 +67,6 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
     except ApiError as e:
         st.error(e.komunikat)
         return
-    for kind, text in st.session_state.pop("flash", []):
-        (st.error if kind == "error" else st.success)(text)
-
     left, right = st.columns([1.7, 1.3], gap="large")
     with left:
         with st.container(border=True):

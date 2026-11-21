@@ -198,7 +198,7 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
             with st.container(border=True, key=f"row_{eid}" if eid else None):
                 if eid:  # the whole row is one button (CSS stretches it over the row)
                     st.button(f"Otwórz ocenę: {name(i['oceniany'])}", key=f"rowbtn_{eid}", on_click=open_evaluation,
-                              args=(eid,), help="Otwórz ocenę pracownika")
+                              args=(eid,))
                 c = st.columns(widths, vertical_alignment="center")
                 c[0].markdown(ui.urgency_badge(_urgency(i)), unsafe_allow_html=True)
                 c[1].markdown(f"**{name(i['oceniany'])}**" + (" →" if eid else ""))

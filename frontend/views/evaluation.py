@@ -619,7 +619,60 @@ def _stage_ack(api: Api, ev: dict) -> None:
             st.markdown(f"Termin na sprzeciw do dyrektora generalnego: **{ui.fmt(c2['termin_sprzeciwu'])}**.")
     for akcja in ("FIKCJA_ZAPOZNANIA", "POTWIERDZ_ZAPOZNANIE"):
         _action(api, ev, akcja)
+    objection_panel(api, ev)
     pdf_button(api, ev)
+
+
+def _inline_action(api: Api, eid: int, akcja: str, **body) -> None:
+    """Run a step and show the server's answer right here (not at the top of the page)."""
+    try:
+        api.action(eid, akcja, **body)
+    except ApiError as e:
+        ui.api_error(e)
+        return
+    st.toast(ACTION_DONE.get(akcja, "Zapisano."))
+    st.rerun()
+
+
+def objection_panel(api: Api, ev: dict) -> None:
+    """Objection (art. 83): its state from the server; filing (evaluated person) and the decision (director general /
+    the person set in the office settings) only when the server allows it (`dozwolone_akcje`)."""
+    o = ev.get("sprzeciw")
+    eid = ev["id"]
+    if o:
+        with st.container(border=True):
+            st.markdown("**⚖️ Sprzeciw od oceny**")
+            ui.html(ui.kv([("Złożony", ui.fmt(o["zlozony"])), ("Termin rozstrzygnięcia", ui.fmt(o["termin_rozpatrzenia"])),
+                           ("Rozstrzygnięcie", {"UWZGLEDNIONY": "uwzględniony", "NIEUWZGLEDNIONY": "nieuwzględniony"}
+                            .get(o.get("decyzja"), "czeka na decyzję dyrektora generalnego"))]))
+            ui.html(f"<p><b>Treść:</b> {escape(o['tresc'])}</p>")
+            if o.get("uzasadnienie_decyzji"):
+                ui.html(f"<p><b>Uzasadnienie decyzji:</b> {escape(o['uzasadnienie_decyzji'])}</p>")
+            if o.get("termin_odwolania_do_sadu"):
+                st.caption(f"Odwołanie do sądu pracy możliwe do {ui.fmt(o['termin_odwolania_do_sadu'])} (art. 83 ust. 5).")
+    if "ZLOZ_SPRZECIW" in ev["dozwolone_akcje"]:
+        with st.container(border=True):
+            st.markdown(f"**⚖️ Sprzeciw od oceny** <span class='lock'>– możesz złożyć do "
+                        f"{ui.fmt(ev['czesc_ii'].get('termin_sprzeciwu'))}, rozstrzyga dyrektor generalny</span>",
+                        unsafe_allow_html=True)
+            text = st.text_area("Treść sprzeciwu", key=f"obj_text_{eid}",
+                                placeholder="Napisz, z czym się nie zgadzasz i dlaczego.")
+            if st.button("Złóż sprzeciw", type="primary", key=f"obj_file_{eid}"):
+                if not text.strip():
+                    st.error("Wpisz treść sprzeciwu, a potem kliknij „Złóż sprzeciw”.")
+                else:
+                    _inline_action(api, eid, "ZLOZ_SPRZECIW", komentarz=text.strip())
+    if "ROZPATRZ_SPRZECIW" in ev["dozwolone_akcje"]:
+        with st.container(border=True):
+            st.markdown("**⚖️ Rozstrzygnięcie sprzeciwu**")
+            reason = st.text_area("Uzasadnienie rozstrzygnięcia", key=f"obj_dec_{eid}")
+            a, b = st.columns(2)
+            for col, upheld, label in ((a, True, "Uwzględnij sprzeciw"), (b, False, "Nie uwzględniaj")):
+                if col.button(label, key=f"obj_{upheld}_{eid}", type="primary" if upheld else "secondary",
+                              use_container_width=True):
+                    _inline_action(api, eid, "ROZPATRZ_SPRZECIW", komentarz=reason.strip() or None, uwzglednij=upheld)
+            st.caption("Uwzględniony sprzeciw: oceniający sporządza ocenę ponownie. Nieuwzględniony: oceniany może "
+                       "odwołać się do sądu pracy.")
 
 
 # ---------------------------------------------------------------- side panel
@@ -641,6 +694,34 @@ def _progress(ev: dict) -> None:
                 st.markdown(line)
         for w in [w for w in ev["walidacje"] if w["waga"] == "OSTRZEZENIE"]:
             st.caption(f"⚠️ {w['komunikat']}")
+
+
+TIMELINE_STATE = {"SPELNIONY": ("✅", "spełniony"), "AKTUALNY": ("🕒", "bieżący"), "PO_TERMINIE": ("🔴", "po terminie"),
+                  "NASTEPNY_OKRES": ("⏭️", "następny okres")}
+
+
+def _timeline(api: Api, ev: dict) -> None:
+    """Every deadline of the evaluation as computed by the server, and the reminder plan of the current stage."""
+    with st.container(border=True):
+        st.markdown("**🗓️ Terminy oceny**")
+        for t in ev.get("terminy") or []:
+            icon, label = TIMELINE_STATE.get(t["stan"], ("•", t["stan"]))
+            when = ui.fmt(t["data"]) if t.get("data") else "niezwłocznie"
+            done = f" · spełniony {ui.fmt(t['spelniony_at'])}" if t.get("spelniony_at") else ""
+            st.markdown(f"{icon} **{t['nazwa']}** – {when}  \n<span class='lock'>{label}{done} · {escape(t['podstawa'])}"
+                        f"</span>", unsafe_allow_html=True)
+        if ev["jako_oceniajacy"]:
+            with st.expander("Plan przypomnień"):
+                try:
+                    plan = api.reminder_plan(ev["id"])
+                except ApiError as e:
+                    st.caption(e.komunikat)
+                    plan = []
+                for r in plan[:12]:
+                    st.markdown(f"{'✔' if r['minelo'] else '○'} {ui.fmt(r['kiedy'])} – {name(r['do_kogo'])}: "
+                                f"{r['tresc']}")
+                if not plan:
+                    st.caption("Brak przypomnień na tym etapie.")
 
 
 def _summary(ev: dict) -> None:
@@ -703,24 +784,27 @@ def _hr_partner(api: Api, ev: dict) -> None:
 
 def render(api: Api, me: dict, meta: dict, evaluation_id: int, ai: bool) -> None:
     today = to_date(meta["dzis"])
-    items = [i for i in api.dashboard()["pozycje"] if i["evaluation_id"]]
-    ids = [i["evaluation_id"] for i in items]
-    labels = {i["evaluation_id"]: f"{name(i['oceniany'])} – {i['oceniany'].get('stanowisko') or ''}" for i in items}
-    top1, top2, _ = st.columns([1, 1.6, 2.4])
-    if top1.button("← Mój zespół", use_container_width=True):
-        st.session_state.view = "team"
-        st.rerun()
-    if ids:
-        chosen = top2.selectbox("Pracownik", ids, index=ids.index(evaluation_id) if evaluation_id in ids else 0,
-                                format_func=labels.get, label_visibility="collapsed")
-        if chosen != evaluation_id:
-            open_evaluation(chosen)
-            st.rerun()
     try:
         ev = api.evaluation(evaluation_id)
     except ApiError as e:
         st.error(e.komunikat)
         return
+    items = [i for i in api.dashboard()["pozycje"] if i["evaluation_id"]]
+    ids = [i["evaluation_id"] for i in items]
+    labels = {i["evaluation_id"]: f"{name(i['oceniany'])} – {STATUS_LABEL.get(i['status'], '')}" for i in items}
+    if evaluation_id not in ids:  # e.g. an earlier evaluation (objection) while the next cycle is already open
+        ids.insert(0, evaluation_id)
+        labels[evaluation_id] = (f"{name(ev['oceniany'])} – ocena z {ui.fmt(ev['czesc_ii'].get('data_sporzadzenia'))}"
+                                 if ev["czesc_ii"].get("data_sporzadzenia") else name(ev["oceniany"]))
+    top1, top2, _ = st.columns([1, 1.6, 2.4])
+    if top1.button("← Mój zespół", use_container_width=True):
+        st.session_state.view = "team"
+        st.rerun()
+    chosen = top2.selectbox("Pracownik", ids, index=ids.index(evaluation_id), format_func=labels.get,
+                            label_visibility="collapsed", key=f"pick_{evaluation_id}")
+    if chosen != evaluation_id:
+        open_evaluation(chosen)
+        st.rerun()
     _show_flash()
     _header(ev, today)
 
@@ -751,6 +835,7 @@ def render(api: Api, me: dict, meta: dict, evaluation_id: int, ai: bool) -> None
     with side:
         _progress(ev)
         _summary(ev)
+        _timeline(api, ev)
         if (ai and ev["jako_oceniajacy"] and meta.get("funkcje_ai", {}).get("hr_partner")
                 and ev["status"] not in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA")):
             _hr_partner(api, ev)

@@ -136,8 +136,61 @@ class Api:
     def scores(self, eid: int, points: dict[str, int | None]) -> dict:
         return self._req("PUT", f"/evaluations/{eid}/scores", {"punkty": points})
 
-    def action(self, eid: int, akcja: str, komentarz: str | None = None) -> dict:
-        return self._req("POST", f"/evaluations/{eid}/actions/{akcja}", {"komentarz": komentarz})
+    def action(self, eid: int, akcja: str, komentarz: str | None = None, uwzglednij: bool | None = None) -> dict:
+        return self._req("POST", f"/evaluations/{eid}/actions/{akcja}",
+                         {"komentarz": komentarz, "uwzglednij": uwzglednij})
+
+    def reminder_plan(self, eid: int) -> list[dict]:
+        return self._req("GET", f"/evaluations/{eid}/przypomnienia")
+
+    # ---- absences ----------------------------------------------------------------------------------
+    def absences(self, employee_number: int) -> list[dict]:
+        return self._req("GET", f"/employees/{employee_number}/absences")
+
+    def add_absence(self, employee_number: int, od: date, do: date, typ: str) -> dict:
+        return self._req("POST", f"/employees/{employee_number}/absences",
+                         {"od": od.isoformat(), "do": do.isoformat(), "typ": typ})
+
+    # ---- settings: my assistant, office, regulation, reminders, deputies --------------------------
+    def my_assistant(self) -> dict:
+        return self._req("GET", "/me/asystent")
+
+    def set_my_assistant(self, **fields) -> dict:
+        return self._req("PUT", "/me/asystent", fields)
+
+    def office(self) -> dict:
+        return self._req("GET", "/ustawienia/urzad")
+
+    def set_office(self, **fields) -> dict:
+        return self._req("PUT", "/ustawienia/urzad", fields)
+
+    def rules(self) -> dict:
+        return self._req("GET", "/ustawienia/reguly")
+
+    def set_rules(self, values: dict[str, int], basis: str) -> dict:
+        return self._req("PUT", "/ustawienia/reguly", {"wartosci": values, "podstawa_zmiany": basis})
+
+    def reset_rules(self) -> None:
+        self._req("DELETE", "/ustawienia/reguly")
+
+    def reminders(self, office: bool = False) -> dict:
+        return self._req("GET", "/ustawienia/przypomnienia" if office else "/me/przypomnienia")
+
+    def set_reminders(self, body: dict, office: bool = False) -> dict:
+        return self._req("PUT", "/ustawienia/przypomnienia" if office else "/me/przypomnienia", body)
+
+    def reset_reminders(self) -> None:
+        self._req("DELETE", "/me/przypomnienia")
+
+    def deputies(self) -> list[dict]:
+        return self._req("GET", "/zastepstwa")
+
+    def add_deputy(self, evaluator_number: int, deputy_number: int, od: date, do: date) -> dict:
+        return self._req("POST", "/zastepstwa", {"oceniajacy_id": evaluator_number, "zastepca_id": deputy_number,
+                                                 "od": od.isoformat(), "do": do.isoformat()})
+
+    def delete_deputy(self, did: int) -> None:
+        self._req("DELETE", f"/zastepstwa/{did}")
 
     def pdf(self, eid: int) -> tuple[bytes, str]:
         r = self._req("GET", f"/evaluations/{eid}/pdf", raw=True)

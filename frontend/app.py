@@ -17,12 +17,11 @@ import streamlit as st
 from frontend import ui
 from frontend.api_client import Api, ApiError
 from frontend.process import name, to_date
-from frontend.views import employee, evaluation, team
+from frontend.views import absences, employee, evaluation, settings, team
 
 st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide",
                    initial_sidebar_state="expanded")
 st.session_state.setdefault("a11y_font", "Standardowa")  # 120 % of the browser default – easier to read
-st.session_state.setdefault("ai_on", True)
 st.session_state.setdefault("user_id", "henryk.pryncypal")
 st.session_state.setdefault("view", "team")
 st.session_state.setdefault("emp_view", "ocena")
@@ -35,7 +34,26 @@ except ApiError as e:
     st.error(f"Nie udało się połączyć z serwerem: {e.komunikat}")
     st.stop()
 evaluator_ui = me["rola"] == "KADRY" or me["czy_oceniajacy"]
-ai = bool(st.session_state.ai_on)
+
+# the assistant switch is stored on the server per user (GET/PUT /api/me/asystent); the office switch wins
+try:
+    my_ai = api.my_assistant()
+except ApiError:
+    my_ai = {"asystent_ai": True, "asystent_ai_w_urzedzie": True}
+office_ai = my_ai.get("asystent_ai_w_urzedzie", True)
+if st.session_state.get("ai_on__user") != st.session_state.user_id:
+    st.session_state.ai_on = bool(my_ai.get("asystent_ai", True))
+    st.session_state.ai_on__user = st.session_state.user_id
+
+
+def save_ai() -> None:
+    try:
+        api.set_my_assistant(asystent_ai=bool(st.session_state.ai_on))
+    except ApiError as e:
+        st.toast(e.komunikat)
+
+
+ai = bool(st.session_state.ai_on) and office_ai
 
 
 def go(view: str) -> None:
@@ -61,6 +79,8 @@ def switch_user() -> None:
         del st.session_state[k]
     st.session_state.pop("ai_cache", None)
     st.session_state.pop("eval_id", None)
+    st.session_state.pop("ai_on__user", None)
+    st.session_state.pop("rem_rules", None)
     st.session_state.view = "team"
     st.session_state.emp_view = "ocena"
 
@@ -88,12 +108,15 @@ with st.sidebar:
         menu_item("👥 Mój zespół" if me["rola"] != "KADRY" else "👥 Oceny w urzędzie", view == "team", go, ("team",))
         menu_item("📝 Ocena pracownika", view == "eval", open_current)
         menu_item("🗓️ Terminy", view == "schedule", go, ("schedule",))
+        menu_item("🏥 Nieobecności", view == "absences", go, ("absences",))
+        menu_item("⚙️ Ustawienia", view == "settings", go, ("settings",))
     else:
         menu_item("📄 Moja ocena", st.session_state.emp_view == "ocena", go_employee, ("ocena",))
         menu_item("📨 Moje wnioski", st.session_state.emp_view == "wnioski", go_employee, ("wnioski",))
+        menu_item("⚙️ Ustawienia", st.session_state.emp_view == "settings", go_employee, ("settings",))
 
     st.divider()
-    with st.expander("⚙️ Ustawienia", expanded=False):
+    with st.expander("Aa Dostępność", expanded=False):
         st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font")
         st.toggle("Wysoki kontrast", key="a11y_contrast",
                   help="Ciemniejszy tekst pomocniczy, grubsze obramowania i podkreślone odnośniki.")
@@ -142,7 +165,7 @@ with st.sidebar:
 # ---------------------------------------------------------------- header: who + notifications
 who, ai_col, bell_col = st.columns([4.2, 1.3, 0.9], vertical_alignment="center")
 with ai_col.container(horizontal_alignment="right"):
-    st.toggle("🤖 Asystent AI", key="ai_on",
+    st.toggle("🤖 Asystent AI", key="ai_on", on_change=save_ai, disabled=not office_ai,
               help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: wskazówki do rozmów, propozycje przypisania "
                    "notatek, sugerowane oceny, szkice tekstów i HR partnera. Proces oceny działa bez zmian.")
 role = "kadry" if me["rola"] == "KADRY" else "oceniający" if me["czy_oceniajacy"] else "oceniany"
@@ -163,12 +186,20 @@ with bell_col.popover(f"🔔 {len(unread)}" if unread else "🔔", use_container
         st.button(label, key=f"notif_{n['id']}", type="tertiary", on_click=open_notification,
                   args=(n["id"], n.get("evaluation_id")),
                   help="Kliknij, aby oznaczyć jako przeczytane" + (" i otworzyć ocenę" if evaluator_ui else ""))
-if not ai:
+if not office_ai:
+    st.info("Asystent AI jest wyłączony dla całego urzędu (ustawienie kadr) – aplikacja działa bez podpowiedzi.")
+elif not ai:
     st.info("Asystent AI jest wyłączony – aplikacja działa bez podpowiedzi. Włączysz go przełącznikiem w prawym górnym rogu.")
 
 # ---------------------------------------------------------------- routing
-if not evaluator_ui:
+if not evaluator_ui and st.session_state.emp_view == "settings":
+    settings.render(api, me, meta, users)
+elif not evaluator_ui:
     employee.render(api, me, st.session_state.emp_view)
+elif st.session_state.view == "settings":
+    settings.render(api, me, meta, users)
+elif st.session_state.view == "absences":
+    absences.render(api, me, meta)
 elif st.session_state.view == "eval" and st.session_state.get("eval_id"):
     evaluation.render(api, me, meta, st.session_state.eval_id, ai)
 elif st.session_state.view == "schedule":
