@@ -23,7 +23,6 @@ _EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+(\.[\w-]+)+\b")
 _PHONE = re.compile(
     r"(?<![\d\w])(?:(?:\+|00)48[\s-]?)?(?:\d{3}[\s-]?\d{3}[\s-]?\d{3}|\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2})(?![\d\w])"
 )
-_TOKEN = re.compile(r"\[OSOBA_(\d+)\]")
 
 _VOWELS = set("aeiouyąęó")
 # letter -> what it may appear as in a declined form or when typed without Polish diacritics
@@ -72,12 +71,18 @@ def _word_pattern(word: str) -> str:
 
 
 class Pseudonymizer:
-    def __init__(self, people: Iterable[tuple[str, str]]):
-        """people: (first name, last name) of everyone who may appear in the text."""
+    def __init__(self, people: Iterable[tuple[str, str]], label: str = "OSOBA_"):
+        """people: (first name, last name) of everyone who may appear in the text.
+        label: token prefix, "[OSOBA_1]" by default. A second, independent layer (backend.llm) uses its own
+        label so that it never restores – and never confuses – tokens put into the text by another one."""
+        if not re.fullmatch(r"[A-Z_]+", label):
+            raise ValueError("label: tylko wielkie litery A-Z i podkreślenie")
+        self._label = label
+        self._token_rx = re.compile(rf"\[{label}(\d+)\]")
         self._people: list[tuple[str, str]] = [(f.strip(), l.strip()) for f, l in people if f.strip() or l.strip()]
         patterns = []
         for i, (first, last) in enumerate(self._people, start=1):
-            token = f"[OSOBA_{i}]"
+            token = f"[{label}{i}]"
             for words in ((first, last), (last, first), (first,), (last,)):
                 if all(words):
                     body = r"\s+".join(_word_pattern(w) for w in words)
@@ -100,10 +105,10 @@ class Pseudonymizer:
                 return " ".join(p for p in self._people[i] if p)
             return m.group(0)
 
-        return _TOKEN.sub(full_name, text)
+        return self._token_rx.sub(full_name, text)
 
     def token_for(self, first: str, last: str) -> str:
         for i, p in enumerate(self._people, start=1):
             if p == (first.strip(), last.strip()):
-                return f"[OSOBA_{i}]"
+                return f"[{self._label}{i}]"
         return f"{first} {last}".strip()

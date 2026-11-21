@@ -38,7 +38,7 @@ PrepKind = Literal["OCENIAJACA", "ROZPOCZYNAJACA"]
 SignalKind = Literal["PRZECIAZENIE", "DLUGA_NIEOBECNOSC", "ZMIANA_OBOWIAZKOW", "SPADEK_OCEN", "DO_DOCENIENIA"]
 
 _PROMPTS = Path(__file__).resolve().parent / "prompts"
-_LEFTOVER_TOKEN = re.compile(r"\[(OSOBA_\d+|PESEL|EMAIL|TELEFON)\]")
+_LEFTOVER_TOKEN = re.compile(r"\[(OSOBA_K?\d+|PESEL|EMAIL|TELEFON)\]")  # OSOBA_K = backend.llm guard
 _BANNED_IN_HR = ("depresj", "chorob", "diagnoz", "zaburzeni", "psychiatr", "terapi", "leczeni")
 
 
