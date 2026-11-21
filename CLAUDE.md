@@ -17,6 +17,10 @@ Run all commands below from `projekt/`.
 - `backend/main.py` – FastAPI endpoints. Keep them thin; logic lives in backend modules.
 - `frontend/app.py` – Streamlit demo; imports backend functions directly (no HTTP), so it deploys as one app.
 - `scripts/` – setup check, synthetic data generator.
+- `app/` – onion core of the evaluation process (UC1–UC5): `app/domain/` pure Python (rules § 11, deadlines,
+  cycle state machine with field locks; no fastapi/sqlite/litellm/backend imports – enforced by a test),
+  `app/application/` use cases (`EvaluationService`) + ports (`typing.Protocol`), `app/infrastructure/` adapters
+  (rule book from `backend.kprm`, in-memory repo, `FixedClock` for "przewiń czas").
 - `backend/kprm.py` – the ONLY reader of domain data in `../server/data/kprm/` (criteria, sheets A/B/C, rules and
   deadlines, sample employees, knowledge base, sample evaluations). Path: `KPRM_DATA_DIR`. Never hard-code values
   that come from regulations (thresholds, deadlines, criteria lists) – read them from `kprm.rules()` etc.
