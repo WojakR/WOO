@@ -15,7 +15,11 @@ CSS = """
 [data-testid="stHeader"] [data-testid="stToolbar"] { top: 0 !important; }
 @media (max-width: 900px) { .block-container { padding-left: 1rem; padding-right: 1rem; } }
 /* toasts (bottom-right notifications): big, high-contrast, easy to notice */
-div[data-testid="stToastContainer"] { right: 24px; bottom: 24px; }
+/* notifications pop up top-right, under the bar – never over the HR partner button in the bottom-right corner */
+div[data-testid="stToastContainer"] { top: 3rem !important; bottom: auto !important; right: 24px !important; }
+/* the invisible style blocks injected at the top take no room (otherwise ~80 px of gaps above the content) */
+[data-testid="stMain"] [data-testid="stElementContainer"]:has(style):not(:has(p, h1, h2, h3, h4, table, img, button)),
+section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(iframe[height="1"]) { display: none !important; }
 div[data-testid="stToast"] { min-width: 460px; max-width: 560px; padding: 18px 22px; font-size: 1.2rem;
                              border: 2px solid var(--blue); border-left: 8px solid var(--blue);
                              box-shadow: 0 10px 32px rgba(0,0,0,.35); }
