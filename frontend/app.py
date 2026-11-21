@@ -19,7 +19,8 @@ from frontend.demo_state import REQUEST_KINDS, REQUEST_STATUS, ai_on, get_state,
 from frontend.views import employee, evaluation, team
 
 st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide")
-ui.inject_css(ui.FONT_SCALES.get(st.session_state.get("a11y_font", "Standardowa"), 1.0),
+st.session_state.setdefault("a11y_font", "Duża")  # larger text by default – easier to read
+ui.inject_css(ui.FONT_SCALES.get(st.session_state.a11y_font, 1.0),
               st.session_state.get("a11y_contrast", False))
 state = get_state()
 
