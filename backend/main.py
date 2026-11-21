@@ -1,14 +1,26 @@
-"""API (FastAPI). Uruchom: uvicorn backend.main:app --reload  ->  http://localhost:8000/docs"""
+"""API (FastAPI) + aplikacja webowa. Uruchom: uvicorn backend.main:app --reload
+->  http://localhost:8000 (interfejs),  http://localhost:8000/docs (API)"""
+from pathlib import Path
+
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.api.errors import install_error_handlers
+from app.api.evaluations import router as evaluations_router
+from app.api.routes import router as api_router
+from app.api.notes import router as notes_router
 from backend import config, db
 from backend.llm import ask_llm
 from backend.parsers import parse_file, to_llm_text
 
 app = FastAPI(title="HackNation 2026 – API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(api_router)  # contract endpoints /api/... (docs/api.md)
+app.include_router(notes_router)
+app.include_router(evaluations_router)  # sheet, dashboard, HR partner, demo – used by the web UI
+install_error_handlers(app)
 
 
 class AskIn(BaseModel):
@@ -39,3 +51,20 @@ async def upload(file: UploadFile = File(...)):
 @app.get("/documents")
 def documents():
     return db.list_documents()
+
+
+# Web UI (frontend/web) – mounted last so it never shadows API routes
+WEB_DIR = Path(__file__).resolve().parent.parent / "frontend" / "web"
+
+
+class _RevalidatedStatic(StaticFiles):
+    """Browsers revalidate (ETag) on every load, so a new UI version shows up without a hard refresh."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+if WEB_DIR.is_dir():
+    app.mount("/", _RevalidatedStatic(directory=WEB_DIR, html=True), name="web")

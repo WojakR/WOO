@@ -1,17 +1,53 @@
-"""Jedna funkcja do LLM dla całego zespołu: ask_llm(). Fallback po liście modeli."""
+"""Jedna funkcja do LLM dla całego zespołu: ask_llm(). Fallback po liście modeli.
+
+Pseudonimizacja jest WŁĄCZONA ZAWSZE: zanim prompt (i system prompt) wyjdzie do modelu, imiona i nazwiska
+wszystkich osób z katalogu pracowników (+ `people` z wywołania), PESEL, e-maile i telefony zamieniamy na tokeny,
+a w odpowiedzi przywracamy imiona i nazwiska. Tokeny tej warstwy mają własny prefiks `[OSOBA_K1]`, więc tokenów
+`[OSOBA_1]` wstawionych wcześniej przez asystenta (app/application/assistant.py) nie ruszamy ani nie mylimy.
+"""
 import json
 import logging
+from functools import lru_cache
+from typing import Iterable
 
-from backend import config
+from app.application.privacy import Pseudonymizer
+from backend import config, kprm
 
 log = logging.getLogger("llm")
 
+GUARD_LABEL = "OSOBA_K"  # K = osoba z katalogu pracowników
+
+
+@lru_cache(maxsize=1)
+def _directory_people() -> tuple[tuple[str, str], ...]:
+    return tuple((e.get("imie", ""), e.get("nazwisko", "")) for e in kprm.employees().values())
+
+
+@lru_cache(maxsize=1)
+def _directory_guard() -> Pseudonymizer:
+    return Pseudonymizer(_directory_people(), label=GUARD_LABEL)
+
+
+def _guard(people: Iterable[tuple[str, str]] | None = None) -> Pseudonymizer:
+    """Everyone in the employee directory, plus `people` named by the caller (e.g. not in the directory yet)."""
+    if not people:
+        return _directory_guard()
+    return Pseudonymizer(dict.fromkeys([*_directory_people(), *people]), label=GUARD_LABEL)
+
 
 def ask_llm(prompt: str, system: str = "Odpowiadasz po polsku, zwięźle i konkretnie.",
-            json_mode: bool = False, temperature: float = 0.2) -> str:
+            json_mode: bool = False, temperature: float = 0.2,
+            people: Iterable[tuple[str, str]] | None = None) -> str:
+    guard = _guard(people)
+    prompt, system = guard.mask(prompt), guard.mask(system)
     if config.LLM_MOCK:
+        # deliberately NOT unmasked: the echo shows exactly what would have left the application
         return json.dumps({"mock": True, "prompt": prompt[:80]}) if json_mode else f"[MOCK] {prompt[:120]}"
+    return guard.unmask(_complete(system, prompt, json_mode, temperature))
 
+
+def _complete(system: str, prompt: str, json_mode: bool, temperature: float) -> str:
+    """The only place that sends text out (LiteLLM). Receives already pseudonymised text."""
     from litellm import completion  # import tutaj, żeby tryb MOCK działał szybko
 
     messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
@@ -29,9 +65,10 @@ def ask_llm(prompt: str, system: str = "Odpowiadasz po polsku, zwięźle i konkr
     raise RuntimeError("Żaden model nie odpowiedział:\n" + "\n".join(errors))
 
 
-def ask_llm_json(prompt: str, system: str = "Zwracasz WYŁĄCZNIE poprawny JSON.") -> dict:
+def ask_llm_json(prompt: str, system: str = "Zwracasz WYŁĄCZNIE poprawny JSON.",
+                 people: Iterable[tuple[str, str]] | None = None) -> dict:
     """Wygodne do ekstrakcji danych z dokumentów."""
-    raw = ask_llm(prompt, system=system, json_mode=True)
+    raw = ask_llm(prompt, system=system, json_mode=True, people=people)
     raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     return json.loads(raw)
 

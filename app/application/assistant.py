@@ -38,8 +38,32 @@ PrepKind = Literal["OCENIAJACA", "ROZPOCZYNAJACA"]
 SignalKind = Literal["PRZECIAZENIE", "DLUGA_NIEOBECNOSC", "ZMIANA_OBOWIAZKOW", "SPADEK_OCEN", "DO_DOCENIENIA"]
 
 _PROMPTS = Path(__file__).resolve().parent / "prompts"
-_LEFTOVER_TOKEN = re.compile(r"\[(OSOBA_\d+|PESEL|EMAIL)\]")
+_LEFTOVER_TOKEN = re.compile(r"\[(OSOBA_K?\d+|PESEL|EMAIL|TELEFON)\]")  # OSOBA_K = backend.llm guard
 _BANNED_IN_HR = ("depresj", "chorob", "diagnoz", "zaburzeni", "psychiatr", "terapi", "leczeni")
+
+# what the regulation requires the conversation to cover, and how the questions should look
+_PREP_LAW = {
+    "ROZPOCZYNAJACA": "Przepisy (§ 5 ust. 1 rozporządzenia) wymagają omówienia: głównych obowiązków wynikających "
+                      "z opisu stanowiska, kryteriów obowiązkowych i dodatkowych, oczekiwań oceniającego co do sposobu "
+                      "spełniania kryteriów oraz – jeśli to uzasadnione – celów na okres oceny i sposobu ich realizacji.",
+    "OCENIAJACA": "Przepisy (§ 10 rozporządzenia) wymagają omówienia: głównych obowiązków i sposobu ich realizacji "
+                  "w odniesieniu do kryteriów, realizacji celów oraz kierunków rozwoju i potrzeb szkoleniowych.",
+}
+_PREP_QUESTION_STYLE = {
+    "ROZPOCZYNAJACA": "pytań otwartych o oczekiwania i cele na nadchodzący okres oceny (okres dopiero się zaczyna "
+                      "– nie pytaj o przeszłe sytuacje)",
+    "OCENIAJACA": "pytań otwartych o konkretne sytuacje z okresu oceny",
+}
+
+
+def _start_questions(name: str, indicators: Sequence[str]) -> tuple[str, ...]:
+    """Forward-looking questions for the starting conversation (§ 5 ust. 1 pkt 3: expectations per criterion)."""
+    out = []
+    if indicators:
+        ind = indicators[0].strip().rstrip(".")
+        out.append(f"Jak w Twoich obowiązkach będzie widać: „{ind[:1].lower() + ind[1:]}”?")
+    out.append(f"Czego potrzebujesz, żeby kryterium „{name}” spełniać co najmniej na poziomie oczekiwań?")
+    return tuple(out)
 
 
 def _prompt(name: str, **values: Any) -> str:
@@ -512,14 +536,19 @@ class AiSuggestionService:
             seen = {n.indicator for n in (*e.positive, *e.neutral, *e.negative) if n.indicator}
             gaps = c.indicators if e.total == 0 else tuple(w for w in c.indicators if seen and w not in seen)
             n_q = 3 if c.id in weak else 2
+            # the catalog questions look back at the period; a starting conversation (§ 5) looks ahead
+            questions = _start_questions(c.name, c.indicators) if kind == "ROZPOCZYNAJACA" \
+                else tuple(self.catalog.questions.get(c.id, [])[:n_q])
             criteria.append(PrepCriterion(
                 c.id, c.name, c.mandatory, len(e.positive), len(e.negative),
                 tuple([*e.negative[:2], *e.positive[:1]]) if c.id in weak else tuple([*e.positive[:2], *e.negative[:1]]),
-                gaps, tuple(self.catalog.questions.get(c.id, [])[:n_q])))
+                gaps, questions))
 
         t = self.catalog.templates
         if kind == "ROZPOCZYNAJACA":
-            goal = t["cel_rozmowy_rozpoczynajaca"]
+            # the period is 24 months, or 6 after a negative evaluation – name the actual deadline
+            goal = t["cel_rozmowy_rozpoczynajaca"].format(
+                termin_oceny=base.evaluation_deadline.strftime("%d.%m.%Y"))
             plan = (("Obowiązki z opisu stanowiska", 10), ("Kryteria i oczekiwania", 15),
                     ("Cele na okres oceny", 10), ("Pytania pracownika", 5))
         else:
@@ -544,7 +573,7 @@ class AiSuggestionService:
             previous=f"{base.previous_evaluation.outcome}, {base.previous_evaluation.level}" if base.previous_evaluation else "brak",
             goals="; ".join(base.goals) or "nie zapisano", evidence=evidence_txt,
             signals="\n".join(f"- {s.kind}: {pseudo.mask('; '.join(s.evidence))}" for s in hr) or "brak",
-            criteria_ids=", ".join(ids))
+            criteria_ids=", ".join(ids), law=_PREP_LAW[kind], question_style=_PREP_QUESTION_STYLE[kind])
         list_of_str = {"type": "array", "items": {"type": "string"}}
         schema = {"type": "object", "properties": {
             "cel_rozmowy": {"type": "string"}, "mocne_strony": list_of_str, "trudne_tematy": list_of_str,

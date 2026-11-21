@@ -30,6 +30,7 @@ def _employee(raw: dict) -> Employee:
             outcome=prev.get("ocena"),
             level=prev.get("poziom"),
             date=date.fromisoformat(prev["data"]) if prev.get("data") else None,
+            acknowledged=date.fromisoformat(prev["data_zapoznania"]) if prev.get("data_zapoznania") else None,
         ) if prev else None,
     )
 

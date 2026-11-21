@@ -82,14 +82,16 @@ def criteria_deadline(event: date, rules: RuleBook, cal: WorkingCalendar, after_
     return cal.next_working_day(event + timedelta(days=days))
 
 
-def reevaluation_date(acknowledged: date, rules: RuleBook) -> date:
+def reevaluation_date(acknowledged: date, rules: RuleBook, cal: WorkingCalendar | None = None) -> date:
     """Art. 81 ust. 9: re-evaluation "po upływie 6 miesięcy od dnia zapoznania się" with a negative evaluation.
 
-    The day after the N-month period ends, as in the KPRM guide: acknowledged 15.02.2015 -> 16.08.2015.
-    Deliberately NOT extended by absences and NOT moved off a day off: art. 81 ust. 7–8 apply only to the
-    24-month deadline (ust. 4), and the KPRM example keeps 16.08.2015 although it is a Sunday.
+    The day after the N-month period ends (KPRM guide: acknowledged 15.02.2015 -> after 15.08.2015), moved off
+    a Saturday / Sunday / holiday like every other deadline: 16.08.2015 is a Sunday -> 17.08.2015 (confirmed by
+    the KPRM mentor, 21.11.2026 – the guide's example skipped the shift).
+    NOT extended by absences: art. 81 ust. 7–8 apply only to the 24-month deadline (ust. 4).
     """
-    return add_months(acknowledged, rules.reevaluation_after_negative_months) + timedelta(days=1)
+    cal = cal or WorkingCalendar()
+    return cal.next_working_day(add_months(acknowledged, rules.reevaluation_after_negative_months) + timedelta(days=1))
 
 
 def objection_deadline(acknowledged: date, rules: RuleBook, cal: WorkingCalendar) -> date:

@@ -74,10 +74,15 @@ class EvaluationService:
 
     # ---- UC1 -------------------------------------------------------------------------------------
     def start_cycle(
-        self, employee_id: str, start_date: date | None = None, after_negative: bool | None = None
+        self,
+        employee_id: str,
+        start_date: date | None = None,
+        after_negative: bool | None = None,
+        negative_acknowledged_on: date | None = None,
     ) -> EvaluationCycle:
-        """Open a cycle. Defaults: start = previous evaluation date (else today, i.e. hiring);
-        `after_negative` from the previous outcome (shortens the criteria deadline)."""
+        """Open a cycle. Defaults: start = day the previous evaluation was drawn up (else today, i.e. hiring);
+        `after_negative` from the previous outcome (shortens the criteria deadline, § 7 pkt 2);
+        `negative_acknowledged_on` from the previous evaluation (starts the re-evaluation, art. 81 ust. 9)."""
         emp = self._employee(employee_id)
         if not emp.evaluator_id:
             raise ValidationError([f"Pracownik {emp.full_name} nie ma przypisanego oceniającego."])
@@ -91,7 +96,7 @@ class EvaluationService:
             after_negative = bool(prev and prev.outcome == "negatywna")
         cycle = EvaluationCycle.start(
             self._new_id(), emp.id, emp.evaluator_id, emp.sheet, start_date, today,
-            self.rules, self.calendar, after_negative, prev,
+            self.rules, self.calendar, after_negative, prev, negative_acknowledged_on,
         )
         self.cycles.save(cycle)
         return cycle
@@ -179,7 +184,7 @@ class EvaluationService:
             left = (objection - today).days
             out.append(Reminder(c.id, c.employee_id, c.employee_id, "objection", objection, left,
                                 f"Możesz złożyć sprzeciw od oceny do dyrektora generalnego do {objection:%d.%m.%Y}."))
-        due = c.next_evaluation_due(self.rules)
+        due = c.next_evaluation_due(self.rules, self.calendar)
         if due is not None and (due - today).days <= lead_days:
             left = (due - today).days
             out.append(Reminder(c.id, c.employee_id, c.evaluator_id, "reevaluation", due, left,

@@ -245,6 +245,44 @@ def test_conversation_prep_rejects_questions_for_unknown_criteria(cycle):
     assert service(model).conversation_prep(cycle, EMPLOYEE, EVALUATOR, NOTES, TODAY).source == "SZABLON"
 
 
+def _start_cycle(**kw):
+    svc = EvaluationService(R, InMemoryCycleRepository(), DIR, FixedClock(TODAY))
+    c = svc.start_cycle(EMP, **kw)
+    svc.set_criteria(c.id, BOSS, ADDITIONAL)
+    return svc.cycles.get(c.id)
+
+
+def test_start_conversation_prep_follows_par_5_without_ai():
+    p = service().conversation_prep(_start_cycle(), EMPLOYEE, EVALUATOR, [], TODAY, kind="ROZPOCZYNAJACA")
+    assert p.kind == "ROZPOCZYNAJACA" and p.source == "SZABLON"
+    # § 5 ust. 1: duties from the job description, criteria and expectations, goals
+    assert [name for name, _ in p.plan_minutes] == [
+        "Obowiązki z opisu stanowiska", "Kryteria i oczekiwania", "Cele na okres oceny", "Pytania pracownika"]
+    assert p.evaluation_deadline.strftime("%d.%m.%Y") in p.goal and "24 miesiące" not in p.goal
+    for c in p.criteria:  # the period only starts: questions look ahead, not back
+        assert len(c.questions) == 2
+        assert not any("ostatni" in q or "Opowiedz o sytuacji" in q for q in c.questions)
+    komunikacja = {c.criterion_id: c for c in p.criteria}["komunikacja"]
+    assert "koncentrowanie się na wypowiedzi rozmówcy" in komunikacja.questions[0]  # its 1st behavioural indicator
+
+
+def test_start_conversation_after_negative_names_the_six_month_deadline():
+    c = _start_cycle(start_date=date(2026, 6, 10), after_negative=True)
+    p = service().conversation_prep(c, EMPLOYEE, EVALUATOR, [], TODAY, kind="ROZPOCZYNAJACA")
+    assert p.evaluation_deadline == date(2026, 12, 11) and "11.12.2026" in p.goal  # art. 81 ust. 9, not 24 months
+
+
+@pytest.mark.parametrize("kind, wanted, unwanted", [
+    ("ROZPOCZYNAJACA", "§ 5 ust. 1", "§ 10"),
+    ("OCENIAJACA", "§ 10", "§ 5 ust. 1"),
+])
+def test_prep_prompt_quotes_the_paragraph_for_its_conversation(cycle, kind, wanted, unwanted):
+    model = FakeModel(AiUnavailable("down"))
+    service(model).conversation_prep(cycle, EMPLOYEE, EVALUATOR, NOTES, TODAY, kind=kind)
+    assert wanted in model.prompts[0] and unwanted not in model.prompts[0]
+    assert ("nie pytaj o przeszłe sytuacje" in model.prompts[0]) is (kind == "ROZPOCZYNAJACA")
+
+
 # ---------------------------------------------------------------- 4. additional criteria
 
 def test_suggest_criteria_rules_from_position():

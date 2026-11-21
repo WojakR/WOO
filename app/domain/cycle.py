@@ -103,7 +103,8 @@ FIELD_LABELS = {
 class PreviousEvaluation:
     outcome: str | None  # "pozytywna" / "negatywna" / None (brak)
     level: str | None
-    date: date | None
+    date: date | None  # drawn up in writing (sporządzenie) – starts the criteria deadline, § 7
+    acknowledged: date | None = None  # employee acknowledged it (zapoznanie) – starts art. 81 ust. 9 / art. 83
 
 
 @dataclass
@@ -112,9 +113,11 @@ class EvaluationCycle:
     employee_id: str
     evaluator_id: str
     sheet: str
-    start_date: date  # previous evaluation or start of permanent employment
+    start_date: date  # previous evaluation drawn up (sporządzenie) or start of permanent employment
     after_negative: bool
     criteria_deadline: date
+    # after a negative evaluation: the day the employee acknowledged it (re-evaluation counts from here)
+    negative_acknowledged_on: date | None = None
     status: Status = Status.CYCLE_STARTED
     additional_criteria: list[str] = field(default_factory=list)
     goals: list[str] = field(default_factory=list)
@@ -149,8 +152,19 @@ class EvaluationCycle:
         cal: WorkingCalendar,
         after_negative: bool = False,
         previous_evaluation: PreviousEvaluation | None = None,
+        negative_acknowledged_on: date | None = None,
     ) -> EvaluationCycle:
+        """`start_date` = day the previous evaluation was drawn up (or hiring): criteria deadline, § 7.
+        After a negative one, `negative_acknowledged_on` (default: `previous_evaluation.acknowledged`)
+        starts the re-evaluation deadline, art. 81 ust. 9."""
         rules.mandatory(sheet)  # validates the sheet
+        if after_negative and negative_acknowledged_on is None and previous_evaluation is not None:
+            negative_acknowledged_on = previous_evaluation.acknowledged
+        if negative_acknowledged_on is not None and negative_acknowledged_on < start_date:
+            raise ValidationError([
+                f"Data zapoznania z oceną ({negative_acknowledged_on}) nie może być wcześniejsza "
+                f"niż data jej sporządzenia ({start_date})."
+            ])
         cycle = cls(
             id=cycle_id,
             employee_id=employee_id,
@@ -159,6 +173,7 @@ class EvaluationCycle:
             start_date=start_date,
             after_negative=after_negative,
             criteria_deadline=criteria_deadline(start_date, rules, cal, after_negative),
+            negative_acknowledged_on=negative_acknowledged_on if after_negative else None,
             previous_evaluation=previous_evaluation,
         )
         cycle.history.append((today, Status.CYCLE_STARTED))
@@ -170,22 +185,23 @@ class EvaluationCycle:
 
     def evaluation_deadline(self, rules: RuleBook, cal: WorkingCalendar) -> date:
         """24 months (+ long absences), or – after a negative evaluation – the re-evaluation date
-        (art. 81 ust. 9; `start_date` is then the day the negative evaluation was acknowledged).
+        (art. 81 ust. 9, counted from the day the negative evaluation was acknowledged; if that day is
+        unknown, from the day it was drawn up – § 12 ust. 1 requires acknowledgement "niezwłocznie").
         An explicit change (evaluator's decision or a change of position) wins."""
         if self.deadline_override is not None:
             return cal.next_working_day(self.deadline_override)
         if self.after_negative:
-            return reevaluation_date(self.start_date, rules)
+            return reevaluation_date(self.negative_acknowledged_on or self.start_date, rules, cal)
         return evaluation_deadline(self.start_date, rules, cal, self.absences)
 
     def objection_deadline(self, rules: RuleBook, cal: WorkingCalendar) -> date | None:
         """Art. 83 ust. 1: last day to object to the evaluation; None until the evaluation is acknowledged."""
         return objection_deadline(self.acknowledged_on, rules, cal) if self.acknowledged_on else None
 
-    def next_evaluation_due(self, rules: RuleBook) -> date | None:
+    def next_evaluation_due(self, rules: RuleBook, cal: WorkingCalendar | None = None) -> date | None:
         """After an acknowledged NEGATIVE evaluation: when the re-evaluation is due (art. 81 ust. 9)."""
         if self.acknowledged_on and self.is_negative:
-            return reevaluation_date(self.acknowledged_on, rules)
+            return reevaluation_date(self.acknowledged_on, rules, cal)
         return None
 
     def can(self, step: str) -> bool:

@@ -1,0 +1,655 @@
+// Screen 1 – one evaluation (evaluator's view; the evaluated person sees the same sheet read-only with their own actions).
+// Every rule (average, level, outcome, locks, allowed actions, validations) comes from the server.
+import { api, ApiError, currentUserId } from "../api.js";
+import { h, icon, replace, fmtDate, fmtNumber, avatar, daysBetween, daysLeftText, urgency, toast, loading } from "../ui.js";
+import {
+  STAGES, STATUS_LABEL, LEVEL_LABEL, SCALE_SHORT, ACTION_LABEL, ACTION_DONE, EMPLOYMENT_LABEL, SIGNAL_LABEL, personName,
+} from "../labels.js";
+
+const BLOCK_HINT = {
+  UZASADNIENIE_WYMAGANE: "Uzupełnij uzasadnienie oceny",
+  IPRZ_WYMAGANE: "Uzupełnij wnioski do IPRZ",
+  BRAK_OCENY: "Oceń wszystkie kryteria",
+};
+const CHECK_LABEL = {
+  UZASADNIENIE_WYMAGANE: "Uzasadnienie oceny",
+  IPRZ_WYMAGANE: "Wnioski do indywidualnego programu rozwoju zawodowego",
+};
+const TEXT_FIELDS = {
+  uzasadnienie: { label: "Uzasadnienie oceny", draft: "UZASADNIENIE" },
+  wnioski_iprz: { label: "Wnioski do indywidualnego programu rozwoju zawodowego", draft: "IPRZ" },
+};
+
+export async function renderEvaluation(view, id, ctx) {
+  const s = {
+    ev: await api.evaluation(id),
+    evidence: null, notes: [], hr: null, hrError: null, criteriaDict: null,
+    drafts: {}, open: new Set(), text: {}, dirty: new Set(), confirming: false, busy: false,
+  };
+  const meId = ctx.me.pracownik.id;
+  const isEvaluator = () => s.ev.oceniajacy.id === meId;
+  const canSeeWorkNotes = () => isEvaluator() || ctx.me.rola === "KADRY";
+  const editable = (f) => s.ev.edytowalne_pola.includes(f);
+  const aiOn = () => Boolean(ctx.meta.funkcje_ai?.szkic_uzasadnienia) && isEvaluator();
+  const blocking = () => s.ev.walidacje.filter((w) => w.waga === "BLAD");
+  const syncText = () => {
+    for (const f of Object.keys(TEXT_FIELDS)) if (!s.dirty.has(f)) s.text[f] = s.ev.czesc_ii[f] || "";
+  };
+  syncText();
+
+  // Regions re-rendered independently, so a click never lands on a node that was just replaced.
+  const R = {
+    head: h("div"), stepper: h("div"), person: h("div"), main: h("div", { class: "stack" }),
+    aside: h("div", { class: "aside" }), actions: h("div"),
+  };
+
+  async function loadSide() {
+    const tasks = [api.evidence(id).then((x) => { s.evidence = x; }).catch(() => {})];
+    if (canSeeWorkNotes()) tasks.push(api.notes(id).then((x) => { s.notes = x; }).catch(() => {}));
+    if (s.ev.status === "KRYTERIA_DO_WYZNACZENIA" && !s.criteriaDict) {
+      tasks.push(api.criteria(s.ev.arkusz).then((x) => { s.criteriaDict = x; }));
+    }
+    await Promise.all(tasks);
+  }
+
+  async function loadHr() {
+    if (!isEvaluator() || !ctx.meta.funkcje_ai?.hr_partner) return;
+    if (["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"].includes(s.ev.status)) return;
+    try {
+      s.hr = await api.hrPartner(id);
+    } catch (e) {
+      s.hrError = e.message;
+    }
+    renderAside();
+  }
+
+  async function refreshEvaluation() {
+    s.ev = await api.evaluation(id);
+    syncText();
+  }
+
+  // ------------------------------------------------------------ header + stepper + person
+  function renderHead() {
+    const ev = s.ev;
+    const done = ["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"].includes(ev.status);
+    const criteriaStage = ["KRYTERIA_DO_WYZNACZENIA", "KRYTERIA_DO_POTWIERDZENIA"].includes(ev.status);
+    const due = criteriaStage ? ev.czesc_i.termin_wyznaczenia_kryteriow : ev.czesc_i.termin_oceny;
+    const days = daysBetween(ctx.meta.dzis, due);
+    const u = urgency(days);
+    const cls = u === "PO_TERMINIE" ? "badge-bad" : u === "OK" ? "badge-idle" : "badge-warn";
+    replace(R.head,
+      h("a", { class: "back", href: "#/" }, icon("arrowLeft"), "Moje oceny"),
+      h("div", { class: "eval-head" },
+        h("div", { class: "title" },
+          h("h1", {}, `Ocena okresowa – ${personName(ev.oceniany)}`),
+          h("span", { class: "badge badge-sheet" }, `Arkusz ${ev.arkusz}`),
+          ev.status === "ZAKONCZONA" ? h("span", { class: "badge badge-ok" }, icon("check"), "Zakończona") : null),
+        done
+          ? h("div", { class: "deadline" }, "Ocena sporządzona",
+            h("span", { class: "badge badge-ok" }, icon("circleCheck"), fmtDate(ev.czesc_ii.data_sporzadzenia)))
+          : h("div", { class: "deadline" },
+            criteriaStage ? "Termin wyznaczenia kryteriów" : "Termin sporządzenia oceny",
+            h("span", { class: `badge ${cls}` }, icon(u === "PO_TERMINIE" ? "alert" : "clock"),
+              `${fmtDate(due)} · ${daysLeftText(days)}`))));
+  }
+
+  function stepDates() {
+    const ev = s.ev;
+    return [ev.czesc_i.potw_oceniajacy?.at, ev.czesc_i.potw_oceniany?.at, ev.czesc_ii.data_rozmowy_oceniajacej,
+      ev.czesc_ii.data_sporzadzenia, ev.czesc_ii.zapoznanie?.at];
+  }
+
+  function currentStep() {
+    if (s.ev.status === "ZAKONCZONA") return STAGES.length;
+    return Math.max(0, STAGES.findIndex((x) => x.status === s.ev.status));
+  }
+
+  function renderStepper() {
+    const cur = currentStep();
+    const dates = stepDates();
+    replace(R.stepper, h("ol", { class: "card stepper", "aria-label": "Etapy oceny okresowej" },
+      STAGES.map((st, i) => {
+        const state = i < cur ? "done" : i === cur ? "current" : "todo";
+        // a step is finished when the next one starts: its date is when it was closed
+        const meta = state === "done" ? fmtDate(dates[i]) : state === "current" ? "w toku" : "";
+        return h("li", { class: `step ${state}`, "aria-current": state === "current" ? "step" : false },
+          h("span", { class: "step-dot" }, state === "done" ? icon("check") : String(i + 1)),
+          h("span", { class: "step-text" },
+            h("span", { class: "step-label" }, st.label),
+            h("span", { class: "step-meta" },
+              h("span", { class: "sr-only" }, state === "done" ? "zakończony " : state === "current" ? "bieżący " : "nierozpoczęty "),
+              meta)));
+      })));
+  }
+
+  function prevText() {
+    const p = s.ev.czesc_ii.poprzednia_ocena;
+    if (!p || !p.wynik) return "brak";
+    const parts = [p.wynik === "POZYTYWNA" ? "pozytywna" : p.wynik === "NEGATYWNA" ? "negatywna" : "brak"];
+    if (p.poziom) parts.push(LEVEL_LABEL[p.poziom]);
+    return `${parts.join(", ")}${p.data ? ` (${fmtDate(p.data)})` : ""}`;
+  }
+
+  function renderPerson() {
+    const ev = s.ev;
+    const o = ev.oceniany;
+    const from = ev.czesc_ii.okres_od || ev.czesc_i.data_wyznaczenia_kryteriow;
+    const to = ev.czesc_ii.okres_do || ev.czesc_i.termin_oceny;
+    const fact = (k, v) => h("div", { class: "fact" }, h("dt", {}, k), h("dd", {}, v));
+    const confirmed = ev.czesc_i.potw_oceniany?.at;
+    replace(R.person, h("section", { class: "card card-pad", "aria-label": "Oceniany" },
+      h("div", { class: "person" },
+        avatar(o.imie, o.nazwisko, "avatar-lg"),
+        h("div", {},
+          h("div", { class: "person-name" }, personName(o)),
+          h("div", { class: "muted" }, `${o.stanowisko} · ${o.komorka}`),
+          h("dl", { class: "facts" },
+            fact("Typ zatrudnienia", EMPLOYMENT_LABEL[o.typ_zatrudnienia] || o.typ_zatrudnienia),
+            fact("Okres oceny", from ? `${fmtDate(from)} – ${fmtDate(to)}` : "od wyznaczenia kryteriów"),
+            fact("Poprzednia ocena", prevText()),
+            fact("Oceniający", personName(ev.oceniajacy))),
+          (isEvaluator() || ctx.me.rola === "KADRY") && !["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"].includes(ev.status)
+            ? h("a", { class: "btn btn-sm", href: `#/nieobecnosci/${o.id}`, style: { marginTop: "10px" } },
+              icon("calendar"), "Zgłoś nieobecność") : null,
+          confirmed ? h("p", { class: "locked", style: { marginTop: "10px" } }, icon("lock"),
+            `Kryteria i termin zatwierdził(a) ${personName(ev.czesc_i.potw_oceniajacy.osoba)} ${fmtDate(ev.czesc_i.potw_oceniajacy.at)}, ` +
+            `oceniany potwierdził(a) ${fmtDate(confirmed)}.`) : null))));
+  }
+
+  // ------------------------------------------------------------ main panel (depends on the stage)
+  function renderMain() {
+    const st = s.ev.status;
+    if (st === "KRYTERIA_DO_WYZNACZENIA") return replace(R.main, criteriaSelection());
+    if (st === "KRYTERIA_DO_POTWIERDZENIA" || st === "OKRES_OCENY") return replace(R.main, criteriaOverview());
+    replace(R.main, scoringPanel());
+  }
+
+  function criteriaSelection() {
+    const ev = s.ev;
+    const mandatory = ev.kryteria.filter((k) => k.typ === "OBOWIAZKOWE");
+    const chosen = ev.kryteria.filter((k) => k.typ === "DODATKOWE").map((k) => k.criterion_kod);
+    const can = editable("kryteria_dodatkowe");
+    const optional = (s.criteriaDict || []).filter((c) => c.typ_dla_arkusza === "DODATKOWE");
+    const max = ctx.meta.maks_kryteriow_dodatkowych;
+    const slots = Array.from({ length: max }, (_, i) => chosen[i] || "");
+
+    async function choose(slot, value) {
+      const next = [...slots];
+      next[slot] = value;
+      try {
+        s.ev = await api.additional(id, next.filter(Boolean));
+        renderMain(); renderAside(); renderActions();
+      } catch (e) { toast(e.message, "bad"); renderMain(); }
+    }
+
+    return h("section", { class: "card", "aria-labelledby": "crit-h" },
+      h("div", { class: "card-head" }, h("div", {},
+        h("h2", { id: "crit-h" }, "Wyznaczenie kryteriów"),
+        h("p", {}, `Kryteria obowiązkowe wynikają z arkusza ${ev.arkusz}. Możesz dodać do ${max} kryteriów dodatkowych, bez powtórzeń.`))),
+      h("div", { class: "crit-group" }, h("h3", { style: { padding: "14px 20px 6px", fontSize: "11.5px", textTransform: "uppercase", letterSpacing: ".05em", color: "var(--text-3)" } }, "Kryteria obowiązkowe")),
+      h("ul", { class: "plain-list" }, mandatory.map((k) => h("li", {}, h("span", {}, k.nazwa),
+        h("span", { class: "locked" }, icon("lock"), `obowiązkowe – arkusz ${ev.arkusz}`)))),
+      h("div", { class: "pick-list" },
+        h("h3", { style: { fontSize: "11.5px", textTransform: "uppercase", letterSpacing: ".05em", color: "var(--text-3)" } }, "Kryteria dodatkowe"),
+        slots.map((val, i) => h("div", { class: "pick-row" },
+          h("label", { for: `add-${i}`, class: "small muted" }, `Kryterium ${i + 1}`),
+          h("select", { id: `add-${i}`, disabled: !can, onchange: (e) => choose(i, e.target.value) },
+            h("option", { value: "" }, "— brak —"),
+            optional.filter((c) => c.kod === val || !slots.includes(c.kod))
+              .map((c) => h("option", { value: c.kod, selected: c.kod === val }, c.nazwa)))))),
+      h("div", { class: "field" },
+        h("div", { class: "field-head" }, h("span", { style: { fontWeight: 650 } }, "Termin sporządzenia oceny"),
+          h("span", { class: "small muted" }, "wyliczony: 24 miesiące od początku cyklu, z pominięciem dni wolnych")),
+        h("strong", { class: "num" }, fmtDate(ev.czesc_i.termin_oceny))));
+  }
+
+  function criteriaOverview() {
+    const ev = s.ev;
+    const ev2 = s.evidence;
+    const withEvidence = ev.status === "OKRES_OCENY" && canSeeWorkNotes() && ev2;
+    const row = (k) => {
+      const e = withEvidence ? ev2.kryteria.find((x) => x.criterion_kod === k.criterion_kod) : null;
+      return h("li", {},
+        h("span", { class: "row" }, k.nazwa, k.typ === "DODATKOWE" ? h("span", { class: "badge badge-sheet" }, "dodatkowe") : null),
+        e ? evidenceCounts(e.plus, e.minus) : h("span", { class: "locked" }, icon("lock"), "zatwierdzone"));
+    };
+    const sig = ev.czesc_i.potw_oceniajacy;
+    return h("section", { class: "card", "aria-labelledby": "crit-h" },
+      h("div", { class: "card-head" }, h("div", {},
+        h("h2", { id: "crit-h" }, ev.status === "OKRES_OCENY" ? "Okres oceny – obserwacje" : "Kryteria oceny"),
+        h("p", {}, ev.status === "OKRES_OCENY"
+          ? "Kryteria są potwierdzone. Notatki z okresu oceny składają się na dowody przy każdym kryterium."
+          : "Kryteria czekają na potwierdzenie przez ocenianego."))),
+      h("ul", { class: "plain-list" }, ev.kryteria.map(row)),
+      sig?.at ? h("p", { class: "locked", style: { padding: "12px 20px" } }, icon("lock"),
+        `Zatwierdził(a) ${personName(sig.osoba)} ${fmtDate(sig.at)}`) : null,
+      withEvidence && ev2.notatki_do_przypisania ? h("p", { class: "small muted", style: { padding: "0 20px 14px" } },
+        `Notatki bez przypisanego kryterium: ${ev2.notatki_do_przypisania}.`) : null);
+  }
+
+  function evidenceCounts(plus, minus) {
+    return h("span", { class: "evid", title: "Dowody z notatek przełożonego" },
+      icon("message"),
+      h("span", { class: "plus" }, `${plus} +`), "/", h("span", { class: "minus" }, `${minus} −`),
+      h("span", { class: "sr-only" }, `: ${plus} pozytywnych i ${minus} negatywnych notatek`));
+  }
+
+  function notesFor(kod, suggested) {
+    const list = s.notes.filter((n) => n.criterion_kod === kod);
+    const lowFirst = suggested !== null && suggested !== undefined && suggested <= 5;
+    const rank = (n) => (n.wydzwiek === (lowFirst ? "NEGATYWNY" : "POZYTYWNY") ? 0 : n.wydzwiek === "NEUTRALNY" ? 1 : 2);
+    return [...list].sort((a, b) => rank(a) - rank(b) || b.data.localeCompare(a.data));
+  }
+
+  function scoringPanel() {
+    const ev = s.ev;
+    const canScore = editable("punkty");
+    const mand = ev.kryteria.filter((k) => k.typ === "OBOWIAZKOWE");
+    const add = ev.kryteria.filter((k) => k.typ === "DODATKOWE");
+    const evid = (kod) => s.evidence?.kryteria.find((x) => x.criterion_kod === kod);
+    const firstOpen = s.open.size === 0 && canSeeWorkNotes()
+      ? ev.kryteria.find((k) => evid(k.criterion_kod)?.sugerowane_punkty) : null;
+    if (firstOpen) s.open.add(firstOpen.criterion_kod);
+
+    const group = (title) => h("tr", { class: "crit-group" }, h("th", { scope: "colgroup" }, title));
+    const rows = (list) => list.map((k) => criterionRow(k, evid(k.criterion_kod), canScore));
+    const sig = ev.czesc_ii.podpis_oceniajacego;
+
+    return h("section", { class: "card", "aria-labelledby": "score-h" },
+      h("div", { class: "card-head" },
+        h("div", {}, h("h2", { id: "score-h" }, "Sporządzenie oceny"),
+          h("p", {}, canScore ? "Wybierz ocenę cząstkową przy każdym kryterium. Wynik liczy się automatycznie."
+            : "Oceny cząstkowe są zablokowane do edycji.")),
+        !canScore && sig?.at ? h("span", { class: "locked" }, icon("lock"),
+          `Zatwierdził(a) ${personName(sig.osoba)} ${fmtDate(sig.at)}`) : null),
+      h("table", { class: "crit-table" },
+        h("caption", { class: "sr-only" }, "Oceny cząstkowe za kryteria"),
+        h("tbody", {}, group("Kryteria obowiązkowe"), rows(mand),
+          group("Kryteria dodatkowe wybrane przez oceniającego"),
+          add.length ? rows(add) : h("tr", { class: "crit-row" }, h("td", { class: "muted" }, "brak")))),
+      resultBar(),
+      textField("uzasadnienie"),
+      textField("wnioski_iprz"));
+  }
+
+  function criterionRow(k, e, canScore) {
+    const kod = k.criterion_kod;
+    const isOpen = s.open.has(kod);
+    const suggested = e?.sugerowane_punkty ?? null;
+    const showWork = canSeeWorkNotes() && e;
+    const notes = showWork ? notesFor(kod, suggested) : [];
+    const scale = ctx.meta.skala_punktow;
+    const name = `pts-${kod}`;
+    const seg = h("div", {
+      class: `seg ${k.punkty !== null && k.punkty <= 1 ? "is-low" : ""}`, role: "radiogroup",
+      "aria-label": `Ocena: ${k.nazwa}`, "aria-disabled": canScore ? false : "true",
+    }, scale.flatMap((p) => {
+      const idv = `${name}-${p}`;
+      return [
+        h("input", { type: "radio", name, id: idv, value: p, checked: k.punkty === p, disabled: !canScore,
+          onchange: () => setScore(kod, p) }),
+        h("label", { for: idv, class: suggested === p ? "seg-suggested" : "" },
+          h("span", { class: "pts" }, p), h("span", { class: "lbl" }, SCALE_SHORT[p]),
+          suggested === p ? h("span", { class: "sr-only" }, " (sugerowane przez asystenta)") : null),
+      ];
+    }));
+
+    const sub = [];
+    if (showWork) sub.push(evidenceCounts(e.plus, e.minus));
+    if (showWork && suggested !== null) {
+      sub.push(h("span", { class: "suggest" }, icon("sparkles"),
+        `Sugerowane: ${suggested} · na podstawie ${e.plus + e.neutralne + e.minus} notatek`,
+        canScore && k.punkty !== suggested
+          ? h("button", { class: "btn btn-sm", type: "button", onclick: () => setScore(kod, suggested),
+            "aria-label": `Przyjmij sugerowaną ocenę ${suggested} dla kryterium ${k.nazwa}` }, "Przyjmij")
+          : k.punkty === suggested ? h("span", { class: "small", style: { paddingRight: "6px" } }, "zgodne z oceną") : null));
+    }
+    if (notes.length) {
+      sub.push(h("button", { class: "link-btn", type: "button", "aria-expanded": String(isOpen),
+        "aria-controls": `notes-${kod}`,
+        onclick: () => { isOpen ? s.open.delete(kod) : s.open.add(kod); renderMain(); } },
+      icon(isOpen ? "chevronUp" : "chevronDown"), isOpen ? "Ukryj notatki" : `Pokaż notatki (${notes.length})`));
+    }
+
+    return h("tr", { class: `crit-row ${isOpen ? "open" : ""}` }, h("td", {},
+      h("div", { class: "crit-main" },
+        h("div", { class: "crit-name" }, k.nazwa, k.typ === "DODATKOWE" ? h("span", { class: "badge badge-sheet" }, "dodatkowe") : null),
+        seg,
+        sub.length ? h("div", { class: "crit-sub" }, sub) : null),
+      isOpen && notes.length ? h("div", { class: "evidence-notes", id: `notes-${kod}` },
+        e?.uzasadnienie_sugestii ? h("p", { class: "small muted" }, `Sugestia ${e.uzasadnienie_sugestii}.`) : null,
+        notes.slice(0, 3).map(noteCard),
+        notes.length > 3 ? h("p", { class: "small muted" }, `…i jeszcze ${notes.length - 3}.`) : null) : null));
+  }
+
+  function noteCard(n) {
+    const tone = n.wydzwiek === "POZYTYWNY" ? ["badge-ok", "+ pozytywna"] : n.wydzwiek === "NEGATYWNY" ? ["badge-bad", "− negatywna"] : ["badge-idle", "neutralna"];
+    return h("div", { class: "note" },
+      h("div", { class: "note-head" }, icon("calendar"), fmtDate(n.data), h("span", { class: `badge ${tone[0]}` }, tone[1]),
+        h("span", {}, `notatka przełożonego · ${personName(n.autor)}`)),
+      h("q", {}, n.tresc));
+  }
+
+  async function setScore(kod, points) {
+    if (s.busy) return;
+    s.busy = true;
+    try {
+      await api.scores(id, { [kod]: points });
+      await refreshEvaluation();
+      s.hr = null; // signals depend on the scores (e.g. lower than last time)
+      renderMain(); renderAside(); renderActions();
+      loadHr();
+    } catch (e) {
+      toast(e.message, "bad");
+      renderMain();
+    } finally {
+      s.busy = false;
+    }
+  }
+
+  function resultBar() {
+    const c = s.ev.czesc_ii;
+    const total = s.ev.kryteria.length;
+    const scored = s.ev.kryteria.filter((k) => k.punkty !== null && k.punkty !== undefined).length;
+    const main = c.srednia !== null && c.srednia !== undefined
+      ? h("div", { class: "result-main", "aria-live": "polite" },
+        h("span", {}, "Średnia ", h("strong", {}, fmtNumber(c.srednia))),
+        h("span", { "aria-hidden": "true" }, "·"),
+        h("span", {}, "poziom: ", h("strong", {}, LEVEL_LABEL[c.poziom])),
+        c.wynik === "NEGATYWNA"
+          ? h("span", { class: "badge badge-bad" }, icon("circleX"), "OCENA NEGATYWNA")
+          : h("span", { class: "badge badge-ok" }, icon("circleCheck"), "OCENA POZYTYWNA"))
+      : h("div", { class: "result-main", "aria-live": "polite" }, icon("info"),
+        `Uzupełnij wszystkie oceny cząstkowe (${scored} z ${total}), aby zobaczyć wynik.`);
+    return h("div", { class: "result-bar" }, main,
+      h("p", { class: "result-note" }, "Ocena jest negatywna także wtedy, gdy którekolwiek kryterium ma 1 punkt (§ 11 rozporządzenia)."));
+  }
+
+  // ------------------------------------------------------------ text fields + AI drafts
+  function requirement(field) {
+    const empty = !(s.text[field] || "").trim();
+    if (field === "uzasadnienie") {
+      if (s.ev.czesc_ii.wynik === "NEGATYWNA") {
+        return h("span", { class: `req ${empty ? "" : "ok"}` }, icon(empty ? "alert" : "check"), "Obowiązkowe przy ocenie negatywnej");
+      }
+      return h("span", { class: "small muted" }, "Opcjonalne przy ocenie pozytywnej");
+    }
+    return h("span", { class: `req ${empty ? "" : "ok"}` }, icon(empty ? "alert" : "check"), "Obowiązkowe");
+  }
+
+  function textField(field) {
+    const cfg = TEXT_FIELDS[field];
+    const can = editable(field);
+    const fid = `f-${field}`;
+    const d = s.drafts[cfg.draft];
+    const reqBox = h("span", { class: "req-box" }, requirement(field));
+    const ta = h("textarea", {
+      id: fid, readonly: !can, rows: 6,
+      class: can && blocking().some((w) => w.pole === field) ? "invalid" : "",
+      "aria-describedby": `${fid}-hint`,
+      placeholder: can ? "Wpisz treść lub poproś asystenta o szkic…" : "",
+      oninput: (e) => {
+        s.text[field] = e.target.value;
+        s.dirty.add(field);
+        replace(reqBox, requirement(field));
+      },
+      onblur: () => { if (s.dirty.has(field)) saveText(); },
+    });
+    ta.value = s.text[field] || "";
+
+    let proposal = null;
+    if (d?.state === "loading") {
+      proposal = h("div", { class: "proposal", "aria-live": "polite" }, loading("Asystent przygotowuje szkic…"));
+    } else if (d?.state === "ready") {
+      const use = (focus) => () => {
+        s.text[field] = d.data.tekst;
+        s.dirty.add(field);
+        d.state = "used";
+        renderMain();
+        const el = document.getElementById(fid);
+        if (focus && el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } else saveText();
+      };
+      proposal = h("div", { class: "proposal", role: "group", "aria-label": "Propozycja asystenta" },
+        h("div", { class: "proposal-head" },
+          h("span", { class: "badge badge-ai" }, icon("sparkles"), "Propozycja asystenta"),
+          h("div", { class: "row", style: { gap: "6px" } },
+            h("button", { class: "btn btn-sm btn-ai", type: "button", onclick: use(false) }, "Wstaw"),
+            h("button", { class: "btn btn-sm", type: "button", onclick: use(true) }, icon("pencil"), "Edytuj"),
+            h("button", { class: "btn btn-sm", type: "button", onclick: () => { d.state = "dismissed"; renderMain(); } }, icon("x"), "Odrzuć"))),
+        h("div", { class: "proposal-text" }, d.data.tekst),
+        h("p", { class: "proposal-src" },
+          d.data.zrodlo === "AI" ? "Wygenerowane przez model lokalny" : "Szablon z danych (model niedostępny)",
+          d.data.oparte_na_notatkach?.length ? ` · na podstawie ${d.data.oparte_na_notatkach.length} notatek` : "",
+          " · nic nie zostanie zapisane bez Twojej decyzji."));
+    } else if (d?.state === "error") {
+      proposal = h("p", { class: "notice notice-bad", style: { marginBottom: "10px" } }, icon("alert"), d.error);
+    }
+
+    const locked = !can && s.ev.czesc_ii.podpis_oceniajacego?.at;
+    return h("div", { class: "field" },
+      h("div", { class: "field-head" },
+        h("div", { class: "row", style: { gap: "10px" } }, h("label", { for: fid }, cfg.label), reqBox),
+        can && aiOn() && d?.state !== "loading"
+          ? h("button", { class: "btn btn-sm btn-ai", type: "button", onclick: () => requestDraft(cfg.draft) },
+            icon("sparkles"), "Szkic od asystenta")
+          : locked ? h("span", { class: "locked" }, icon("lock"), "zablokowane po zatwierdzeniu oceny") : null),
+      proposal,
+      ta,
+      h("p", { id: `${fid}-hint`, class: "sr-only" }, field === "uzasadnienie"
+        ? "Uzasadnienie jest obowiązkowe przy ocenie negatywnej." : "Pole obowiązkowe."));
+  }
+
+  async function requestDraft(kind) {
+    s.drafts[kind] = { state: "loading" };
+    renderMain();
+    try {
+      s.drafts[kind] = { state: "ready", data: await api.draft(id, kind) };
+    } catch (e) {
+      s.drafts[kind] = { state: "error", error: e.message };
+    }
+    renderMain();
+  }
+
+  async function saveText({ quiet = true } = {}) {
+    if (!s.dirty.size) {
+      if (!quiet) toast("Brak zmian do zapisania.");
+      return true;
+    }
+    const body = { updated_at: s.ev.updated_at };
+    for (const f of s.dirty) body[f] = s.text[f];
+    try {
+      s.ev = await api.patch(id, body);
+      s.dirty.clear();
+      syncText();
+      for (const f of Object.keys(TEXT_FIELDS)) {
+        document.getElementById(`f-${f}`)?.classList.toggle("invalid", blocking().some((w) => w.pole === f));
+      }
+      renderAside(); renderActions();
+      if (!quiet) toast("Zapisano roboczo.");
+      return true;
+    } catch (e) {
+      toast(e instanceof ApiError && e.kod === "KONFLIKT_WERSJI" ? "Ktoś zmienił ocenę w międzyczasie – odśwież stronę." : e.message, "bad");
+      return false;
+    }
+  }
+
+  // ------------------------------------------------------------ aside: assistant
+  function renderAside() {
+    const ev = s.ev;
+    const cur = currentStep();
+    const stepNo = Math.min(cur + 1, STAGES.length);
+    const done = ev.status === "ZAKONCZONA";
+    const days = daysBetween(ctx.meta.dzis, ev.czesc_i.termin_oceny);
+    const blocks = blocking();
+    const checks = [];
+    if (ev.status === "ROZMOWA_OCENIAJACA" && isEvaluator()) {
+      const missingScores = blocks.filter((w) => w.kod === "BRAK_OCENY").length;
+      if (missingScores) checks.push(h("li", {}, h("span", { class: "bad" }, icon("alert")), `Oceny cząstkowe: brakuje ${missingScores}`));
+      for (const w of blocks.filter((x) => x.kod !== "BRAK_OCENY")) {
+        checks.push(h("li", {}, h("span", { class: "bad" }, icon("alert")), CHECK_LABEL[w.kod] || w.komunikat));
+      }
+    }
+
+    const progress = h("section", { class: "card card-pad", "aria-labelledby": "asst-h" },
+      h("div", { class: "row", style: { justifyContent: "space-between" } },
+        h("h2", { id: "asst-h" }, "Asystent"),
+        h("span", { class: "small muted" }, done ? "proces zakończony" : `Krok ${stepNo} z ${STAGES.length}`)),
+      h("div", { class: "progress", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(STAGES.length),
+        "aria-valuenow": String(Math.min(cur, STAGES.length)), "aria-label": "Postęp procesu" },
+      h("span", { style: { width: `${(Math.min(cur, STAGES.length) / STAGES.length) * 100}%` } })),
+      h("p", { class: "small muted" }, done ? STATUS_LABEL[ev.status]
+        : `${STAGES[cur]?.label || ""}${["OCENA_DO_ZAPOZNANIA"].includes(ev.status) ? "" : ` · ${daysLeftText(days)}`}`),
+      ev.status === "ROZMOWA_OCENIAJACA" && isEvaluator() ? h("div", { style: { marginTop: "14px" } },
+        h("h3", { style: { marginBottom: "8px" } }, "Do uzupełnienia przed zatwierdzeniem"),
+        checks.length ? h("ul", { class: "checklist" }, checks)
+          : h("ul", { class: "checklist" }, h("li", {}, h("span", { class: "ok" }, icon("circleCheck")), "Wszystko gotowe do zatwierdzenia."))) : null);
+
+    const parts = [progress];
+    if (isEvaluator() && ctx.meta.funkcje_ai?.hr_partner && !["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"].includes(ev.status)) {
+      parts.push(hrCard());
+    }
+    parts.push(h("p", { class: "aside-note" }, icon("info"), "Asystent tylko podpowiada. Ocenę wystawia przełożony."));
+    replace(R.aside, parts);
+  }
+
+  function hrCard() {
+    let body;
+    if (s.hrError) body = h("p", { class: "small muted" }, s.hrError);
+    else if (!s.hr) body = loading("Analiza notatek…");
+    else if (!s.hr.sygnaly.length) body = h("p", { class: "small muted" }, "Brak sygnałów w notatkach z ostatnich miesięcy.");
+    else body = h("div", { class: "stack", style: { gap: "10px" } }, s.hr.sygnaly.map(signalCard));
+    return h("section", { class: "card card-pad", "aria-labelledby": "hr-h" },
+      h("div", { class: "row", style: { justifyContent: "space-between", marginBottom: "10px" } },
+        h("h2", { id: "hr-h", class: "row", style: { gap: "8px" } }, icon("lifebuoy"), "HR partner"),
+        s.hr ? h("span", { class: "badge badge-ai" }, icon("sparkles"), s.hr.zrodlo_tekstow === "AI" ? "podpowiedź AI" : "reguły") : null),
+      h("p", { class: "small muted", style: { marginBottom: "10px" } }, "Podpowiedzi dla przełożonego przed rozmową – nie są oceną pracownika."),
+      body);
+  }
+
+  function signalCard(sg) {
+    const decided = sg.status !== "NOWY";
+    const decide = (status) => async () => {
+      try {
+        await api.hrDecision(sg.id, status);
+        sg.status = status;
+        renderAside();
+      } catch (e) { toast(e.message, "bad"); }
+    };
+    const evidence = sg.dowody.length ? `${sg.dowody.length} ${sg.dowody.length === 1 ? "obserwacja" : "obserwacje"}: ${sg.dowody[0]}` : sg.opis;
+    return h("div", { class: "signal" },
+      h("div", { class: "signal-title" }, SIGNAL_LABEL[sg.typ] || sg.typ),
+      h("div", { class: "signal-why" }, sg.opis),
+      h("div", { class: "signal-why" }, evidence),
+      sg.rekomendacje[0] ? h("div", { class: "signal-rec" }, icon("chevronRight"),
+        sg.rekomendacje[0].charAt(0).toUpperCase() + sg.rekomendacje[0].slice(1)) : null,
+      decided
+        ? h("span", { class: `badge ${sg.status === "ZAAKCEPTOWANY" ? "badge-ok" : "badge-idle"}` },
+          icon(sg.status === "ZAAKCEPTOWANY" ? "check" : "x"), sg.status === "ZAAKCEPTOWANY" ? "Przyjęto" : "Odrzucono")
+        : h("div", { class: "row", style: { gap: "6px" } },
+          h("button", { class: "btn btn-sm btn-ai", type: "button", onclick: decide("ZAAKCEPTOWANY") }, "Przyjmij"),
+          h("button", { class: "btn btn-sm", type: "button", onclick: decide("ODRZUCONY") }, "Odrzuć")));
+  }
+
+  // ------------------------------------------------------------ action bar
+  function waitingText() {
+    const st = s.ev.status;
+    const who = {
+      KRYTERIA_DO_WYZNACZENIA: "Teraz działa oceniający: wyznaczenie kryteriów.",
+      KRYTERIA_DO_POTWIERDZENIA: "Teraz działa oceniany: potwierdzenie kryteriów.",
+      OKRES_OCENY: "Teraz trwa okres oceny. Rozmowę rozpoczyna oceniający.",
+      ROZMOWA_OCENIAJACA: "Teraz działa oceniający: sporządzenie oceny.",
+      OCENA_DO_ZAPOZNANIA: "Teraz działa oceniany: zapoznanie się z oceną.",
+      ZAKONCZONA: "Ocena jest zakończona.",
+    };
+    return who[st] || "";
+  }
+
+  function renderActions() {
+    const actions = s.ev.dozwolone_akcje;
+    const primaryAction = actions[0];
+    const blocks = primaryAction === "ZATWIERDZ_OCENE" ? blocking() : [];
+    const anyText = Object.keys(TEXT_FIELDS).some(editable);
+
+    let primary;
+    if (!primaryAction) {
+      primary = h("span", { class: "small muted" }, waitingText());
+    } else if (s.confirming) {
+      primary = h("div", { class: "primary-wrap" },
+        h("div", { class: "row", style: { gap: "8px" } },
+          h("button", { class: "btn", type: "button", onclick: () => { s.confirming = false; renderActions(); } }, "Anuluj"),
+          h("button", { class: "btn btn-primary", type: "button", onclick: () => runAction(primaryAction) },
+            icon("check"), `Potwierdź: ${ACTION_LABEL[primaryAction].toLowerCase()}`)),
+        h("span", { class: "small muted" }, "Po zatwierdzeniu pola zostaną zablokowane."));
+    } else {
+      const hint = blocks.length ? BLOCK_HINT[blocks.find((b) => b.kod !== "BRAK_OCENY")?.kod || blocks[0].kod] || blocks[0].komunikat : null;
+      primary = h("div", { class: "primary-wrap" },
+        h("button", { class: "btn btn-primary", type: "button", disabled: Boolean(blocks.length),
+          "aria-describedby": hint ? "primary-hint" : false,
+          onclick: () => { s.confirming = true; renderActions(); } },
+        icon(primaryAction === "ZATWIERDZ_OCENE" ? "send" : "check"), ACTION_LABEL[primaryAction] || primaryAction),
+        hint ? h("span", { class: "primary-hint", id: "primary-hint" }, icon("alert"), hint) : null);
+    }
+
+    replace(R.actions, h("div", { class: "actionbar", role: "region", "aria-label": "Działania" },
+      h("div", { class: "group" },
+        h("a", { class: "btn", href: "#/" }, icon("arrowLeft"), "Wstecz"),
+        anyText ? h("button", { class: "btn", type: "button", onclick: () => saveText({ quiet: false }) }, icon("save"), "Zapisz roboczo") : null,
+        h("button", { class: "btn", type: "button", onclick: downloadPdf }, icon("download"), "Pobierz PDF arkusza")),
+      primary));
+  }
+
+  async function downloadPdf() {
+    try {
+      const res = await fetch(`/api/evaluations/${id}/pdf`, { headers: { "X-User-Id": currentUserId() || "" } });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.komunikat || "Nie udało się pobrać PDF.");
+      }
+      const blob = await res.blob();
+      const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || `ocena-${id}.pdf`;
+      const a = h("a", { href: URL.createObjectURL(blob), download: name });
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      toast(e.message, "bad");
+    }
+  }
+
+  async function runAction(akcja) {
+    if (!(await saveText())) return;
+    s.confirming = false;
+    try {
+      s.ev = await api.action(id, akcja);
+      toast(ACTION_DONE[akcja] || "Zapisano.");
+      s.dirty.clear(); syncText(); s.drafts = {}; s.hr = null;
+      await loadSide();
+      renderAll();
+      loadHr();
+    } catch (e) {
+      const extra = e.walidacje?.length ? ` ${e.walidacje.map((w) => w.komunikat).join(" ")}` : "";
+      toast(`${e.message}${extra}`, "bad");
+      await refreshEvaluation();
+      renderAll();
+    }
+  }
+
+  function renderAll() {
+    renderHead(); renderStepper(); renderPerson(); renderMain(); renderAside(); renderActions();
+  }
+
+  // ------------------------------------------------------------ first paint
+  await loadSide();
+  replace(view,
+    R.head, R.stepper,
+    h("div", { class: "with-aside" }, h("div", { class: "stack" }, R.person, R.main), R.aside),
+    R.actions);
+  renderAll();
+  loadHr();
+
+  // A negative result needs a justification: offer the assistant's draft straight away.
+  const c = s.ev.czesc_ii;
+  if (s.ev.status === "ROZMOWA_OCENIAJACA" && editable("uzasadnienie") && aiOn()
+      && c.wynik === "NEGATYWNA" && !(s.text.uzasadnienie || "").trim()) {
+    requestDraft("UZASADNIENIE");
+  }
+}

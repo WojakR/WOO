@@ -108,14 +108,20 @@ def test_criteria_deadline_30_days_or_7_after_negative():
 @pytest.mark.parametrize(
     "acknowledged, expected",
     [
-        (date(2015, 2, 15), date(2015, 8, 16)),  # KPRM guide example (16.08.2015 is a Sunday – kept as is)
-        (date(2025, 8, 31), date(2026, 3, 1)),  # 6 months -> 28.02 (end-of-month rule), re-evaluation the day after
-        (date(2024, 8, 31), date(2025, 3, 1)),
-        (date(2026, 11, 23), date(2027, 5, 24)),
+        (date(2015, 2, 15), date(2015, 8, 17)),  # KPRM guide: 16.08.2015 is a Sunday -> Monday (mentor, 21.11)
+        (date(2025, 8, 31), date(2026, 3, 2)),  # 6 months -> 28.02 (end of month), day after = 1.03 Sunday -> 2.03
+        (date(2024, 8, 31), date(2025, 3, 3)),  # 1.03.2025 Saturday -> Monday 3.03
+        (date(2026, 11, 23), date(2027, 5, 24)),  # Monday, no shift
+        (date(2026, 7, 14), date(2027, 1, 15)),  # Friday, no shift
     ],
 )
 def test_reevaluation_after_negative_day_after_six_months(acknowledged, expected):
-    assert reevaluation_date(acknowledged, R) == expected
+    assert reevaluation_date(acknowledged, R, CAL) == expected
+
+
+def test_reevaluation_moves_off_a_public_holiday():
+    # acknowledged 10.05.2026 -> 6 months end 10.11 -> day after = 11.11.2026 (Independence Day) -> 12.11
+    assert reevaluation_date(date(2026, 5, 10), R, CAL) == date(2026, 11, 12)
 
 
 def test_reevaluation_ignores_absences_by_design():

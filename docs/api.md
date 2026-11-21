@@ -51,7 +51,7 @@ Nazwy pól i wartości enumów są zgodne z modelem danych (`model-danych.md`), 
 | 🟢 `PUT /api/evaluations/{id}/criteria/additional` | `AdditionalCriteriaIn` | `EvaluationOut` | 0–3 kryteria, pełna lista |
 | 🟢 `PUT /api/evaluations/{id}/scores` | `ScoresIn` | `ScoresOut` | **przeliczenie na żywo** (reguły, bez AI): średnia, poziom, wynik, walidacje |
 | 🟢 `POST /api/evaluations/{id}/actions/{akcja}` | `ActionIn` | `EvaluationOut` | przejście procesu; `Akcja` w schematach |
-| 🟢 `GET /api/evaluations/{id}/pdf` | – | `application/pdf` | arkusz zgodny ze wzorem |
+| 🟢 `GET /api/evaluations/{id}/pdf` | – | `application/pdf` | arkusz zgodny ze wzorem (`backend/sheet_pdf.py`); przed zatwierdzeniem oznaczony jako wersja robocza |
 | 🟡 `GET /api/evaluations/{id}/history` | – | wpisy AuditLog | |
 
 Akcje i kto je wykonuje:
@@ -92,7 +92,7 @@ Akcje i kto je wykonuje:
 | Metoda i ścieżka | Wejście | Wyjście | Uwagi |
 |---|---|---|---|
 | `GET /api/employees/{id}/absences` | – | `AbsenceOut[]` | |
-| `POST /api/employees/{id}/absences` | `AbsenceIn` | `AbsenceOut` 201 | może automatycznie przesunąć termin (DeadlineChange `AUTO`) |
+| `POST /api/employees/{id}/absences` | `AbsenceIn` | `AbsenceOut` 201 | kadry albo oceniający; wymaga otwartego cyklu (`409 BRAK_CYKLU`); może automatycznie przesunąć termin – wtedy `zmiana_terminu` (DeadlineChange `AUTO`), nowy termin w `termin_oceny` |
 | `GET /api/evaluations/{id}/deadline-changes` | – | `DeadlineChangeOut[]` | |
 | `POST /api/evaluations/{id}/deadline-changes` | `DeadlineChangeIn` | `DeadlineChangeOut` 201 | wniosek ocenianego albo zmiana przez oceniającego |
 | `POST /api/deadline-changes/{id}/decision` | `{status}` | `DeadlineChangeOut` | |

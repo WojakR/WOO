@@ -3,7 +3,13 @@
 > Ten katalog to `projekt/` w monorepo: aplikacja konkursowa. Koordynator agentów jest w `../server/`,
 > a dane domenowe KPRM w `../server/data/kprm/`. Zadanie i scenariusz demo: [`docs/task.md`](docs/task.md).
 
-Python + FastAPI (API) + Streamlit (demo) + SQLite + LLM z fallbackiem (LiteLLM).
+Python + FastAPI (API i aplikacja webowa) + SQLite + asystent AI (model lokalny przez Ollamę, z wersją bez AI).
+
+**Szybki start** (po instalacji z punktu 1, w katalogu `projekt/`):
+```bash
+uvicorn backend.main:app --reload
+```
+i otwórz **http://localhost:8000**. Szczegóły w punkcie 2.
 
 ```
 backend/
@@ -11,8 +17,15 @@ backend/
   llm.py        # ask_llm(), ask_llm_json() – fallback po liście modeli
   parsers.py    # PDF, XML, CSV/XLSX, TXT, OCR -> tekst/dict/DataFrame
   db.py         # SQLite
-  main.py       # FastAPI: /health /ask /upload /documents
-frontend/app.py # Streamlit – demo dla jury
+  main.py       # FastAPI: /api/... + serwuje interfejs z frontend/web
+  kprm.py       # jedyny czytelnik danych KPRM z ../server/data/kprm
+app/
+  domain/       # reguły oceny (§ 11), terminy, cykl oceny – czysty Python
+  application/  # przypadki użycia UC1–UC5, asystent AI
+  infrastructure/ # adaptery: dane KPRM, pamięć, modele AI
+  api/          # endpointy /api (routes.py), dane demo (demo_state.py), schematy kontraktu
+frontend/web/   # interfejs webowy (HTML/CSS/JS, bez budowania i bez CDN)
+frontend/app.py # stare demo Streamlit (wgrywanie plików, pytania do LLM)
 scripts/
   check_setup.py   # sprawdza instalację i klucze
   gen_fake_data.py # dane syntetyczne
@@ -43,7 +56,8 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Wpisz klucze do `.env` (albo ustaw `LLM_MOCK=1`, żeby działać bez kluczy), potem:
+Aplikacja ocen działa bez żadnych kluczy. Klucze w `.env` są potrzebne tylko do `ask_llm()` (punkt 3) –
+bez nich ustaw `LLM_MOCK=1`. Sprawdzenie instalacji:
 
 ```bash
 python scripts/check_setup.py
@@ -53,9 +67,55 @@ Wszystko ma być ✅.
 
 ## 2. Uruchamianie
 
+Wszystkie polecenia z katalogu `projekt/`, z aktywnym `.venv`.
+
 ```bash
-streamlit run frontend/app.py            # demo -> http://localhost:8501
-uvicorn backend.main:app --reload        # API  -> http://localhost:8000/docs
+uvicorn backend.main:app --reload        # aplikacja -> http://localhost:8000, API -> http://localhost:8000/docs
+python -m pytest -q                      # testy (bez kluczy i bez modelu AI)
+```
+
+Port zajęty? `uvicorn backend.main:app --reload --port 8765` i otwórz http://localhost:8765.
+Dostęp z innych komputerów w sieci urzędu: dodaj `--host 0.0.0.0` (i otwórz port w zaporze).
+
+### Co zobaczysz
+
+Aplikacja startuje z danymi przykładowymi (osoby z `server/data/kprm/pracownicy.json`, notatki z
+`notatki_testowe.json`) i zegarem demo ustawionym na **25.05.2026**. Dane są w pamięci – restart serwera
+albo przycisk ⟲ w górnym pasku przywraca stan początkowy.
+
+- **Moje oceny** – przegląd: liczby, etapy procesu, tabela pracowników, panel „Wymaga uwagi”.
+- **Otwórz** przy pracowniku – arkusz oceny: etapy, kryteria ze skalą 1–9, dowody z notatek i sugestie,
+  wynik liczony na żywo (§ 11), uzasadnienie i wnioski IPRZ ze szkicem od asystenta, HR partner.
+- **Terminy i przypomnienia** – terminy od najbliższego.
+
+Górny pasek (tylko demo, zamiast logowania):
+- **wybór osoby** – Henryk Pryncypał (oceniający Grzegorza), Grzegorz Wzór (oceniany), Dział kadr (wszyscy) itd.;
+- **+7 dni / +30 dni** – przewija zegar serwera (terminy, przypomnienia);
+- **⟲** – przywraca dane przykładowe.
+
+Scenariusz demo: jako Henryk otwórz ocenę Grzegorza → przejrzyj sugestie → „Wstaw” szkic uzasadnienia i
+wniosków IPRZ → „Zatwierdź ocenę i przekaż do zapoznania” → przełącz się na Grzegorza → „Potwierdzam
+zapoznanie się z oceną”.
+
+### Asystent AI (opcjonalnie)
+
+Bez modelu wszystko działa – szkice i podpowiedzi powstają z szablonów i reguł (w górnym pasku:
+„model lokalny niedostępny – szablony”). Tryb ustawiasz w `.env`:
+
+| `AI_MODE` | Działanie |
+|---|---|
+| `local` (domyślnie) | model lokalny przez Ollamę; gdy nie działa – szablony |
+| `off` | tylko szablony i reguły |
+| `api` | jeszcze niezaimplementowane |
+
+Model lokalny: zainstaluj [Ollamę](https://ollama.com), potem
+`ollama pull SpeakLeash/bielik-11b-v2.3-instruct:Q4_K_M` i uruchom aplikację ponownie.
+Szczegóły: [`docs/asystent.md`](docs/asystent.md).
+
+### Inne
+
+```bash
+streamlit run frontend/app.py            # stare demo Streamlit -> http://localhost:8501
 python scripts/gen_fake_data.py --n 500  # dane testowe -> data/fake_wnioski.csv
 ```
 
