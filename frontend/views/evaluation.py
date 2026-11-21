@@ -724,75 +724,6 @@ def _paper(api: Api, ev: dict) -> None:
                 _inline_action(api, eid, "FIKCJA_ZAPOZNANIA", komentarz=note.strip())
 
 
-def _hr_tools(api: Api, ev: dict, me: dict) -> None:
-    """Change of position (HR or the evaluator) and change of the evaluator (HR) – rules on the server."""
-    hr = me["rola"] == "KADRY"
-    if not (hr or ev["jako_oceniajacy"]) or ev["status"] == "ZAKONCZONA":
-        return
-    eid, person = ev["id"], ev["oceniany"]
-    today = ui.to_date(api.meta()["dzis"])
-    with st.expander("🔀 Zmiana stanowiska" + (" / oceniającego" if hr else "")):
-        st.markdown("**Zmiana stanowiska**", help="Istotna zmiana obowiązków: system policzy, czy trzeba wyznaczyć "
-                    "nowe kryteria (§ 9 ust. 1), czy sporządzić ocenę (art. 81 ust. 6).")
-        on = st.date_input("Data zmiany", value=today, key=f"pos_on_{eid}", format="DD.MM.YYYY")
-        pos = st.text_input("Nowe stanowisko", key=f"pos_new_{eid}")
-        sheet = st.selectbox("Arkusz dla nowego stanowiska", [None, "A", "B", "C"], key=f"pos_sheet_{eid}",
-                             format_func=lambda a: "bez zmiany" if a is None else f"arkusz {a}")
-        if st.button("Zapisz zmianę stanowiska", key=f"pos_go_{eid}"):
-            if not pos.strip():
-                st.error("Wpisz nowe stanowisko.")
-            else:
-                out = _call(api.position_change, person["id"], on, pos.strip(), sheet)
-                if out is not None:
-                    st.toast(out.get("wyjasnienie") or "Zapisano zmianę stanowiska.")
-                    st.rerun()
-        if not hr:
-            return
-        st.divider()
-        st.markdown("**Zmiana oceniającego**", help="Art. 81 ust. 8 pkt 1 i § 9 ust. 3: system sprawdza, czy "
-                    "odchodzący oceniający może sporządzić ocenę przed zmianą.")
-        people = _call(api.employees, na_strone=200)
-        if not people:
-            return
-        options = {p["pracownik"]["id"]: name(p["pracownik"]) for p in people["pozycje"]
-                   if p["pracownik"]["id"] not in (person["id"], ev["oceniajacy"]["id"])}
-        new = st.selectbox("Nowy oceniający", list(options), format_func=options.get, key=f"evc_new_{eid}")
-        when = st.date_input("Od dnia", value=today, key=f"evc_on_{eid}", format="DD.MM.YYYY")
-        chk = _call(api.evaluator_change_check, person["id"], when)
-        if chk:
-            st.caption(chk["wyjasnienie"])
-        early = st.checkbox("Odchodzący oceniający sporządza ocenę przed zmianą", key=f"evc_early_{eid}",
-                            disabled=not (chk or {}).get("mozliwa_wczesniejsza_ocena"))
-        if st.button("Zmień oceniającego", key=f"evc_go_{eid}") and new:
-            out = _call(api.evaluator_change, person["id"], new, when, early)
-            if out is not None:
-                st.toast(out.get("wyjasnienie") or "Zmieniono oceniającego.")
-                st.rerun()
-
-
-def _audit(api: Api, ev: dict, me: dict) -> None:
-    """Historia zmian of the evaluation – HR only (server: /api/evaluations/{id}/audit)."""
-    if me["rola"] != "KADRY":
-        return
-    with st.expander("🕓 Historia zmian"):
-        try:
-            rows = api.audit(ev["id"])
-        except ApiError as e:
-            st.caption(e.komunikat)
-            return
-        if not rows:
-            st.caption("Brak wpisów.")
-        for r in list(reversed(rows))[:40]:
-            what = r["akcja"].replace("_", " ").lower()
-            field = f" · {r['pole']}" if r.get("pole") else ""
-            change = f": {r.get('przed') or '—'} → {r.get('po') or '—'}" if r.get("przed") or r.get("po") else ""
-            st.markdown(f"<span class='lock'>{ui.fmt(r['czas'])} · {escape(r['uzytkownik_nazwa'])}</span><br>"
-                        f"{escape((what + field + change)[:220])}", unsafe_allow_html=True)
-        eakt = ev.get("eksport_eakt")
-        if eakt:
-            st.caption(f"e-Akt: {eakt.get('status', '—')}")
-
-
 # ---------------------------------------------------------------- stage 5
 
 def _stage_ack(api: Api, ev: dict) -> None:
@@ -1057,8 +988,6 @@ def render(api: Api, me: dict, meta: dict, evaluation_id: int, ai: bool) -> None
         _progress(ev)
         _summary(ev)
         _timeline(api, ev)
-        _hr_tools(api, ev, me)
-        _audit(api, ev, me)
     # HR partner: a round button fixed in the bottom-right corner, the same place however far you scroll
     if (ai and ev["jako_oceniajacy"] and meta.get("funkcje_ai", {}).get("hr_partner")
             and ev["status"] not in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA")):

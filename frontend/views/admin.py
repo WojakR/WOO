@@ -10,7 +10,7 @@ import streamlit as st
 
 from frontend import ui
 from frontend.api_client import Api, ApiError
-from frontend.process import STAGES, to_date
+from frontend.process import STAGES, name, to_date
 from frontend.views import archive, settings
 
 STAGE_TEXT = (
@@ -165,6 +165,51 @@ def _people(api: Api) -> None:
         st.error("Nic nie zapisano – popraw problemy w pliku i spróbuj ponownie.")
 
 
+def _staff_changes(api: Api, today: date) -> None:
+    """Change of position (§ 9) and of the evaluator (art. 81 ust. 8) – the server works out the consequences."""
+    data = _call(api.employees, na_strone=200)
+    if not data:
+        return
+    people = {p["pracownik"]["id"]: p["pracownik"] for p in data["pozycje"]}
+    pid = st.selectbox("Pracownik", list(people), key="adm_staff_who",
+                       format_func=lambda i: f"{name(people[i])} · {people[i].get('stanowisko') or ''}")
+    person = people[pid]
+    boss = person.get("przelozony") or {}
+    st.caption(f"Stanowisko: {person.get('stanowisko') or '—'} · arkusz {person.get('arkusz') or '—'} · "
+               f"oceniający: {name(boss) if boss else '—'}")
+    with st.container(border=True):
+        st.markdown("#### Zmiana stanowiska", help="Istotna zmiana obowiązków: system policzy, czy trzeba wyznaczyć "
+                    "nowe kryteria (§ 9 ust. 1), czy sporządzić ocenę za dotychczasowe stanowisko (art. 81 ust. 6).")
+        a, b, c = st.columns([1, 2, 1.2])
+        on = a.date_input("Data zmiany", value=today, key=f"pos_on_{pid}", format="DD.MM.YYYY")
+        pos = b.text_input("Nowe stanowisko", key=f"pos_new_{pid}")
+        sheet = c.selectbox("Arkusz", [None, "A", "B", "C"], key=f"pos_sheet_{pid}",
+                            format_func=lambda x: "bez zmiany" if x is None else f"arkusz {x}")
+        if st.button("Zapisz zmianę stanowiska", key=f"pos_go_{pid}", type="primary"):
+            if not pos.strip():
+                st.error("Wpisz nowe stanowisko.")
+            else:
+                out = _call(api.position_change, pid, on, pos.strip(), sheet)
+                if out is not None:
+                    st.success(out.get("wyjasnienie") or "Zapisano zmianę stanowiska.")
+    with st.container(border=True):
+        st.markdown("#### Zmiana oceniającego", help="Art. 81 ust. 8 pkt 1 i § 9 ust. 3: system sprawdza, czy "
+                    "odchodzący oceniający może sporządzić ocenę przed zmianą.")
+        options = {i: name(p) for i, p in people.items() if i not in (pid, boss.get("id"))}
+        a, b = st.columns([2, 1])
+        new = a.selectbox("Nowy oceniający", list(options), format_func=options.get, key=f"evc_new_{pid}")
+        when = b.date_input("Od dnia", value=today, key=f"evc_on_{pid}", format="DD.MM.YYYY")
+        chk = _call(api.evaluator_change_check, pid, when) if boss else None
+        if chk:
+            st.caption(chk["wyjasnienie"])
+        early = st.checkbox("Odchodzący oceniający sporządza ocenę przed zmianą", key=f"evc_early_{pid}",
+                            disabled=not (chk or {}).get("mozliwa_wczesniejsza_ocena"))
+        if st.button("Zmień oceniającego", key=f"evc_go_{pid}", type="primary") and new:
+            out = _call(api.evaluator_change, pid, new, when, early)
+            if out is not None:
+                st.success(out.get("wyjasnienie") or "Zmieniono oceniającego.")
+
+
 def _rcp_eakt(api: Api) -> None:
     with st.container(border=True):
         st.markdown("#### ⏱️ Rejestracja czasu pracy (RCP)", help="Dane o nadgodzinach i przerwach trafiają do HR "
@@ -207,7 +252,7 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
         return
     today = to_date(meta["dzis"])
     tabs = st.tabs(["📜 Terminy", "📋 Kryteria i etapy", "🏢 Urząd i przypomnienia", "👥 Import pracowników",
-                    "🗄️ Archiwum kadr", "⏱️ RCP i e-Akt"])
+                    "🔀 Zmiany stanowisk", "🗄️ Archiwum kadr", "⏱️ RCP i e-Akt"])
     with tabs[0]:
         _terms(api, today)
     with tabs[1]:
@@ -217,6 +262,8 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
     with tabs[3]:
         _people(api)
     with tabs[4]:
+        _staff_changes(api, today)
+    with tabs[5]:
         inner = st.tabs(["🧊 Zamrożone oceny", "⏳ Okresy przechowywania", "📥 Import starych ocen"])
         with inner[0]:
             archive._frozen(api)
@@ -224,5 +271,5 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
             archive._retention(api)
         with inner[2]:
             archive._legacy(api)
-    with tabs[5]:
+    with tabs[6]:
         _rcp_eakt(api)
