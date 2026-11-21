@@ -108,5 +108,12 @@ def seed_scenario(st: DemoState) -> None:
     clock.set(date(2026, 5, 4))
     s.start_cycle("celina.przykladowa", start_date=date(2026, 5, 4))
 
+    # Barbara Przełożona's team – four people at the very start of the process (criteria still to be set),
+    # so one evaluator has several evaluations to try the whole process on
+    for person, start in (("tomasz.probny", date(2026, 5, 18)), ("agata.wzorcowa", date(2026, 5, 11)),
+                          ("piotr.przykladny", date(2026, 4, 28)), ("monika.testowa", date(2026, 5, 20))):
+        clock.set(start)
+        s.start_cycle(person, start_date=start)
+
     # Roman Kowal – no cycle yet ("nierozpoczęte")
     clock.set(today)
