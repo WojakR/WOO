@@ -59,7 +59,7 @@ def notifications(role: str, person: str | None) -> list[tuple[str, str, str | N
 # ---------------------------------------------------------------- header
 st.session_state.setdefault("ai_on", True)
 bar_text, bar_switch = st.columns([4.2, 1.5], vertical_alignment="center")
-with bar_switch:
+with bar_switch.container(horizontal_alignment="right"):
     st.toggle("🤖 Asystent AI", key="ai_on",
               help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: propozycje kryteriów, wskazówki do rozmów, "
                    "przypisywanie notatek, szkice tekstów i HR partnera. Proces oceny działa dalej bez zmian.")
