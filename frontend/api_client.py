@@ -171,8 +171,11 @@ class Api:
     def rules(self) -> dict:
         return self._req("GET", "/ustawienia/reguly")
 
-    def set_rules(self, values: dict[str, int], basis: str) -> dict:
-        return self._req("PUT", "/ustawienia/reguly", {"wartosci": values, "podstawa_zmiany": basis})
+    def set_rules(self, values: dict[str, int], basis: str, criteria: dict[str, dict] | None = None,
+                  from_date: date | None = None) -> dict:
+        return self._req("PUT", "/ustawienia/reguly", {"wartosci": values, "kryteria": criteria or {},
+                                                       "obowiazuje_od": from_date.isoformat() if from_date else None,
+                                                       "podstawa_zmiany": basis})
 
     def reset_rules(self) -> None:
         self._req("DELETE", "/ustawienia/reguly")
@@ -346,6 +349,20 @@ class Api:
 
     def hr_tasks(self) -> list[dict]:
         return self._req("GET", "/kadry/zadania")
+
+    # ---- administration: HR data import, RCP, e-Akt (T5, T16, T24) ---------------------------------
+    def import_employees(self, name: str, data: bytes, preview: bool, start_cycles: bool = False) -> dict:
+        return self._req("POST", "/admin/employees/import", files={"file": (name, data)},
+                         params={"podglad": str(preview).lower(), "uruchom_cykle": str(start_cycles).lower()})
+
+    def rcp_import(self, name: str, data: bytes) -> dict:
+        return self._req("POST", "/admin/rcp/import", files={"file": (name, data)})
+
+    def rcp_summary(self) -> list[dict]:
+        return self._req("GET", "/admin/rcp/summary")
+
+    def eakt_retry(self) -> dict:
+        return self._req("POST", "/admin/eakt/retry")
 
     # ---- help (T21) --------------------------------------------------------------------------------
     def knowledge(self) -> list[dict]:

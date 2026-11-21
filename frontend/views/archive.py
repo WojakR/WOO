@@ -195,22 +195,11 @@ def render(api: Api, me: dict) -> None:
     hr = me["rola"] == "KADRY"
     evaluator = hr or me.get("czy_oceniajacy")
     st.subheader("🗄️ Archiwum", help="Historia ocen z serwera: oceny z systemu, zaimportowane z PDF i wpisane w danych "
-                 "kadrowych." + (" Kadry: zamrażanie zakończonych ocen, okresy przechowywania i import starych ocen."
+                 "kadrowych." + (" Zamrażanie ocen, okresy przechowywania i import starych ocen są w panelu administratora."
                                  if hr else ""))
     if not evaluator:
         items = _call(api.history, me["pracownik"]["id"])
         if items is not None:
             _history_table(api, items, "mine", can_open=False)
         return
-    if not hr:
-        _team_history(api, me, hr)
-        return
-    tabs = st.tabs(["📚 Historia ocen", "🧊 Zamrożone oceny", "⏳ Okresy przechowywania", "📥 Import starych ocen"])
-    with tabs[0]:
-        _team_history(api, me, hr)
-    with tabs[1]:
-        _frozen(api)
-    with tabs[2]:
-        _retention(api)
-    with tabs[3]:
-        _legacy(api)
+    _team_history(api, me, hr)

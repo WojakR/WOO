@@ -5,7 +5,7 @@ the database and decides rules, permissions and allowed steps. Set API_URL=http:
 a running `uvicorn backend.main:app` with the web UI; without it the API runs inside this process.
 
 Pages (side menu): evaluator / HR – Mój zespół (views/team.py; a row opens views/evaluation.py), Dashboard
-(views/reports.py), Archiwum (views/archive.py), Terminy, Pomoc (views/guide.py), Ustawienia;
+(views/reports.py), Archiwum (views/archive.py), Terminy, Pomoc (views/guide.py), Ustawienia / HR: Panel administratora (views/admin.py);
 evaluated person – Moja ocena, Moje wnioski (views/employee.py), Archiwum, Pomoc. Wireframes: frontend/design/wireframes.drawio
 """
 import sys
@@ -18,7 +18,7 @@ import streamlit as st
 from frontend import ui
 from frontend.api_client import Api, ApiError
 from frontend.process import name, to_date
-from frontend.views import archive, employee, evaluation, guide, reports, settings, team
+from frontend.views import admin, archive, employee, evaluation, guide, reports, settings, team
 
 st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide",
                    initial_sidebar_state="expanded")
@@ -148,7 +148,10 @@ with st.sidebar:
         menu_item("🗄️ Archiwum", view == "archive", go, ("archive",))
         menu_item("🗓️ Terminy", view == "schedule", go, ("schedule",))
         menu_item("❓ Pomoc", view == "help", go, ("help",))
-        menu_item("⚙️ Ustawienia", view == "settings", go, ("settings",))
+        if me["rola"] == "KADRY":
+            menu_item("🛠️ Panel administratora", view == "admin", go, ("admin",))
+        else:
+            menu_item("⚙️ Ustawienia", view == "settings", go, ("settings",))
     else:
         menu_item("📄 Moja ocena", st.session_state.emp_view == "ocena", go_employee, ("ocena",))
         menu_item("📨 Moje wnioski", st.session_state.emp_view == "wnioski", go_employee, ("wnioski",))
@@ -214,6 +217,8 @@ elif st.session_state.view == "eval" and st.session_state.get("eval_id"):
     evaluation.render(api, me, meta, st.session_state.eval_id, ai)
 elif st.session_state.view == "schedule":
     team.render_schedule(api, me)
+elif st.session_state.view == "admin":
+    admin.render(api, me, meta, users)
 elif st.session_state.view == "reports":
     reports.render(api, me, ai)
 elif st.session_state.view == "archive":
