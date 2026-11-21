@@ -24,6 +24,7 @@ erDiagram
     Employee ||--o{ Absence : nieobecnosci
     Employee ||--o{ Notification : powiadomienia
     Employee ||--o{ AuditLog : "wykonal"
+    Evaluation ||--o{ HrSignal : "sygnaly HR"
 ```
 
 ---
@@ -38,13 +39,33 @@ erDiagram
 | `StatusOceny` | `KRYTERIA_DO_WYZNACZENIA` → `KRYTERIA_DO_POTWIERDZENIA` → `OKRES_OCENY` → `ROZMOWA_OCENIAJACA` → `OCENA_DO_ZAPOZNANIA` → `ZAKONCZONA`; dodatkowo `SPRZECIW`, `ANULOWANA` |
 | `Punkty` | `1, 3, 5, 7, 9` |
 | `Poziom` | `ZNACZNIE_PONIZEJ` (1–2), `PONIZEJ` (>2–4), `NA_POZIOMIE` (>4–6), `POWYZEJ` (>6–8), `ZNACZNIE_POWYZEJ` (>8–9) |
-| `Wynik` | `POZYTYWNA` (na poziomie i wyżej), `NEGATYWNA` (poniżej i znacznie poniżej) |
+| `Wynik` | `POZYTYWNA` (na poziomie i wyżej **i** żadna ocena cząstkowa nie jest równa 1), `NEGATYWNA` (poniżej i znacznie poniżej **albo** choć jedno kryterium ma 1 pkt), § 11 ust. 1 pkt 3–4 |
 | `WniosekOStopien` | `TAK`, `NIE`, `NIE_DOTYCZY` |
 | `TypKryterium` | `OBOWIAZKOWE`, `DODATKOWE` |
 | `TypNieobecnosci` | `L4`, `URLOP_WYPOCZYNKOWY`, `URLOP_RODZICIELSKI`, `INNA_USPRAWIEDLIWIONA`, `NIEUSPRAWIEDLIWIONA` |
 | `PowodZmianyTerminu` | `NIEOBECNOSC_OCENIANEGO_AUTO` (art. 81 ust. 7), `PRZEWIDYWANA_NIEOBECNOSC_OCENIANEGO`, `PRZEWIDYWANA_NIEOBECNOSC_OCENIAJACEGO`, `WNIOSEK_OCENIANEGO`, `INNY` (art. 81 ust. 8) |
 | `TypNotatki` | `OBSERWACJA`, `BIEZACY_FEEDBACK`, `ROZMOWA_ROZPOCZYNAJACA`, `ROZMOWA_OCENIAJACA` |
 | `Wydzwiek` | `POZYTYWNY`, `NEUTRALNY`, `NEGATYWNY` |
+| `StatusKlasyfikacji` | `BRAK`, `W_TOKU`, `SUGESTIA`, `ZATWIERDZONA`, `RECZNA`, `BLAD` (klasyfikacja notatki przez AI) |
+| 🟡 `TypSygnaluHr` | `PRZECIAZENIE`, `DLUGA_NIEOBECNOSC`, `ZMIANA_OBOWIAZKOW`, `SPADEK_OCEN`, `DO_DOCENIENIA` |
+| 🟡 `StatusSygnaluHr` | `NOWY`, `ZAAKCEPTOWANY`, `ODRZUCONY` |
+
+### `StatusOceny` a statusy z `reguly.json` i domeny
+
+Kanoniczny jest `StatusOceny` (ma etapy oczekiwania, sprzeciw i anulowanie; tak też proponuje `docs/api.md`, punkt 1
+„Do uzgodnienia”). Domena (`app/domain/cycle.py`, `Status`) i `reguly.json["statusy_procesu"]` używają jeszcze
+nazw zdarzeń. Do czasu ujednolicenia obowiązuje to mapowanie (w warstwie `app/api`):
+
+| `StatusOceny` | `statusy_procesu` / `Status` w domenie | Uwagi |
+|---|---|---|
+| `KRYTERIA_DO_WYZNACZENIA` | `cykl_rozpoczety` (`CYCLE_STARTED`) | |
+| `KRYTERIA_DO_POTWIERDZENIA` | `kryteria_wyznaczone` (`CRITERIA_SET`) | |
+| `OKRES_OCENY` | `kryteria_potwierdzone_przez_ocenianego` (`CRITERIA_CONFIRMED`) | |
+| `ROZMOWA_OCENIAJACA` | `rozmowa_oceniajaca_odbyta` (`MEETING_HELD`); po sprzeciwie `ocena_do_ponownego_sporzadzenia` | |
+| `OCENA_DO_ZAPOZNANIA` | `ocena_sporzadzona` (`EVALUATION_DONE`) | |
+| `ZAKONCZONA` | `ocena_zapoznana` (`ACKNOWLEDGED`), `fikcja_zapoznania`, `ocena_zmieniona` | fikcja = flaga `Evaluation.fikcja_zapoznania`, nie osobny status |
+| `SPRZECIW` | `sprzeciw_zlozony` | brak w domenie (🟡) |
+| `ANULOWANA` | – | brak w `reguly.json`; do dopisania przy ujednolicaniu |
 
 Przejścia `StatusOceny` (kto może je wykonać):
 
@@ -191,8 +212,29 @@ Ograniczenia:
 | wydzwiek | `Wydzwiek`, null | |
 | tresc | text | |
 | widoczna_dla_ocenianego | bool | domyślnie `false` |
+| status_klasyfikacji | `StatusKlasyfikacji` | domyślnie `BRAK` |
+| sugestie_ai | json | lista `{criterion_kod, wskaznik, wydzwiek, pewnosc, fragment}` (jak `SugestiaKlasyfikacji` w `app/api/schemas.py`); AI tylko proponuje, `criterion_kod`/`wydzwiek` ustawia człowiek (akceptacja kopiuje sugestię → `ZATWIERDZONA`) |
 
 To główne źródło danych dla AI (szkic uzasadnienia, spójność punktów, sygnały HR partnera).
+
+### 🟡 HrSignal (sygnał wirtualnego HR partnera)
+
+Podpowiedź dla przełożonego, nigdy diagnoza pracownika. Na demo może być liczony w locie; tabela jest po to, żeby
+zapamiętać decyzję przełożonego (`POST /api/hr-signals/{id}/decision`).
+
+| Pole | Typ | Uwagi |
+|---|---|---|
+| id | int PK | |
+| evaluation_id | FK → Evaluation | |
+| typ | `TypSygnaluHr` | |
+| opis | text | |
+| dowody | json | np. id notatek, okresy nieobecności opisane słownie |
+| rekomendacje | json | lista tekstów |
+| zrodlo_tekstow | str | `AI` albo `SZABLON` |
+| status | `StatusSygnaluHr` | domyślnie `NOWY` |
+| decyzja_przez_id | FK → Employee, null | |
+| decyzja_at | datetime, null | |
+| created_at | datetime | |
 
 ### 🟡 Absence (nieobecność)
 
@@ -279,9 +321,9 @@ Pokazuje zgodność z przepisami: „korekta tylko w trybie administratora” zo
 
 - `srednia` = średnia arytmetyczna `punkty` ze wszystkich `EvaluationCriterion` oceny,
 - `poziom` z progów: 1–2 / >2–4 / >4–6 / >6–8 / >8–9,
-- `wynik` = `POZYTYWNA` dla `NA_POZIOMIE` i wyżej, w pozostałych przypadkach `NEGATYWNA`,
+- `wynik` = `POZYTYWNA`, gdy `poziom` to `NA_POZIOMIE` lub wyżej **i** żadne kryterium nie ma 1 pkt; w pozostałych przypadkach `NEGATYWNA` (§ 11 ust. 1 pkt 3–4; dane: `reguly.json["ocena_pozytywna_gdy"]`, liczy `app/domain/scoring.py`). Przykład: średnia 6,2 z jednym kryterium na 1 pkt → `NEGATYWNA`,
 - `stopien_obligatoryjny` = urzędnik + bieżąca i poprzednia ocena (od ostatniego stopnia) na poziomie `POWYZEJ` lub `ZNACZNIE_POWYZEJ`,
-- terminy liczy moduł `terminy.py` (24 mies., reguła końca miesiąca, przesunięcie z soboty i święta, nieobecność > 1 mies.).
+- terminy liczy `app/domain/deadlines.py` + `calendar.py` (24 mies., reguła końca miesiąca, przesunięcie z soboty i święta, nieobecność > 1 mies.).
 
 ## Seed na demo (🟢)
 
