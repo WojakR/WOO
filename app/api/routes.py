@@ -47,16 +47,20 @@ _DRAFT_LABEL = {"UZASADNIENIE": "uzasadnienia oceny", "IPRZ": "wniosków do IPRZ
 
 
 @router.get("/meta", response_model=s.MetaOut, tags=["sesja"])
-def meta(st: DemoState = Depends(get_state)) -> s.MetaOut:
+def meta(x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)) -> s.MetaOut:
+    """Per user: the AI switch (office-wide and own) decides `tryb_ai` and which AI panels the UI shows."""
+    who = _actor(st, x_user_id)
     rules = st.evaluations.rules
+    ai_on = st.ai_enabled_for(who)
     lowest = float(min(rules.scale))
     bands = {m.level(b.level): (lowest if b.lower_exclusive is None else float(b.lower_exclusive),
                                 float(b.upper_inclusive)) for b in rules.level_bands}
     return s.MetaOut(
         dzis=st.clock.today(),
-        tryb_ai=s.TrybAI(st.ai_mode.upper()),
+        tryb_ai=s.TrybAI(st.ai_mode.upper()) if ai_on else s.TrybAI.OFF,
         # model_dostepny: is the model answering right now (else every feature uses its template version)
-        funkcje_ai={**AI_FEATURES, "model_dostepny": st.model_available()},
+        funkcje_ai={**AI_FEATURES, "hr_partner": AI_FEATURES["hr_partner"] and st.hr_partner_enabled_for(who),
+                    "model_dostepny": ai_on and st.model_available()},
         skala_punktow=sorted(rules.scale),
         progi_poziomow=bands,
         maks_kryteriow_dodatkowych=rules.max_additional_criteria,
@@ -76,7 +80,7 @@ def conversation_prep(
     cycle = _evaluation(st, evaluation_id)
     _evaluator_only(st, cycle, x_user_id, "Notatkę na rozmowę")
     kind = rodzaj or ("ROZPOCZYNAJACA" if cycle.status in _BEFORE_CRITERIA_CONFIRMED else "OCENIAJACA")
-    prep = st.assistant.conversation_prep(
+    prep = st.assistant_for(_actor(st, x_user_id)).conversation_prep(
         cycle, st.directory.get(cycle.employee_id), st.directory.get(cycle.evaluator_id),
         notes=[r.note for r in st.notes_of(evaluation_id)],
         today=st.clock.today(), kind=kind, absences=cycle.absences)
@@ -105,6 +109,6 @@ def draft(
         if result is None or result.outcome is not Outcome.POSITIVE:
             raise FieldLocked("Wniosek o kolejny stopień służbowy można umotywować tylko przy ocenie pozytywnej "
                               "(§ 11 ust. 5) – najpierw wpisz wszystkie oceny cząstkowe.")
-    d = st.assistant.draft(body.rodzaj, cycle, st.directory.get(cycle.employee_id),
+    d = st.assistant_for(_actor(st, x_user_id)).draft(body.rodzaj, cycle, st.directory.get(cycle.employee_id),
                            notes=[r.note for r in st.notes_of(evaluation_id)])
     return m.to_draft_out(d)

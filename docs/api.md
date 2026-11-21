@@ -115,6 +115,25 @@ Przypomnienia tylko w dni robocze (termin w dzień wolny → poprzedni dzień ro
 | `GET /api/notifications` | – | `NotificationOut[]` | moje wysłane przypomnienia (zegar serwera) |
 | `POST /api/notifications/{id}/read` | – | 204 | |
 
+### Ustawienia urzędu (administrator = kadry)
+
+Przepisy, widoczność i przełączniki AI zmienia administrator w aplikacji; zmiany są w bazie (przetrwają restart).
+
+| Metoda i ścieżka | Wejście | Wyjście | Uwagi |
+|---|---|---|---|
+| `GET /api/ustawienia/reguly` | – | `RegulyOut` | wymagania z rozporządzenia: edytowalne terminy (`parametry`, z wartością z rozporządzenia i podstawą prawną), pozostałe wymagania tylko do odczytu, historia zmian; czyta każdy |
+| `PUT /api/ustawienia/reguly` | `RegulyIn` | `RegulyOut` | po nowelizacji: nowe wartości + `podstawa_zmiany` (wymagana); zakresy sprawdza serwer (422); wszystkie terminy liczą się od razu według nowych wartości; tylko kadry |
+| `DELETE /api/ustawienia/reguly` | – | `RegulyOut` | powrót do wartości z rozporządzenia (zapisany w historii) |
+| `GET/PUT /api/ustawienia/urzad` | `UstawieniaUrzeduIn` | `UstawieniaUrzeduOut` | `zakres_widocznosci` (`PODDRZEWO` / `BEZPOSREDNI`), `asystent_ai`, `hr_partner` dla całego urzędu; zmienia tylko kadry |
+| `GET/PUT /api/me/asystent` | `MojAsystentIn` | `MojAsystentOut` | „guzik wyłączenia”: asystent AI i HR partner tylko dla mnie; wyłączenie w urzędzie wygrywa |
+
+- Asystent AI wyłączony (w urzędzie albo dla mnie): `GET /api/meta` zwraca `tryb_ai: OFF`, żadne zapytanie nie idzie do modelu,
+  a każda funkcja działa w wersji bez AI (szablony i reguły). HR partner wyłączony: `funkcje_ai.hr_partner: false`,
+  `GET …/hr-partner` → `409 HR_PARTNER_WYLACZONY`.
+- `EvaluationOut.terminy` (`TerminOut[]`): wszystkie terminy oceny liczone automatycznie (`app/domain/timeline.py`):
+  kryteria, sporządzenie oceny, zapoznanie („niezwłocznie”), a po podpisie ocenianego – sprzeciw, kolejna ocena
+  (24 mies. albo ponowna po negatywnej) i kryteria na kolejny okres. Każdy z podstawą prawną.
+
 ### Sprzeciw (art. 83)
 
 Akcje `POST /api/evaluations/{id}/actions/{akcja}` (body `ActionIn`):

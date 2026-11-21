@@ -12,6 +12,7 @@ from app.api.evaluations import router as evaluations_router
 from app.api.routes import router as api_router
 from app.api.notes import router as notes_router
 from app.api.deputies import router as deputies_router
+from app.api.office import router as office_router
 from app.api.reminders import router as reminders_router
 from app.api.state import save_state
 from backend import config, db
@@ -25,6 +26,7 @@ app.include_router(notes_router)
 app.include_router(deputies_router)  # zastępstwa
 app.include_router(reminders_router)  # przypomnienia
 app.include_router(evaluations_router)  # sheet, dashboard, HR partner, demo – used by the web UI
+app.include_router(office_router)  # regulation requirements, visibility, AI switches (admin)
 install_error_handlers(app)
 
 

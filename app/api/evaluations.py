@@ -19,6 +19,7 @@ from app.domain.errors import NotAuthorized, NotFound, ValidationError
 from app.domain.evidence_hint import suggest_points
 from app.domain.notes import Note, evidence_by_criterion
 from app.domain.scoring import EvaluationResult, Outcome, compute_result
+from app.domain.timeline import deadlines_of
 
 from . import assistant_mapping as m
 from . import schemas as s
@@ -232,6 +233,9 @@ def _evaluation_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.Evaluati
         sprzeciw=_objection_out(st, c),
         dozwolone_akcje=_allowed_actions(c, actor, as_evaluator, st.settings.objection_reviewer), edytowalne_pola=_editable(c, as_evaluator),
         walidacje=_validations(st, c), updated_at=ver.updated_at,
+        terminy=[s.TerminOut(rodzaj=d.kind, nazwa=d.label, data=d.due, podstawa=d.basis, stan=d.state,
+                             spelniony_at=d.done_on, opis=d.note)
+                 for d in deadlines_of(c, svc.rules, svc.calendar, st.clock.today())],
     )
 
 
@@ -458,7 +462,6 @@ def _range_text(band, low: int) -> str:
 
 
 def _sheet_pdf_data(st: DemoState, c: EvaluationCycle):
-    from backend import kprm
     from backend.sheet_pdf import Person, SheetPdf
 
     rules = st.evaluations.rules
@@ -486,7 +489,7 @@ def _sheet_pdf_data(st: DemoState, c: EvaluationCycle):
         justification=c.justification, iprz=c.iprz_conclusions,
         civil_servant=False,  # pracownicy.json has no civil-servant status (demo assumes PRACOWNIK)
         evaluated_on=c.evaluated_on, acknowledged_on=c.acknowledged_on,
-        objection_days=kprm.rules()["terminy"]["sprzeciw_dni_od_zapoznania"],
+        objection_days=rules.objection_days,
         draft=c.status not in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED),
     )
 
@@ -538,11 +541,14 @@ def hr_partner(evaluation_id: int, x_user_id: str | None = Header(default=None),
     actor = _actor(st, x_user_id)
     c = _cycle(st, evaluation_id, actor)
     require_working_material(st, actor, c, "Podpowiedzi HR partnera są tylko dla oceniającego (lub jego zastępcy).")
+    if not st.hr_partner_enabled_for(actor):
+        raise ApiProblem(409, "HR_PARTNER_WYLACZONY", "Wirtualny HR partner jest wyłączony (Ustawienia).")
     notes = _notes(st, c)
-    key = (tuple(n.id for n in notes), tuple(sorted(c.scores.items())), st.clock.today())
+    ai_on = st.ai_enabled_for(actor)
+    key = (tuple(n.id for n in notes), tuple(sorted(c.scores.items())), st.clock.today(), ai_on)
     cached = st.hr_reports.get(c.id)
     if cached is None or cached[0] != key:
-        report = st.assistant.hr_partner(c, st.directory.get(c.employee_id), notes, c.absences, st.clock.today())
+        report = st.assistant_for(actor).hr_partner(c, st.directory.get(c.employee_id), notes, c.absences, st.clock.today())
         st.hr_reports[c.id] = (key, report)
     out = m.to_hr_partner_out(st.hr_reports[c.id][1])
     for sig in out.sygnaly:  # stable ids per (cycle, kind), so decisions survive recomputation
