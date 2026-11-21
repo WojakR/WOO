@@ -40,6 +40,18 @@ def employees() -> dict[str, dict]:
     return {e["id"]: e for e in _load("pracownicy.json")["pracownicy"]}
 
 
+@lru_cache
+def assistant_catalog() -> dict:
+    """asystent.json: questions, development actions, HR-partner rules, templates (the no-AI fallback)."""
+    return _load("asystent.json")
+
+
+@lru_cache
+def test_notes() -> dict:
+    """notatki_testowe.json: hand-labelled notes for measuring classification accuracy."""
+    return _load("notatki_testowe.json")
+
+
 def mandatory_criteria(sheet: str) -> list[dict]:
     """Mandatory criteria of sheet A, B or C, in the order of the official form."""
     ids = sheets()["arkusze"][sheet]["kryteria_obowiazkowe"]

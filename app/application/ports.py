@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Protocol
+from typing import Iterator, Literal, Protocol
 
 from app.domain.cycle import EvaluationCycle
 from app.domain.employee import Employee
@@ -26,3 +26,32 @@ class EmployeeDirectory(Protocol):
 
 class Clock(Protocol):
     def today(self) -> date: ...
+
+
+# ---------------------------------------------------------------- AI model
+
+AiTask = Literal["classify", "text"]  # classify = short JSON (may use a smaller model), text = drafts
+
+
+class AiUnavailable(RuntimeError):
+    """The model cannot answer now (off, not running, timeout). Callers fall back to templates/rules."""
+
+
+class AiInvalidOutput(ValueError):
+    """The model answered, but the answer failed validation (bad JSON, labels outside the list, …)."""
+
+
+class AiModel(Protocol):
+    """A language model the assistant may use. Adapters: off, local (Ollama), api (not implemented)."""
+
+    name: str
+
+    def available(self) -> bool: ...
+
+    def complete_json(self, system: str, prompt: str, schema: dict, task: AiTask) -> dict:
+        """Reply as JSON matching `schema`. Raises AiUnavailable / AiInvalidOutput."""
+        ...
+
+    def complete_text(self, system: str, prompt: str, task: AiTask) -> str: ...
+
+    def stream_text(self, system: str, prompt: str, task: AiTask) -> Iterator[str]: ...

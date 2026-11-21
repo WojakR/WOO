@@ -32,3 +32,12 @@ DB_PATH = ROOT / _secret("DB_PATH", "data/app.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 # Domain data (KPRM: criteria, sheets, rules, sample employees, knowledge base) lives in the monorepo's server/
 KPRM_DATA_DIR = Path(_secret("KPRM_DATA_DIR", str(ROOT.parent / "server" / "data" / "kprm")))
+
+# Assistant (AI suggestions): off = templates/rules only, local = Ollama, api = not implemented yet
+AI_MODE = _secret("AI_MODE", "local").lower()
+OLLAMA_URL = _secret("OLLAMA_API_BASE", "http://localhost:11434").rstrip("/")
+_BIELIK = "SpeakLeash/bielik-11b-v2.3-instruct:Q4_K_M"
+AI_LOCAL_MODEL_TEXT = _secret("AI_LOCAL_MODEL_TEXT", _BIELIK)  # drafts, conversation prep, HR partner
+AI_LOCAL_MODEL_FAST = _secret("AI_LOCAL_MODEL_FAST", AI_LOCAL_MODEL_TEXT)  # note classification; a smaller model is fine
+AI_TIMEOUT_S = float(_secret("AI_TIMEOUT_S", "60"))
+AI_MIN_CONFIDENCE = float(_secret("AI_MIN_CONFIDENCE", "0.6"))
