@@ -91,6 +91,7 @@ class PowodZmianyTerminu(str, Enum):
     PRZEWIDYWANA_NIEOBECNOSC_OCENIAJACEGO = "PRZEWIDYWANA_NIEOBECNOSC_OCENIAJACEGO"
     WNIOSEK_OCENIANEGO = "WNIOSEK_OCENIANEGO"
     INNY = "INNY"
+    ZMIANA_STANOWISKA = "ZMIANA_STANOWISKA"  # art. 81 ust. 6, § 9 ust. 2 (see PositionChangeOut)
 
 
 class StatusWniosku(str, Enum):

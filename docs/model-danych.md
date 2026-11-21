@@ -43,10 +43,10 @@ erDiagram
 | `WniosekOStopien` | `TAK`, `NIE`, `NIE_DOTYCZY` |
 | `TypKryterium` | `OBOWIAZKOWE`, `DODATKOWE` |
 | `TypNieobecnosci` | `L4`, `URLOP_WYPOCZYNKOWY`, `URLOP_RODZICIELSKI`, `INNA_USPRAWIEDLIWIONA`, `NIEUSPRAWIEDLIWIONA` |
-| `PowodZmianyTerminu` | `NIEOBECNOSC_OCENIANEGO_AUTO` (art. 81 ust. 7), `PRZEWIDYWANA_NIEOBECNOSC_OCENIANEGO`, `PRZEWIDYWANA_NIEOBECNOSC_OCENIAJACEGO`, `WNIOSEK_OCENIANEGO`, `INNY` (art. 81 ust. 8) |
+| `PowodZmianyTerminu` | `NIEOBECNOSC_OCENIANEGO_AUTO` (art. 81 ust. 7), `PRZEWIDYWANA_NIEOBECNOSC_OCENIANEGO`, `PRZEWIDYWANA_NIEOBECNOSC_OCENIAJACEGO`, `WNIOSEK_OCENIANEGO`, `INNY` (art. 81 ust. 8), `ZMIANA_STANOWISKA` (art. 81 ust. 6, § 9 ust. 2) |
 | `TypNotatki` | `OBSERWACJA`, `BIEZACY_FEEDBACK`, `ROZMOWA_ROZPOCZYNAJACA`, `ROZMOWA_OCENIAJACA` |
 | `Wydzwiek` | `POZYTYWNY`, `NEUTRALNY`, `NEGATYWNY` |
-| `StatusKlasyfikacji` | `BRAK`, `W_TOKU`, `SUGESTIA`, `ZATWIERDZONA`, `RECZNA`, `BLAD` (klasyfikacja notatki przez AI) |
+| `StatusKlasyfikacji` | `BRAK`, `W_TOKU`, `SUGESTIA` (pewna propozycja AI), `DO_PRZYPISANIA` (niska pewność albo tryb bez AI – wybiera przełożony), `ZATWIERDZONA`, `RECZNA`, `BLAD` (klasyfikacja notatki przez AI) |
 | 🟡 `TypSygnaluHr` | `PRZECIAZENIE`, `DLUGA_NIEOBECNOSC`, `ZMIANA_OBOWIAZKOW`, `SPADEK_OCEN`, `DO_DOCENIENIA` |
 | 🟡 `StatusSygnaluHr` | `NOWY`, `ZAAKCEPTOWANY`, `ODRZUCONY` |
 
@@ -150,7 +150,7 @@ Na hackathon jeden rekord. Pozwala jednak pokazać, że jedna instalacja może o
 | poprzednia_ocena_id | FK → Evaluation, null | historia, stopień obligatoryjny |
 | data_poczatku_cyklu | date | data poprzedniej oceny albo zatrudnienia na czas nieokreślony |
 | termin_wyznaczenia_kryteriow | date | +30 dni (+7 po ocenie negatywnej), § 7 rozporządzenia |
-| termin_oceny | date | domyślnie +24 mies.; po negatywnej +6 mies. od zapoznania; przesuwany przez DeadlineChange |
+| termin_oceny | date | domyślnie +24 mies. (+ nieobecności > 1 mies.); po negatywnej: dzień po 6 mies. od zapoznania, bez przedłużania przez nieobecności; przy zmianie stanowiska > 6 mies. od odniesienia: najpóźniej 30 dni po zmianie; przesuwany przez DeadlineChange. Zasady: `docs/terminy.md` |
 | **Część I – kryteria** | | |
 | data_wyznaczenia_kryteriow | date, null | |
 | potw_oceniajacy_kryteria_at | datetime, null | podpis oceniającego (auto przy potwierdzeniu) |
@@ -213,7 +213,8 @@ Ograniczenia:
 | tresc | text | |
 | widoczna_dla_ocenianego | bool | domyślnie `false` |
 | status_klasyfikacji | `StatusKlasyfikacji` | domyślnie `BRAK` |
-| sugestie_ai | json | lista `{criterion_kod, wskaznik, wydzwiek, pewnosc, fragment}` (jak `SugestiaKlasyfikacji` w `app/api/schemas.py`); AI tylko proponuje, `criterion_kod`/`wydzwiek` ustawia człowiek (akceptacja kopiuje sugestię → `ZATWIERDZONA`) |
+| zrodlo_sugestii | `AI` / `REGULY`, null | skąd są `sugestie_ai`: model albo wersja bez AI (podobieństwo do wskaźników) |
+| sugestie_ai | json | lista `{criterion_kod, nazwa, wskaznik, wydzwiek (null w wersji bez AI), pewnosc, fragment}` (jak `SugestiaKlasyfikacji` w `app/api/schemas.py`); AI tylko proponuje, `criterion_kod`/`wydzwiek` ustawia człowiek (akceptacja kopiuje sugestię → `ZATWIERDZONA`) |
 
 To główne źródło danych dla AI (szkic uzasadnienia, spójność punktów, sygnały HR partnera).
 
@@ -230,7 +231,7 @@ zapamiętać decyzję przełożonego (`POST /api/hr-signals/{id}/decision`).
 | opis | text | |
 | dowody | json | np. id notatek, okresy nieobecności opisane słownie |
 | rekomendacje | json | lista tekstów |
-| zrodlo_tekstow | str | `AI` albo `SZABLON` |
+| zrodlo_tekstow | str | `AI` albo `REGULY` (sygnał zawsze wykrywają reguły; AI tylko formułuje opis i rekomendacje) |
 | status | `StatusSygnaluHr` | domyślnie `NOWY` |
 | decyzja_przez_id | FK → Employee, null | |
 | decyzja_at | datetime, null | |
@@ -262,6 +263,9 @@ Moduł terminów skleja kolejne nieobecności, jeśli przerwa między nimi to sa
 | uzasadnienie | text, null | |
 | decyzja_at | datetime, null | |
 | zawiadomienie_wyslane_at | datetime, null | § 8: niezwłoczne pisemne zawiadomienie |
+| data_zmiany_stanowiska | date, null | tylko przy `ZMIANA_STANOWISKA`; `nowy_termin` = najpóźniej 30 dni po zmianie, najwcześniej 7 dni przed nią (§ 9 ust. 2) |
+
+Zmiana stanowiska w ciągu 6 mies. od odniesienia **nie** zmienia terminu (§ 9 ust. 1): ocena wraca do `KRYTERIA_DO_WYZNACZENIA` z nowym `termin_wyznaczenia_kryteriow` (30 dni od zmiany) – ślad w `AuditLog` (akcja `ZMIANA_STANOWISKA`), bez wpisu w `DeadlineChange`. Logika: `EvaluationCycle.register_position_change`.
 
 ### 🟡 Objection (sprzeciw)
 
@@ -323,7 +327,8 @@ Pokazuje zgodność z przepisami: „korekta tylko w trybie administratora” zo
 - `poziom` z progów: 1–2 / >2–4 / >4–6 / >6–8 / >8–9,
 - `wynik` = `POZYTYWNA`, gdy `poziom` to `NA_POZIOMIE` lub wyżej **i** żadne kryterium nie ma 1 pkt; w pozostałych przypadkach `NEGATYWNA` (§ 11 ust. 1 pkt 3–4; dane: `reguly.json["ocena_pozytywna_gdy"]`, liczy `app/domain/scoring.py`). Przykład: średnia 6,2 z jednym kryterium na 1 pkt → `NEGATYWNA`,
 - `stopien_obligatoryjny` = urzędnik + bieżąca i poprzednia ocena (od ostatniego stopnia) na poziomie `POWYZEJ` lub `ZNACZNIE_POWYZEJ`,
-- terminy liczy `app/domain/deadlines.py` + `calendar.py` (24 mies., reguła końca miesiąca, przesunięcie z soboty i święta, nieobecność > 1 mies.).
+- terminy liczy `app/domain/deadlines.py` + `calendar.py` (24 mies., reguła końca miesiąca, przesunięcie z soboty i święta, nieobecność dłuższa niż miesiąc, ponowna ocena po negatywnej, zmiana stanowiska); zasady i źródła: `docs/terminy.md`,
+- `termin_sprzeciwu` = 7 dni od `data_zapoznania` (bez dnia zapoznania, z dnia wolnego na następny roboczy) – wyliczany, nie zapisywany; `Objection.data_zlozenia` musi być ≤ tej daty.
 
 ## Seed na demo (🟢)
 
