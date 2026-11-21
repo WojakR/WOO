@@ -81,8 +81,23 @@ section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg,
 section[data-testid="stSidebar"] [data-testid="stExpander"] svg { color: var(--band-ink) !important; fill: var(--band-ink); }
 /* the side panel can always be folded: the « button is shown all the time, not only on hover */
 [data-testid="stSidebarCollapseButton"] { visibility: visible !important; opacity: 1 !important; }
-[data-testid="stSidebarCollapseButton"] button { border: 1px solid var(--band-line) !important; border-radius: 8px; }
-[data-testid="stExpandSidebarButton"] { border: 1px solid var(--line) !important; border-radius: 8px; }
+[data-testid="stSidebarCollapseButton"] button { background: #ffffff !important; border: none !important;
+  border-radius: 8px; width: 2.4rem; height: 2.4rem; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+[data-testid="stSidebarCollapseButton"] button svg, [data-testid="stSidebarCollapseButton"] button span {
+  color: #1c3460 !important; fill: #1c3460 !important; }
+[data-testid="stExpandSidebarButton"] { background: #1c3460 !important; border-radius: 8px; width: 2.4rem; height: 2.4rem; }
+[data-testid="stExpandSidebarButton"] svg, [data-testid="stExpandSidebarButton"] span { color: #ffffff !important;
+  fill: #ffffff !important; }
+/* Streamlit's own "Deploy" button is not part of the app */
+[data-testid="stAppDeployButton"] { display: none !important; }
+/* while a page is being rebuilt, hide the elements of the previous page instead of showing both for a moment */
+[data-testid="stMain"] [data-stale="true"] { display: none !important; }
+/* tiles and framed sections: clearly separated from the background */
+[data-testid="stMain"] div[data-testid="stVerticalBlockBorderWrapper"]:not([class*="st-key-row_"]),
+[data-testid="stMain"] [data-testid="stExpander"] details, [data-testid="stMain"] .card {
+  border: 1.5px solid var(--tile-line) !important; background: var(--tile-bg) !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+[data-testid="stMain"] [class*="st-key-row_"] { border: 1.5px solid var(--tile-line) !important; background: var(--tile-bg); }
 /* footnotes: a short "*" explanation under a field instead of long inline hints */
 .footnote { font-size: .8rem; color: var(--muted); margin: 2px 0 10px; }
 /* menu items: quiet list on the band; the current page is white with navy text and a bar on the left */
@@ -196,13 +211,13 @@ LIGHT_VARS = """--ink:#1f2328; --muted:#59636e; --line:#d1d9e0; --blue:#0b57d0; 
   --green:#1a7f37; --green-bg:#e6f4ea; --amber:#9a6700; --amber-bg:#fff8c5; --red:#b42318; --red-bg:#fdecea;
   --violet:#6f42c1; --violet-bg:#f1eafe; --grey-bg:#f3f5f8; --surface:#ffffff; --date-bg:#ffffff;
   --navy:#1c3460; --navy-hover:#142748; --navy-ink:#ffffff; --band:#1c3460; --band-ink:#ffffff;
-  --band-muted:#c8d3e6; --band-line:rgba(255,255,255,.22);"""
+  --band-muted:#c8d3e6; --band-line:rgba(255,255,255,.22); --tile-line:#b4bfcd; --tile-bg:#ffffff;"""
 DARK_VARS = """--ink:#e6edf3; --muted:#9198a1; --line:#3d444d; --blue:#79b8ff; --blue-bg:rgba(56,139,253,.16);
   --green:#56d364; --green-bg:rgba(46,160,67,.16); --amber:#e3b341; --amber-bg:rgba(187,128,9,.18);
   --red:#ff7b72; --red-bg:rgba(248,81,73,.16); --violet:#d2a8ff; --violet-bg:rgba(163,113,247,.18);
   --grey-bg:rgba(110,118,129,.14); --surface:transparent; --date-bg:rgba(0,0,0,.35);
   --navy:#4a72c4; --navy-hover:#5c82d0; --navy-ink:#ffffff; --band:#13233f; --band-ink:#f2f5fa;
-  --band-muted:#aebbd3; --band-line:rgba(255,255,255,.16);"""
+  --band-muted:#aebbd3; --band-line:rgba(255,255,255,.16); --tile-line:#4a5563; --tile-bg:rgba(255,255,255,.035);"""
 # high contrast: secondary text as dark/bright as the main text, strong borders – explicit colours per theme
 HC_LIGHT = "--ink:#000000; --muted:#1f2328; --line:#424a53; --blue:#0a3d91; --green:#0f5323; --red:#8a1c12; --amber:#6b4700;"
 HC_DARK = "--ink:#ffffff; --muted:#f0f3f6; --line:#c9d1d9; --blue:#a5d6ff; --green:#7ee787; --red:#ffa198; --amber:#f2cc60;"

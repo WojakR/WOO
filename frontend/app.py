@@ -89,6 +89,47 @@ def menu_item(label: str, active: bool, on_click, args=()) -> None:
     st.button(label, use_container_width=True, type="primary" if active else "secondary", on_click=on_click, args=args)
 
 
+def accessibility_panel() -> None:
+    st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font")
+    st.toggle("Wysoki kontrast", key="a11y_contrast",
+              help="Ciemniejszy tekst pomocniczy, grubsze obramowania i podkreślone odnośniki.")
+    st.caption("Dostępność zgodnie z WCAG 2.1: powiększenie tekstu (1.4.4), kontrast (1.4.3), widoczny fokus "
+               "przy obsłudze klawiaturą (2.4.7). Stronę można też powiększyć skrótem Ctrl i +.")
+
+
+def demo_panel() -> None:
+    ids = [u["id"] for u in users]
+    labels = {u["id"]: f"{u['nazwa']} – {u['opis']}" for u in users}
+    st.selectbox("Zalogowany jako", ids, key="user_id", format_func=labels.get, on_change=switch_user,
+                 help="Bez logowania: wybierz osobę. Uprawnienia (kto co widzi i może zrobić) wylicza serwer.")
+    st.markdown(f"**⏩ Data w aplikacji (zegar serwera): {ui.fmt(meta['dzis'])}**")
+    st.caption("Na prezentacji nie poczekamy 24 miesięcy – przesuwasz zegar serwera, a system wysyła "
+               "przypomnienia z tego okresu. W prawdziwym wdrożeniu tej opcji nie ma.")
+    a, b, c = st.columns(3)
+    for col, label, days in ((a, "+1 dz.", 1), (b, "+7 dni", 7), (c, "+30 dni", 30)):
+        if col.button(label, use_container_width=True, key=f"adv_{days}"):
+            try:
+                r = api.clock(days=days)
+                st.toast(f"Zegar: {ui.fmt(r.get('dzis'))}. Nowe przypomnienia: {r.get('nowe_powiadomienia', 0)}.")
+            except ApiError as e:
+                st.toast(e.komunikat)
+            st.session_state.pop("ai_cache", None)
+            st.rerun()
+    new = st.date_input("Ustaw datę", to_date(meta["dzis"]), format="DD.MM.YYYY")
+    if st.button("Ustaw datę", use_container_width=True, disabled=new is None):
+        try:
+            api.clock(set_to=new)
+        except ApiError as e:
+            st.toast(e.komunikat)
+        st.session_state.pop("ai_cache", None)
+        st.rerun()
+    if st.button("↺ Przywróć dane przykładowe", use_container_width=True):
+        api.reset()
+        switch_user()
+        st.toast("Przywrócono dane przykładowe.")
+        st.rerun()
+
+
 # ---------------------------------------------------------------- side menu
 with st.sidebar:
     ui.html('<p class="app-title">🏛️ Asystent Ocen Okresowych</p>')
@@ -106,45 +147,6 @@ with st.sidebar:
         menu_item("⚙️ Ustawienia", st.session_state.emp_view == "settings", go_employee, ("settings",))
 
     st.divider()
-    with st.expander("Aa Dostępność", expanded=False):
-        st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font")
-        st.toggle("Wysoki kontrast", key="a11y_contrast",
-                  help="Ciemniejszy tekst pomocniczy, grubsze obramowania i podkreślone odnośniki.")
-        st.caption("Dostępność zgodnie z WCAG 2.1: powiększenie tekstu (1.4.4), kontrast (1.4.3), widoczny fokus "
-                   "przy obsłudze klawiaturą (2.4.7). Stronę można też powiększyć skrótem Ctrl i +.")
-
-    with st.expander("🎬 Tryb demo", expanded=False):
-        ids = [u["id"] for u in users]
-        labels = {u["id"]: f"{u['nazwa']} – {u['opis']}" for u in users}
-        st.selectbox("Zalogowany jako", ids, key="user_id", format_func=labels.get, on_change=switch_user,
-                     help="Bez logowania: wybierz osobę. Uprawnienia (kto co widzi i może zrobić) wylicza serwer.")
-        st.markdown(f"**⏩ Data w aplikacji (zegar serwera): {ui.fmt(meta['dzis'])}**")
-        st.caption("Na prezentacji nie poczekamy 24 miesięcy – przesuwasz zegar serwera, a system wysyła "
-                   "przypomnienia z tego okresu. W prawdziwym wdrożeniu tej opcji nie ma.")
-        a, b, c = st.columns(3)
-        for col, label, days in ((a, "+1 dz.", 1), (b, "+7 dni", 7), (c, "+30 dni", 30)):
-            if col.button(label, use_container_width=True, key=f"adv_{days}"):
-                try:
-                    r = api.clock(days=days)
-                    st.toast(f"Zegar: {ui.fmt(r.get('dzis'))}. Nowe przypomnienia: {r.get('nowe_powiadomienia', 0)}.")
-                except ApiError as e:
-                    st.toast(e.komunikat)
-                st.session_state.pop("ai_cache", None)
-                st.rerun()
-        new = st.date_input("Ustaw datę", to_date(meta["dzis"]), format="DD.MM.YYYY")
-        if st.button("Ustaw datę", use_container_width=True, disabled=new is None):
-            try:
-                api.clock(set_to=new)
-            except ApiError as e:
-                st.toast(e.komunikat)
-            st.session_state.pop("ai_cache", None)
-            st.rerun()
-        if st.button("↺ Przywróć dane przykładowe", use_container_width=True):
-            api.reset()
-            switch_user()
-            st.toast("Przywrócono dane przykładowe.")
-            st.rerun()
-
     mode = meta["tryb_ai"]
     available = meta.get("funkcje_ai", {}).get("model_dostepny")
     chip = ("wyłączony w aplikacji" if not ai else "wyłączony na serwerze (szablony)" if mode == "OFF"
@@ -153,7 +155,13 @@ with st.sidebar:
     st.caption(f"Data: {ui.fmt(meta['dzis'])} · Asystent AI: {chip}")
 
 # ---------------------------------------------------------------- header: who + notifications
-who, ai_col, bell_col = st.columns([4.2, 1.3, 0.9], vertical_alignment="center")
+who, ai_col, a11y_col, bell_col, demo_col = st.columns([3.1, 1.4, 0.7, 0.8, 1.2], vertical_alignment="center")
+with a11y_col.popover("Aa", use_container_width=True, help="Dostępność: wielkość tekstu i kontrast"):
+    st.markdown("**Dostępność**")
+    accessibility_panel()
+with demo_col.popover("🎬 Demo", use_container_width=True, help="Tryb demo: kim jesteś, data w aplikacji, reset"):
+    st.markdown("**Tryb demo**")
+    demo_panel()
 with ai_col.container(horizontal_alignment="right"):
     st.toggle("🤖 Asystent AI", key="ai_on", on_change=save_ai, disabled=not office_ai,
               help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: wskazówki do rozmów, propozycje przypisania "
