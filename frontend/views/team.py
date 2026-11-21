@@ -169,7 +169,8 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
                 c[5].markdown(f"{ui.fmt(i['termin'])}{days}", unsafe_allow_html=True)
                 if ai:
                     sig = _signals(api, i)
-                    c[7].markdown("<br>".join(sig) if sig else "<span class='lock'>—</span>", unsafe_allow_html=True)
+                    c[7].markdown("<span class='ai-text'>" + "<br>".join(sig) + "</span>" if sig
+                                  else "<span class='lock'>—</span>", unsafe_allow_html=True)
                 w = WYNIK.get(i.get("wynik"))
                 c[6].markdown(ui.badge(*w) if w else "<span class='lock'>—</span>", unsafe_allow_html=True)
         if not view:

@@ -64,6 +64,43 @@ section[data-testid="stSidebar"] .stButton button p { justify-content: flex-star
 .st-key-hrfab button p { color: #ffffff !important; font-size: 1.25rem; font-weight: 700; }
 .st-key-hrfab button svg { display: none; }
 [data-testid="stPopoverBody"] { max-width: min(460px, 92vw); }
+/* ---- everything that comes from the assistant (AI, HR partner, suggestions) has ONE colour: violet ---- */
+.ai-text, .ai-text p, .ai-text strong { color: var(--ai) !important; }
+.badge.b-violet { color: var(--ai) !important; background: var(--ai-bg) !important; border-color: var(--ai) !important; }
+/* AI switch in the top bar and assistant switches in settings */
+.st-key-ai_on label p, .st-key-ai_on label span { color: var(--ai) !important; font-weight: 650; }
+[class*="st-key-ai_on"] [data-testid="stCheckbox"] label:has(input:checked) > div:first-of-type,
+.st-key-ai_on label:has(input:checked) > div:first-of-type,
+[class*="st-key-office_ai"] label:has(input:checked) > div:first-of-type,
+[class*="st-key-office_hr"] label:has(input:checked) > div:first-of-type,
+[class*="st-key-my_hr"] label:has(input:checked) > div:first-of-type { background-color: var(--ai) !important; }
+/* assistant buttons: drafts, accepting suggestions, HR partner decisions */
+[class*="st-key-dr_"] button, [class*="st-key-acc_"] button, [class*="st-key-use_"] button,
+[class*="st-key-edit_"] button, [class*="st-key-rej_draft"] button, [class*="st-key-hr_ok_"] button,
+[class*="st-key-hr_no_"] button {
+  border: 1.5px solid var(--ai) !important; color: var(--ai) !important; background: var(--ai-bg) !important; }
+[class*="st-key-dr_"] button p, [class*="st-key-acc_"] button p, [class*="st-key-use_"] button p,
+[class*="st-key-edit_"] button p, [class*="st-key-rej_draft"] button p, [class*="st-key-hr_ok_"] button p,
+[class*="st-key-hr_no_"] button p { color: var(--ai) !important; }
+[class*="st-key-use_"] button, [class*="st-key-hr_ok_"] button { background: var(--ai) !important; }
+[class*="st-key-use_"] button p, [class*="st-key-hr_ok_"] button p { color: #ffffff !important; }
+/* framed assistant content: draft proposal, conversation tips, HR partner panel */
+[class*="st-key-aibox"] { border: 2px solid var(--ai) !important; border-radius: 10px; background: var(--ai-bg) !important; }
+[class*="st-key-aiprep"] [data-testid="stExpander"] details { border-color: var(--ai) !important; }
+[class*="st-key-aiprep"] [data-testid="stExpander"] summary p { color: var(--ai) !important; font-weight: 650; }
+/* HR partner: violet round button with a robot, bottom-right */
+.st-key-hrfab button { background: var(--ai) !important; display: flex !important; align-items: center;
+  justify-content: center; padding: 0 !important; }
+.st-key-hrfab button > div { justify-content: center !important; width: 100%; padding: 0 !important; margin: 0 !important; }
+.st-key-hrfab button > div > div:has([data-testid="stIconMaterial"]) { display: none !important; }
+.st-key-hrfab button > div > div:first-child { width: 100% !important; justify-content: center !important; }
+.st-key-hrfab button p { font-size: 1.9rem !important; line-height: 1 !important; margin: 0 !important; text-align: center; }
+/* side menu: while the menu is rebuilt, the previous "current page" item is not highlighted any more
+   (otherwise two items look selected for a moment) */
+section[data-testid="stSidebar"] [data-stale="true"] button[data-testid="stBaseButton-primary"] {
+  background: transparent !important; box-shadow: none !important; }
+section[data-testid="stSidebar"] [data-stale="true"] button[data-testid="stBaseButton-primary"] p {
+  color: var(--band-ink) !important; }
 /* overview: stat cards */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 8px 0 12px; }
 .stat .v { font-size: 2rem; font-weight: 700; line-height: 1.2; }
@@ -199,7 +236,7 @@ div[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 10px; }
 """
 
 STATE_ICON = {"done": "✔", "active": "●", "waiting": "⏳", "todo": "○"}
-SOURCE_STYLE = {"AI": ("b-violet", "✨ AI"), "SZABLON": ("b-grey", "SZABLON"), "REGULY": ("b-blue", "REGUŁY")}
+SOURCE_STYLE = {"AI": ("b-violet", "✨ AI"), "SZABLON": ("b-violet", "✨ SZABLON"), "REGULY": ("b-violet", "✨ REGUŁY")}
 SOURCE_TEXT = {
     "AI": "wygenerowane przez model językowy (AI) na podstawie danych, po pseudonimizacji",
     "SZABLON": "przygotowane z gotowego szablonu i danych oceny – bez udziału AI",
@@ -217,12 +254,12 @@ html {{ font-size: {px}px; }}
 """
 LIGHT_VARS = """--ink:#1f2328; --muted:#59636e; --line:#d1d9e0; --blue:#0b57d0; --blue-bg:#e8f0fe;
   --green:#1a7f37; --green-bg:#e6f4ea; --amber:#9a6700; --amber-bg:#fff8c5; --red:#b42318; --red-bg:#fdecea;
-  --violet:#6f42c1; --violet-bg:#f1eafe; --grey-bg:#f3f5f8; --surface:#ffffff; --date-bg:#ffffff;
+  --violet:#6d28d9; --violet-bg:#f1eafe; --ai:#6d28d9; --ai-bg:#f3edfe; --grey-bg:#f3f5f8; --surface:#ffffff; --date-bg:#ffffff;
   --navy:#1c3460; --navy-hover:#142748; --navy-ink:#ffffff; --band:#1c3460; --band-ink:#ffffff;
   --band-muted:#c8d3e6; --band-line:rgba(255,255,255,.22); --tile-line:#b4bfcd; --tile-bg:#ffffff;"""
 DARK_VARS = """--ink:#e6edf3; --muted:#9198a1; --line:#3d444d; --blue:#79b8ff; --blue-bg:rgba(56,139,253,.16);
   --green:#56d364; --green-bg:rgba(46,160,67,.16); --amber:#e3b341; --amber-bg:rgba(187,128,9,.18);
-  --red:#ff7b72; --red-bg:rgba(248,81,73,.16); --violet:#d2a8ff; --violet-bg:rgba(163,113,247,.18);
+  --red:#ff7b72; --red-bg:rgba(248,81,73,.16); --violet:#c4a7ff; --violet-bg:rgba(163,113,247,.18); --ai:#c4a7ff; --ai-bg:rgba(163,113,247,.16);
   --grey-bg:rgba(110,118,129,.14); --surface:transparent; --date-bg:rgba(0,0,0,.35);
   --navy:#4a72c4; --navy-hover:#5c82d0; --navy-ink:#ffffff; --band:#13233f; --band-ink:#f2f5fa;
   --band-muted:#aebbd3; --band-line:rgba(255,255,255,.16); --tile-line:#4a5563; --tile-bg:rgba(255,255,255,.035);"""

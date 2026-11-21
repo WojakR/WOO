@@ -262,8 +262,9 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
         with st.expander("📅 Zaproszenie na rozmowę rozpoczynającą"):
             _invite(ev, today, 1, "Rozmowa rozpoczynająca ocenę okresową", 45)
         if ai:
-            with st.expander("🗣️ Wskazówki do rozmowy rozpoczynającej"):
-                _prep(api, ev, "ROZPOCZYNAJACA")
+            with st.container(key="aiprep_start"):
+                with st.expander("🤖 Wskazówki asystenta do rozmowy rozpoczynającej"):
+                    _prep(api, ev, "ROZPOCZYNAJACA")
     if ev["status"] == "KRYTERIA_DO_POTWIERDZENIA":
         st.info("⏳ Kryteria przekazane ocenianemu – czeka na potwierdzenie rozmowy i zapoznania się z kryteriami.")
     st.divider()
@@ -420,7 +421,9 @@ def _stage_review(api: Api, ev: dict, ai: bool, today: date) -> None:
         st.markdown("#### Przygotowanie do rozmowy")
         _talk_tips()
         if ai:
-            _prep(api, ev, "OCENIAJACA")
+            with st.container(key="aiprep_review"):
+                with st.expander("🤖 Wskazówki asystenta do rozmowy oceniającej", expanded=True):
+                    _prep(api, ev, "OCENIAJACA")
         else:
             st.caption("Asystent jest wyłączony – wskazówki asystenta do rozmowy są ukryte.")
         st.divider()
@@ -526,7 +529,8 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
         if ai and work and sug is not None:  # a hint of the assistant: hidden when it is off
             s1, s2 = box.columns([3, 1], vertical_alignment="center")
             why = (e or {}).get("uzasadnienie_sugestii") or ""
-            s1.caption(f"✨ Sugerowane: **{sug} pkt** · {why}" + (" · zgodne z oceną" if val == sug else ""))
+            s1.markdown(f"<span class='ai-text'>✨ Sugerowane: <b>{sug} pkt</b> · {escape(why)}"
+                        + (" · zgodne z oceną" if val == sug else "") + "</span>", unsafe_allow_html=True)
             if can_score and val != sug:
                 s2.button("Przyjmij", key=f"acc_sc_{eid}_{code}", on_click=accept, args=(code, key, sug),
                           help=f"Ustaw ocenę {sug} pkt dla kryterium {k['nazwa']}")
@@ -564,7 +568,7 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
                        on_click=request_draft, args=(kind, dkey))
         d = st.session_state.get(dkey)
         if d and editable:
-            with st.container(border=True):
+            with st.container(key=f"aibox_{dkey}"):
                 src = "Wygenerowane przez model lokalny" if d["zrodlo"] == "AI" else "Szablon z danych (model niedostępny)"
                 based = f" · na podstawie {len(d.get('oparte_na_notatkach') or [])} notatek" if d.get("oparte_na_notatkach") else ""
                 ui.html(f"{ui.badge('✨ Propozycja asystenta', 'b-violet')} <span class='lock'>{src}{based} · nic nie "
@@ -733,7 +737,7 @@ def _progress(ev: dict) -> None:
     cur = current_stage(ev)
     done = cur == DONE
     with st.expander("🧭 Postęp" + (" · proces zakończony" if done else f" · krok {cur} z {len(STAGES)}"),
-                     expanded=True):
+                     expanded=False):
         st.progress(min(cur - 1, len(STAGES)) / len(STAGES) if not done else 1.0)
         st.markdown(f"**Co teraz:** {_next_step(ev)}")
         if ev["status"] == "ROZMOWA_OCENIAJACA" and ev["jako_oceniajacy"]:
@@ -802,7 +806,7 @@ def _hr_partner(api: Api, ev: dict) -> None:
             st.markdown("**🤝 HR partner**")
             st.caption(report.komunikat)
             return
-        ui.html(f"<b>🤝 HR partner</b><br>{ui.source_note('AI' if report['zrodlo_tekstow'] == 'AI' else 'REGULY')}<br>"
+        ui.html(f"<b class='ai-text'>🤖 HR partner</b><br>{ui.source_note('AI' if report['zrodlo_tekstow'] == 'AI' else 'REGULY')}<br>"
                 "<span class='lock'>Podpowiedzi dla przełożonego przed rozmową – nie są oceną pracownika.</span>")
         if not report["sygnaly"]:
             st.caption("Brak sygnałów. HR partner reaguje na notatki z ostatnich 6 miesięcy (np. praca po godzinach, "
@@ -898,6 +902,6 @@ def render(api: Api, me: dict, meta: dict, evaluation_id: int, ai: bool) -> None
         report = _cached(hr_key, lambda: api.hr_partner(ev["id"]))
         open_signals = 0 if isinstance(report, ApiError) else sum(sg["status"] == "NOWY" for sg in report["sygnaly"])
         with st.container(key="hrfab"):
-            with st.popover(f"🤝 {open_signals}" if open_signals else "🤝",
-                            help="HR partner – podpowiedzi o dobrostanie i docenianiu"):
+            with st.popover("🤖", help="HR partner – podpowiedzi o dobrostanie i docenianiu"
+                            + (f" ({open_signals} nowe)" if open_signals else "")):
                 _hr_partner(api, ev)
