@@ -15,7 +15,7 @@ from . import assistant_mapping as m
 from . import schemas as s
 from .access import actor as _actor
 from .access import require_evaluator
-from .state import DemoState, NoteRecord, get_state
+from .state import DemoState, NoteRecord, get_state, save_state
 
 router = APIRouter(prefix="/api", tags=["notatki"])
 
@@ -86,10 +86,12 @@ def _classify(st: DemoState, note_id: int) -> None:
     except Exception:  # noqa: BLE001 – the note stays usable; the evaluator tags it by hand
         if r.status == "W_TOKU":
             r.status = "BLAD"
+            save_state()
         return
     r.classification = c
     if r.status == "W_TOKU":  # the evaluator may have tagged it meanwhile – then keep their choice
         r.status = c.status
+    save_state()  # runs after the response, so the middleware has already saved the W_TOKU note
 
 
 # ---------------------------------------------------------------- endpoints

@@ -6,6 +6,14 @@ Legenda: 🟢 = potrzebne do 20:00, 🟡 = druga połowa hackathonu.
 
 ---
 
+## Stan wdrożenia (MVP)
+
+Dane są w bazie (`DATABASE_URL`; SQLite w jednym pliku albo PostgreSQL) w uproszczonej postaci: jedna tabela na
+agregat – `ocena`, `notatka`, `nieobecnosc`, `zmiana_terminu`, `zastepstwo`, `stan` – z kolumnami do wyszukiwania
+(identyfikatory, osoby, status, daty) i całym obiektem domeny jako JSON (`app/infrastructure/sql_store.py`).
+Pełny model relacyjny poniżej to kolejny krok; dane przetrwają restart i mogą być przechowywane przez cały czas
+zatrudnienia, a potem archiwizowane (bez automatycznego usuwania).
+
 ## Diagram ER
 
 ```mermaid

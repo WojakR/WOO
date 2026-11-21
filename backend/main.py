@@ -12,6 +12,7 @@ from app.api.evaluations import router as evaluations_router
 from app.api.routes import router as api_router
 from app.api.notes import router as notes_router
 from app.api.deputies import router as deputies_router
+from app.api.state import save_state
 from backend import config, db
 from backend.llm import ask_llm
 from backend.parsers import parse_file, to_llm_text
@@ -23,6 +24,18 @@ app.include_router(notes_router)
 app.include_router(deputies_router)  # zastępstwa
 app.include_router(evaluations_router)  # sheet, dashboard, HR partner, demo – used by the web UI
 install_error_handlers(app)
+
+
+_CHANGES = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def persist_after_changes(request, call_next):
+    """Every successful change to /api/... is written to the database (app/infrastructure/sql_store.py)."""
+    response = await call_next(request)
+    if request.method in _CHANGES and request.url.path.startswith("/api/") and response.status_code < 400:
+        save_state()
+    return response
 
 
 class AskIn(BaseModel):

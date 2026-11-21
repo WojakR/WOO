@@ -23,6 +23,11 @@ Run all commands below from `projekt/`.
   `NotImplementedError` on purpose). Every feature must keep its no-AI fallback, pseudonymise prompts and validate the
   model's answer. Details: `docs/asystent.md`.
 - `backend/parsers.py` – file parsing (PDF/XML/CSV/XLSX/OCR). Add new formats here.
+- Persistence of the app state: `app/infrastructure/sql_store.py` – one table per aggregate (`ocena`, `notatka`,
+  `nieobecnosc`, `zmiana_terminu`, `zastepstwo`, `stan`) with key columns + the object as JSON (`json_codec.py`,
+  register new dataclasses there via `app/api/state.py::_codec`). Saved after every successful POST/PUT/PATCH/DELETE
+  on `/api/` (middleware in `backend/main.py`) and after background work (`save_state()`); loaded at startup,
+  an empty DB gets the demo scenario. New state on `DemoState` must be added to `snapshot()` / `restore()`.
 - `backend/db.py` – database access via SQLModel; engine from `DATABASE_URL` (empty = SQLite at `DB_PATH`,
   PostgreSQL = change the URL). Tables = SQLModel classes with `table=True` in this module; `init_db()` runs
   `create_all()` (no Alembic: adding columns to an existing table needs a fresh DB). ORM only, no dialect-specific SQL.
