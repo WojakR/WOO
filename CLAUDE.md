@@ -14,6 +14,9 @@ Run all commands below from `projekt/`.
 ## Architecture
 - `backend/llm.py` – the ONLY place that calls an LLM: `ask_llm()` / `ask_llm_json()` (LiteLLM) and `ask_ollama()` /
   `stream_ollama()` (local model). Never import litellm/openai/anthropic/requests-to-a-model elsewhere.
+  `ask_llm` / `ask_llm_json` always pseudonymise (everyone in the employee directory + `people=`, PESEL, e-mail,
+  phone → `[OSOBA_Kn]`, `[PESEL]`, …) and restore names in the answer; `LLM_MOCK=1` echoes the masked prompt.
+  `ask_ollama` / `stream_ollama` do NOT – their callers (the assistant) must mask first.
 - AI suggestions (UC1, UC4, UC5, UC7): `app/application/assistant.py` (`AiSuggestionService`), prompts in
   `app/application/prompts/`, model adapters in `app/infrastructure/ai_models.py` (`AI_MODE` off|local|api; api raises
   `NotImplementedError` on purpose). Every feature must keep its no-AI fallback, pseudonymise prompts and validate the
