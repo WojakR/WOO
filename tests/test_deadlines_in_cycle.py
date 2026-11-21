@@ -53,6 +53,46 @@ def test_absence_does_not_extend_re_evaluation(svc):
     assert svc.evaluation_deadline(c.id) == date(2026, 12, 16)  # art. 81 ust. 7 covers only the 24 months
 
 
+def test_after_negative_two_dates_criteria_from_drawn_up_re_evaluation_from_acknowledged(svc, clock):
+    # negative evaluation drawn up Wed 10.06.2026, acknowledged only on Mon 22.06.2026
+    clock.set(date(2026, 6, 23))
+    c = svc.start_cycle(EMP, start_date=date(2026, 6, 10), after_negative=True,
+                        negative_acknowledged_on=date(2026, 6, 22))
+    assert c.criteria_deadline == date(2026, 6, 17)  # § 7 pkt 2: 7 days from drawing up
+    assert svc.evaluation_deadline(c.id) == date(2026, 12, 23)  # art. 81 ust. 9: day after 22.12.2026
+
+
+def test_acknowledgement_date_taken_from_previous_evaluation():
+    from app.domain.cycle import EvaluationCycle, PreviousEvaluation
+
+    prev = PreviousEvaluation("negatywna", "poniżej oczekiwań", date(2026, 6, 10), acknowledged=date(2026, 6, 22))
+    c = EvaluationCycle.start("c1", EMP, BOSS, "C", prev.date, date(2026, 6, 23), R, CAL,
+                              after_negative=True, previous_evaluation=prev)
+    assert c.negative_acknowledged_on == date(2026, 6, 22)
+    assert c.criteria_deadline == date(2026, 6, 17)
+    assert c.evaluation_deadline(R, CAL) == date(2026, 12, 23)
+
+
+def test_acknowledgement_unknown_falls_back_to_drawn_up_date(svc):
+    c = svc.start_cycle(EMP, start_date=date(2026, 6, 10), after_negative=True)
+    assert svc.evaluation_deadline(c.id) == date(2026, 12, 11)  # § 12 ust. 1: acknowledged "niezwłocznie"
+
+
+def test_acknowledgement_before_drawn_up_rejected(svc):
+    with pytest.raises(ValidationError, match="nie może być wcześniejsza"):
+        svc.start_cycle(EMP, start_date=date(2026, 6, 10), after_negative=True,
+                        negative_acknowledged_on=date(2026, 6, 9))
+
+
+def test_employee_data_reads_acknowledgement_date():
+    from app.infrastructure.kprm_adapter import _employee
+
+    e = _employee({"id": "x", "imie": "A", "nazwisko": "B", "arkusz": "C",
+                   "poprzednia_ocena": {"ocena": "negatywna", "data": "2026-06-10", "data_zapoznania": "2026-06-22"}})
+    assert e.previous_evaluation.date == date(2026, 6, 10)
+    assert e.previous_evaluation.acknowledged == date(2026, 6, 22)
+
+
 def test_negative_acknowledged_tells_when_re_evaluation_is_due(svc, clock):
     c = _negative_evaluation_acknowledged(svc, clock, date(2026, 6, 22))
     assert c.next_evaluation_due(R) == date(2026, 12, 23)

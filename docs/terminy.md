@@ -28,9 +28,16 @@ Wcześniej kod traktował 9.09–9.10 jako dłuższą niż miesiąc. Ta sama reg
 
 ## Po ocenie negatywnej
 
-Kolejny cykl (`start_cycle(..., after_negative=True)`, `start_date` = dzień zapoznania się z oceną negatywną):
-- kryteria w 7 dni,
-- termin oceny = `reevaluation_date` (6 mies. + 1 dzień), a nie 24 miesiące; nieobecności go nie wydłużają.
+Kolejny cykl liczy z **dwóch różnych dat** oceny negatywnej
+(`start_cycle(..., start_date=<sporządzenie>, after_negative=True, negative_acknowledged_on=<zapoznanie>)`):
+- kryteria w 7 dni od **sporządzenia** oceny negatywnej (§ 7 pkt 2) – `start_date`,
+- termin oceny = `reevaluation_date` (6 mies. + 1 dzień) od **zapoznania** się z nią (art. 81 ust. 9) –
+  `negative_acknowledged_on`, a nie 24 miesiące; nieobecności go nie wydłużają.
+
+Domyślnie obie daty idą z `PreviousEvaluation` (`date` = sporządzenie, `acknowledged` = zapoznanie;
+w `pracownicy.json`: `poprzednia_ocena.data` i `poprzednia_ocena.data_zapoznania`). Bez daty zapoznania
+liczymy od sporządzenia (§ 12 ust. 1: zapoznanie „niezwłocznie”). Przykład: sporządzona 10.06.2026,
+zapoznanie 22.06.2026 → kryteria do 17.06.2026, ponowna ocena 23.12.2026.
 
 Poradnik mówi o ponownej ocenie „niezwłocznie po dniu, w którym minie 6 miesięcy” – w UI pokazywać tę datę
 jako „ponowna ocena od”, a nie jako ostateczny termin.
