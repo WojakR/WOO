@@ -392,6 +392,25 @@ def _stage_observation(api: Api, ev: dict, me: dict, ai: bool, today: date) -> N
 
 # ---------------------------------------------------------------- stage 3: review meeting
 
+TALK_PHRASES = [
+    ("„Źle to zrobiłeś”.", "„W tym miejscu warto wprowadzić kilka poprawek”."),
+    ("„Nie masz racji”.", "„Mam nieco inne spojrzenie na tę kwestię”."),
+    ("„To nie mój problem”.", "„Sprawdźmy, kto może pomóc w rozwiązaniu tej sytuacji”."),
+    ("„Ile razy mam powtarzać?”", "„Wyjaśnię to jeszcze raz, żebyśmy mieli pewność, że wszystko jest jasne”."),
+    ("„Nie da się tego zrobić”.", "„Poszukajmy alternatywnego rozwiązania”."),
+]
+
+
+def _talk_tips() -> None:
+    """Communication tips for the review meeting – fixed guidance, independent of the AI assistant."""
+    with st.expander("💬 Jak rozmawiać – dobre sformułowania", expanded=True):
+        rows = "".join(f"<tr><td>{escape(bad)}</td><td>{escape(good)}</td></tr>" for bad, good in TALK_PHRASES)
+        ui.html(f'<table class="tips"><thead><tr><th>Zamiast mówić…</th><th>Lepiej powiedzieć…</th></tr></thead>'
+                f"<tbody>{rows}</tbody></table>")
+        st.markdown("**Unikaj słów „zawsze”, „nigdy”, „ale”** – zastąp je prawdziwymi przykładami z notatek "
+                    "(co się wydarzyło, kiedy i z jakim skutkiem).")
+
+
 def _stage_review(api: Api, ev: dict, ai: bool, today: date) -> None:
     if ev["status"] != "OKRES_OCENY":
         st.markdown(f"Rozmowa oceniająca odbyła się **{ui.fmt(ev['czesc_ii'].get('data_rozmowy_oceniajacej'))}**.")
@@ -405,6 +424,7 @@ def _stage_review(api: Api, ev: dict, ai: bool, today: date) -> None:
             _prep(api, ev, "OCENIAJACA")
         else:
             st.caption("Asystent jest wyłączony – wskazówki do rozmowy są ukryte.")
+        _talk_tips()
         st.divider()
     _action(api, ev, "ROZPOCZNIJ_ROZMOWE",
             note=f"Jako datę rozmowy system zapisze dzisiejszą datę ({ui.fmt(today)}).")

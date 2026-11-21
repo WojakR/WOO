@@ -49,6 +49,12 @@ section[data-testid="stSidebar"] .stButton button p { justify-content: flex-star
 [class*="st-key-rowbtn_"] div, [class*="st-key-rowbtn_"] button { width: 100% !important; height: 100% !important; }
 [class*="st-key-rowbtn_"] button { background: transparent !important; border: none !important; color: transparent !important;
                                    cursor: pointer; }
+/* communication tips table (review meeting) */
+.tips { width: 100%; border-collapse: collapse; margin: 4px 0 8px; font-size: .92rem; }
+.tips th { text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--line); color: var(--ink); }
+.tips th:first-child { color: var(--red); } .tips th:last-child { color: var(--green); }
+.tips td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; width: 50%; }
+.tips td:first-child { color: var(--muted); }
 /* overview: stat cards */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 8px 0 12px; }
 .stat .v { font-size: 2rem; font-weight: 700; line-height: 1.2; }
