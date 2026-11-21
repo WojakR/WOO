@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.api.auth import AuthMiddleware
+from app.api.auth import router as auth_router
 from app.api.errors import install_error_handlers
 from app.api.evaluations import router as evaluations_router
 from app.api.routes import router as api_router
@@ -21,6 +23,7 @@ from backend.parsers import parse_file, to_llm_text
 
 app = FastAPI(title="HackNation 2026 – API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(auth_router)  # login / logout / mode (AUTH_MODE)
 app.include_router(api_router)  # contract endpoints /api/... (docs/api.md)
 app.include_router(notes_router)
 app.include_router(deputies_router)  # zastępstwa
@@ -40,6 +43,10 @@ async def persist_after_changes(request, call_next):
     if request.method in _CHANGES and request.url.path.startswith("/api/") and response.status_code < 400:
         save_state()
     return response
+
+
+# Added last = outermost: the session is known before any other middleware or router runs (app/api/auth.py)
+app.add_middleware(AuthMiddleware)
 
 
 class AskIn(BaseModel):

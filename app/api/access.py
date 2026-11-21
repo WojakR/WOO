@@ -1,23 +1,19 @@
 """Identity and access checks shared by all routers – every endpoint asks the same policy
 (app/domain/access.py, built in DemoState.policy() from the supervisor tree, office settings and deputies).
 
-Identity on the demo: `X-User-Id` = employee id from pracownicy.json, or `kadry` (HR / administrator).
-Without the header the caller is treated as HR (reads everything, acts as nobody's evaluator)."""
+Identity comes from `auth.current_user` (app/api/auth.py) – the only source of "who":
+AUTH_MODE=demo: `X-User-Id` = employee id from pracownicy.json, or `kadry` (HR / administrator); without the
+header the caller is treated as HR. AUTH_MODE=session: the signed session cookie; `X-User-Id` is ignored."""
 from __future__ import annotations
 
 from app.domain.cycle import EvaluationCycle
 from app.domain.errors import NotAuthorized
 
-from .errors import ApiProblem
-from .state import HR, DemoState
+from .auth import current_user
+from .state import DemoState
 
-
-def actor(st: DemoState, x_user_id: str | None) -> str:
-    if x_user_id is None or x_user_id == HR:
-        return HR
-    if st.directory.get(x_user_id) is None:
-        raise ApiProblem(403, "NIEZNANY_UZYTKOWNIK", "Nieznany użytkownik (nagłówek X-User-Id).")
-    return x_user_id
+# Routers call `actor(st, x_user_id)`; it is `current_user` – never resolve identity anywhere else.
+actor = current_user
 
 
 def require_read(st: DemoState, who: str, c: EvaluationCycle) -> None:

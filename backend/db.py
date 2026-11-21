@@ -28,6 +28,17 @@ class Document(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class Account(SQLModel, table=True):
+    """Login account (app/api/auth.py). `employee_id` = id from pracownicy.json or `kadry` (HR)."""
+    __tablename__ = "accounts"
+
+    login: str = Field(primary_key=True)
+    password_hash: str  # scrypt$n$r$p$salt_hex$hash_hex (auth.hash_password)
+    employee_id: str
+    admin: bool = False
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 @contextmanager
 def session():
     with Session(engine, expire_on_commit=False) as s:
@@ -55,6 +66,36 @@ def list_documents(limit: int = 50):
              "created_at": d.created_at.isoformat(sep=" ", timespec="seconds")}
             for d in docs
         ]
+
+
+def get_account(login: str) -> Account | None:
+    with session() as s:
+        return s.get(Account, login)
+
+
+def count_accounts() -> int:
+    with session() as s:
+        return len(s.exec(select(Account.login)).all())
+
+
+def save_account(login: str, password_hash: str, employee_id: str, admin: bool = False) -> Account:
+    """Creates or replaces the account `login`."""
+    with session() as s:
+        acc = s.get(Account, login) or Account(login=login, password_hash=password_hash, employee_id=employee_id)
+        acc.password_hash, acc.employee_id, acc.admin = password_hash, employee_id, admin
+        s.add(acc)
+        s.commit()
+        return acc
+
+
+def delete_account(login: str) -> bool:
+    with session() as s:
+        acc = s.get(Account, login)
+        if acc is None:
+            return False
+        s.delete(acc)
+        s.commit()
+        return True
 
 
 init_db()

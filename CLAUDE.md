@@ -37,11 +37,16 @@ Run all commands below from `projekt/`.
 - `backend/main.py` – FastAPI endpoints. Keep them thin; logic lives in backend modules.
 - `frontend/web/` – the web UI (plain HTML/CSS/JS modules, no build step, no CDN – works offline on an office
   server), served by FastAPI at `/`. Talks only to `/api` (docs/api.md); never re-implements rules – shows what the
-  server returns (`dozwolone_akcje`, `edytowalne_pola`, `walidacje`). Demo identity: `X-User-Id` from the top bar.
+  server returns (`dozwolone_akcje`, `edytowalne_pola`, `walidacje`). Demo identity: `X-User-Id` from the top bar
+  (AUTH_MODE=demo); login screen in AUTH_MODE=session (`GET /api/auth/status` tells the UI which).
 - `app/api/` – `/api` endpoints: `routes.py` (meta, conversation prep, drafts), `notes.py`, `evaluations.py`
   (sheet, scores, actions, dashboard, HR partner, demo clock/reset – what the web UI uses); `state.py` holds the
   in-memory state, `demo_seed.py` the demo scenario (demo clock 25.05.2026; tests use the simple seed).
-  Identity: `X-User-Id` = employee id from pracownicy.json or `kadry`.
+  Identity: `app/api/auth.py::current_user` (re-exported as `access.actor`) is the ONLY source of "who".
+  `AUTH_MODE=demo` (default, tests): `X-User-Id` = employee id from pracownicy.json or `kadry`.
+  `AUTH_MODE=session`: login + scrypt password (`accounts` table in `backend/db.py`), signed HttpOnly cookie
+  (`SECRET_KEY`); `X-User-Id` ignored, `/api/users` 404, `/api/...` without a session 401.
+  Accounts: `python -m app.api.auth add <login> <employee_id|kadry> [--admin]`.
 - `frontend/app.py` – old Streamlit demo (file upload / ask); kept until the web UI covers it.
 - `scripts/` – setup check, synthetic data generator.
 - `app/` – onion core of the evaluation process (UC1–UC5): `app/domain/` pure Python (rules § 11, deadlines,

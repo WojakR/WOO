@@ -1,5 +1,15 @@
-// API client (contract: docs/api.md). Identity on the demo = X-User-Id header, chosen in the top bar.
+// API client (contract: docs/api.md). Identity: AUTH_MODE=demo – X-User-Id header chosen in the top bar;
+// AUTH_MODE=session – HttpOnly session cookie set by POST /api/auth/login (the header is not sent).
 const USER_KEY = "asystent.userId";
+let authMode = "DEMO";
+
+export function setAuthMode(mode) {
+  authMode = mode;
+}
+
+export function isSessionMode() {
+  return authMode === "SESSION";
+}
 
 export function currentUserId() {
   try {
@@ -28,22 +38,33 @@ export class ApiError extends Error {
 
 async function request(method, path, body) {
   const headers = { Accept: "application/json" };
-  const uid = currentUserId();
+  const uid = isSessionMode() ? null : currentUserId();
   if (uid) headers["X-User-Id"] = uid;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   let res;
   try {
-    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    res = await fetch(`/api${path}`, {
+      method, headers, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body),
+    });
   } catch {
     throw new ApiError(0, { komunikat: "Brak połączenia z serwerem." });
   }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, data);
+  if (!res.ok) {
+    // session expired mid-work: the shell shows the login screen (main.js)
+    if (res.status === 401 && isSessionMode() && !path.startsWith("/auth/")) {
+      window.dispatchEvent(new CustomEvent("auth:required"));
+    }
+    throw new ApiError(res.status, data);
+  }
   return data;
 }
 
 export const api = {
+  authStatus: () => request("GET", "/auth/status"),
+  login: (login, haslo) => request("POST", "/auth/login", { login, haslo }),
+  logout: () => request("POST", "/auth/logout"),
   me: () => request("GET", "/me"),
   users: () => request("GET", "/users"),
   meta: () => request("GET", "/meta"),
