@@ -1,697 +1,746 @@
-"""View 1: evaluation screen for one employee – stepper, the selected stage, summary and HR partner."""
+"""Screen 1 – one evaluation, entirely from the API (GET /api/evaluations/{id} and friends).
+
+The server decides everything (contract rule 1): result, locks (`edytowalne_pola`), allowed steps
+(`dozwolone_akcje`), validations. This view only shows them and sends the user's input back.
+Session state is used only for UI things (selected stage, unsaved text, an assistant proposal on screen)."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from html import escape
 
 import streamlit as st
 
-from app.domain.cycle import Status
-from app.domain.deadlines import Absence
-from app.domain.notes import Note, Sentiment, evidence_by_criterion
-from app.domain.scoring import Outcome, compute_result
-from backend import kprm
 from frontend import ui
-from frontend.demo_state import (DONE, STAGES, DemoState, ai_on, change_sheet, default_meeting, ics_invite,
-                                 open_evaluation, safe)
-from frontend.sheet_export import sheet_html
+from frontend.api_client import Api, ApiError
+from frontend.process import (ACTION_DONE, ACTION_LABEL, DONE, EMPLOYMENT_LABEL, LEVEL_LABEL, SCALE_LABEL, SENTIMENTS,
+                              SIGNAL_LABEL, STAGES, STATUS_LABEL, current_stage, name, to_date)
+from frontend.views.team import open_evaluation
 
-SENT_OPTS = {"POZYTYWNY": "+ pozytywna", "NEUTRALNY": "neutralna", "NEGATYWNY": "− negatywna"}
+TEXT_FIELDS = {"uzasadnienie": ("Uzasadnienie oceny", "UZASADNIENIE"),
+               "wnioski_iprz": ("Wnioski dotyczące indywidualnego programu rozwoju zawodowego", "IPRZ")}
+CHECK_LABEL = {"UZASADNIENIE_WYMAGANE": "Uzasadnienie oceny", "IPRZ_WYMAGANE": "Wnioski do IPRZ",
+               "BRAK_OCENY": "Oceny cząstkowe"}
 
 
-# ---------------------------------------------------------------- helpers
+# ---------------------------------------------------------------- small helpers
 
-def _cached(state: DemoState, key: tuple, compute):
-    k = repr(key)
-    if k not in state.ai_cache:
+def _flash(kind: str, text: str) -> None:
+    st.session_state.setdefault("flash", []).append((kind, text))
+
+
+def _show_flash() -> None:
+    for kind, text in st.session_state.pop("flash", []):
+        (st.error if kind == "error" else st.success)(text)
+
+
+def _call(fn, *args, ok: str | None = None, **kwargs):
+    """Run an API call from a callback; errors and confirmations are shown after the rerun."""
+    try:
+        out = fn(*args, **kwargs)
+    except ApiError as e:
+        _flash("error", " ".join(e.messages))
+        return None
+    if ok:
+        st.toast(ok)
+    return out
+
+
+def _sync(key: str, server_value) -> None:
+    """Keep a widget in step with the server unless the user has typed something not yet saved."""
+    src = f"{key}__srv"
+    if key not in st.session_state or (st.session_state.get(src) != server_value
+                                       and st.session_state.get(key) == st.session_state.get(src)):
+        st.session_state[key] = server_value
+    st.session_state[src] = server_value
+
+
+def _cached(key: tuple, compute):
+    cache = st.session_state.setdefault("ai_cache", {})
+    if key not in cache:
         with st.spinner("Asystent przygotowuje propozycję…"):
-            state.ai_cache[k] = compute()
-    return state.ai_cache[k]
+            try:
+                cache[key] = compute()
+            except ApiError as e:
+                return e
+    return cache[key]
 
 
-def _notes(state: DemoState, cycle) -> list[Note]:
-    return state.notes.get(cycle.id, [])
-
-
-def _criteria_names(state: DemoState, ids) -> list[str]:
-    return [state.service.rules.criterion_name(c) for c in ids]
-
-
-def _locked(text: str = "Pole zablokowane po zatwierdzeniu etapu – zmiana tylko w trybie korekty (kadry).") -> None:
+def _locked(text: str = "Pole zablokowane po zatwierdzeniu etapu.") -> None:
     ui.html(f'<p class="lock">🔒 {escape(text)}</p>')
 
 
-def _invite_block(state: DemoState, cycle, stage: int, title: str, minutes: int) -> None:
-    emp = state.employee(cycle.employee_id)
-    sent = state.invites.get((cycle.id, stage))
-    current = sent or default_meeting(state.today)
-    if sent:
-        st.success(f"Zaproszenie wysłane do: {emp.full_name} – {sent:%d.%m.%Y, %H:%M}. "
-                   "Oceniany widzi je w powiadomieniach (🔔).")
-    c1, c2, c3 = st.columns([1, 1, 1.3], vertical_alignment="bottom")
-    d = c1.date_input("Data rozmowy", current.date(), key=f"inv_d_{cycle.id}_{stage}", format="DD.MM.YYYY")
-    t = c2.time_input("Godzina", current.time(), key=f"inv_t_{cycle.id}_{stage}", step=900)
-    when = datetime.combine(d, t)
-    if c3.button("✉️ Wyślij zaproszenie" if not sent else "✉️ Wyślij nowy termin", key=f"inv_s_{cycle.id}_{stage}",
-                 use_container_width=True, type="primary"):
-        state.invites[(cycle.id, stage)] = when
-        st.toast(f"Wysłano zaproszenie do: {emp.full_name} ({when:%d.%m.%Y, %H:%M}).")
+def _crit_dict(api: Api, sheet: str) -> dict[str, dict]:
+    key = ("criteria", sheet)
+    cache = st.session_state.setdefault("dict_cache", {})
+    if key not in cache:
+        cache[key] = {c["kod"]: c for c in api.criteria(sheet)}
+    return cache[key]
+
+
+def _indicators(crit: dict | None) -> str:
+    if not crit or not crit.get("wskazniki"):
+        return ""
+    return (f"**Na co patrzeć – {crit['nazwa']}** (wskaźniki z załącznika nr 1 do rozporządzenia PRM "
+            "z 4.04.2016):\n\n" + "\n".join(f"- {w}" for w in crit["wskazniki"]))
+
+
+def _action(api: Api, ev: dict, akcja: str, before=None, note: str = "") -> None:
+    """Primary step of the process: shown only when the server allows it; two-step confirmation."""
+    if akcja not in ev["dozwolone_akcje"]:
+        return
+    blocks = [w for w in ev["walidacje"] if w["waga"] == "BLAD"] if akcja == "ZATWIERDZ_OCENE" else []
+    ckey = f"confirm_{ev['id']}_{akcja}"
+    if st.session_state.get(ckey):
+        st.warning(f"Czy na pewno: **{ACTION_LABEL[akcja].lower()}**? Po zatwierdzeniu pola tego etapu zostaną "
+                   "zablokowane." + (f" {note}" if note else ""))
+        a, b = st.columns(2)
+        if a.button(f"✔ Tak, {ACTION_LABEL[akcja].lower()}", type="primary", key=f"{ckey}_yes",
+                    use_container_width=True):
+            st.session_state.pop(ckey, None)
+            if before and not before():
+                return
+            if _call(api.action, ev["id"], akcja, ok=ACTION_DONE.get(akcja)):
+                st.session_state.pop(f"sel_{ev['id']}", None)
+            st.rerun()
+        if b.button("Anuluj", key=f"{ckey}_no", use_container_width=True):
+            st.session_state.pop(ckey, None)
+            st.rerun()
+        return
+    if st.button(ACTION_LABEL.get(akcja, akcja), type="primary", key=f"{ckey}_btn", disabled=bool(blocks)):
+        st.session_state[ckey] = True
         st.rerun()
-    st.download_button(
-        "📅 Dodaj do kalendarza (.ics – Outlook, Thunderbird)",
-        ics_invite(f"{title} – {emp.full_name}", when, minutes,
-                   f"{title} w ramach oceny okresowej (arkusz {cycle.sheet})."),
-        file_name=f"zaproszenie-{cycle.employee_id}-{stage}.ics", mime="text/calendar",
-        key=f"inv_ics_{cycle.id}_{stage}",
-    )
+    if blocks:
+        st.caption("⚠️ Aby zatwierdzić, uzupełnij: " + ", ".join(CHECK_LABEL.get(w["kod"], w["komunikat"])
+                                                                  for w in blocks) + ".")
 
 
-def _prep(state: DemoState, cycle, kind: str):
-    emp = state.employee(cycle.employee_id)
-    evaluator = state.employee(cycle.evaluator_id)
-    notes = _notes(state, cycle)
-    key = ("prep", kind, cycle.id, cycle.status.value, len(notes), state.today, tuple(cycle.scores.items()))
-    return _cached(state, key, lambda: state.assistant.conversation_prep(
-        cycle, emp, evaluator, notes, state.today, kind, cycle.absences))
+# ---------------------------------------------------------------- header, person card
+
+def _header(ev: dict, today: date) -> None:
+    status = ev["status"]
+    ui.html(f"<h3 style='margin:0'>Ocena okresowa – {escape(name(ev['oceniany']))} "
+            f"{ui.badge('Arkusz ' + ev['arkusz'], 'b-blue')} "
+            f"{ui.badge(STATUS_LABEL.get(status, status), 'b-green' if status == 'ZAKONCZONA' else 'b-grey')}</h3>")
+    if status in ("KRYTERIA_DO_WYZNACZENIA", "KRYTERIA_DO_POTWIERDZENIA"):
+        ui.deadline_bar("Termin wyznaczenia kryteriów", ev["czesc_i"]["termin_wyznaczenia_kryteriow"], today)
+    elif status in ("OKRES_OCENY", "ROZMOWA_OCENIAJACA"):
+        ui.deadline_bar("Termin sporządzenia oceny", ev["czesc_i"]["termin_oceny"], today)
+    elif ev["czesc_ii"].get("termin_sprzeciwu"):
+        ui.deadline_bar("Termin na sprzeciw", ev["czesc_ii"]["termin_sprzeciwu"], today)
+    else:
+        ui.deadline_bar(f"Ocena sporządzona {ui.fmt(ev['czesc_ii'].get('data_sporzadzenia'))}", None, today)
 
 
-def _render_prep(prep) -> None:
-    ui.html(f"<p><b>Cel rozmowy:</b> {escape(prep.goal)}</p><p>{ui.source_note(prep.source)}</p>")
-    if prep.plan_minutes:
-        total = sum(m for _, m in prep.plan_minutes)
-        ui.html("<p><b>Plan (" + str(total) + " min):</b> " + " → ".join(
-            f"{escape(p)} <span class='lock'>{m}′</span>" for p, m in prep.plan_minutes) + "</p>")
-    for c in prep.criteria:
-        head = f"{c.name}{'' if c.mandatory else ' (dodatkowe)'} · +{c.positive} / −{c.negative}"
-        with st.expander(head):
-            if c.examples:
-                ui.html("<b>Obserwacje:</b>" + ui.ul(f"{n.on:%d.%m.%Y}: {n.text}" for n in c.examples))
-            if c.gaps:
-                ui.html("<b>Brak obserwacji – zapytaj o:</b>" + ui.ul(c.gaps))
-            if c.questions:
-                ui.html("<b>Proponowane pytania:</b>" + ui.ul(c.questions))
+def _person(ev: dict) -> None:
+    o, c1, c2 = ev["oceniany"], ev["czesc_i"], ev["czesc_ii"]
+    start = c2.get("okres_od") or c1.get("data_wyznaczenia_kryteriow")
+    end = c2.get("okres_do") or c1["termin_oceny"]
+    prev = c2.get("poprzednia_ocena") or {}
+    prev_text = "brak"
+    if prev.get("wynik") and prev["wynik"] != "BRAK":
+        prev_text = prev["wynik"].lower() + (f", {LEVEL_LABEL.get(prev.get('poziom'), '')}" if prev.get("poziom") else "")
+        prev_text += f" ({ui.fmt(prev.get('data'))})" if prev.get("data") else ""
+    initials = (o["imie"][:1] + o["nazwisko"][:1]).upper()
+    rows = [("Typ zatrudnienia", EMPLOYMENT_LABEL.get(o.get("typ_zatrudnienia"), o.get("typ_zatrudnienia") or "—")),
+            ("Okres oceny", f"{ui.fmt(start)} – {ui.fmt(end)}" if start else "od wyznaczenia kryteriów"),
+            ("Poprzednia ocena", prev_text), ("Oceniający", name(ev["oceniajacy"]))]
+    locks = ""
+    if c1["potw_oceniany"].get("at"):
+        locks = (f"<p class='lock'>🔒 Kryteria i termin zatwierdził(a) {escape(name(c1['potw_oceniajacy'].get('osoba')))} "
+                 f"{ui.fmt(c1['potw_oceniajacy'].get('at'))}, oceniany potwierdził(a) {ui.fmt(c1['potw_oceniany']['at'])}.</p>")
+    ui.html(f'<div class="card person-card"><div class="avatar">{escape(initials)}</div><div>'
+            f'<h4>{escape(name(o))}</h4><p class="lock">{escape(o.get("stanowisko") or "")} · '
+            f'{escape(o.get("komorka") or "")}</p>{ui.kv(rows)}{locks}</div></div>')
+
+
+# ---------------------------------------------------------------- conversation tips (both meetings)
+
+def _prep(api: Api, ev: dict, kind: str) -> None:
+    prep = _cached(("prep", ev["id"], kind, ev["updated_at"]), lambda: api.conversation_prep(ev["id"], kind))
+    if isinstance(prep, ApiError):
+        st.caption(prep.komunikat)
+        return
+    ui.html(f"<p><b>Cel rozmowy:</b> {escape(prep['cel_rozmowy'])}</p>"
+            f"<p>{ui.source_note('AI' if prep['zrodlo_tekstow'] == 'AI' else 'SZABLON')}</p>")
+    if prep.get("plan_minuty"):
+        total = sum(m for _, m in prep["plan_minuty"])
+        ui.html(f"<p><b>Plan ({total} min):</b> " + " → ".join(
+            f"{escape(p)} <span class='lock'>{m}′</span>" for p, m in prep["plan_minuty"]) + "</p>")
+    if prep.get("cele"):
+        ui.html("<b>Cele z rozmowy rozpoczynającej:</b>" + ui.ul(prep["cele"]))
+    for c in prep["kryteria"]:
+        with st.expander(f"{c['nazwa']}{'' if c.get('obowiazkowe', True) else ' (dodatkowe)'} · "
+                         f"+{c['plus']} / −{c['minus']}"):
+            if c.get("przyklady"):
+                ui.html("<b>Obserwacje:</b>" + ui.ul(f"{ui.fmt(n['data'])}: {n['tresc']}" for n in c["przyklady"]))
+            if c.get("luki"):
+                ui.html("<b>Brak obserwacji – zapytaj o:</b>" + ui.ul(c["luki"]))
+            if c.get("pytania"):
+                ui.html("<b>Proponowane pytania:</b>" + ui.ul(c["pytania"]))
     cols = st.columns(3)
     for col, title, items in zip(cols, ("Mocne strony", "Trudne tematy", "Działania rozwojowe"),
-                                 (prep.strengths, prep.difficult_topics, prep.development)):
+                                 (prep.get("mocne_strony"), prep.get("trudne_tematy"), prep.get("propozycje_rozwoju"))):
         with col:
-            ui.card(title, ui.ul(items) or "<p class='lock'>brak</p>")
+            ui.card(title, ui.ul(items or []) or "<p class='lock'>brak</p>")
 
 
-# ---------------------------------------------------------------- stage 1
+def _invite(ev: dict, today: date, stage: int, title: str, minutes: int) -> None:
+    """Calendar file only – sending invitations needs the backend's notifications (not in the API yet)."""
+    from frontend.ics import ics_invite
 
-def _slot_keys(cycle) -> list[str]:
-    return [f"add_{cycle.id}_{i}" for i in range(3)]
+    c1, c2 = st.columns(2)
+    d = c1.date_input("Data rozmowy", today + timedelta(days=3), key=f"inv_d_{ev['id']}_{stage}", format="DD.MM.YYYY")
+    t = c2.time_input("Godzina", time(10, 0), key=f"inv_t_{ev['id']}_{stage}", step=900)
+    when = datetime.combine(d, t)
+    st.download_button("📅 Pobierz zaproszenie do kalendarza (.ics – Outlook, Thunderbird)",
+                       ics_invite(f"{title} – {name(ev['oceniany'])}", when, minutes,
+                                  f"{title} w ramach oceny okresowej (arkusz {ev['arkusz']})."),
+                       file_name=f"zaproszenie-{ev['id']}-{stage}.ics", mime="text/calendar",
+                       key=f"inv_ics_{ev['id']}_{stage}")
+    st.caption("Wysłanie zaproszenia do pracownika w aplikacji wymaga obsługi powiadomień w backendzie – "
+               "na razie plik do kalendarza.")
 
 
-def _chosen(cycle) -> list[str]:
-    return [st.session_state[k] for k in _slot_keys(cycle) if st.session_state.get(k)]
+# ---------------------------------------------------------------- stage 1: criteria
 
-
-def _put_in_free_slot(cycle, criterion_id: str) -> None:
-    for k in _slot_keys(cycle):
-        if not st.session_state.get(k):
-            st.session_state[k] = criterion_id
-            return
-
-
-def _stage_criteria(state: DemoState, cycle, current: bool) -> None:
-    rules = state.service.rules
-    emp = state.employee(cycle.employee_id)
-    editable = current and cycle.is_editable("additional_criteria")
-    sheets = kprm.sheets()["arkusze"]
-
+def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
+    crit = _crit_dict(api, ev["arkusz"])
+    editable = "kryteria_dodatkowe" in ev["edytowalne_pola"]
     st.markdown("#### Arkusz oceny")
-    if editable:
-        c1, c2 = st.columns([1, 2.2], vertical_alignment="bottom")
-        new_sheet = c1.selectbox("Arkusz", list(sheets), index=list(sheets).index(cycle.sheet),
-                                 format_func=lambda s: f"Arkusz {s}", key=f"sheet_{cycle.id}")
-        c2.markdown(f"{escape(sheets[new_sheet]['opis'])}<br>"
-                    f"<span class='lock'>Podpowiedź na podstawie stanowiska „{escape(emp.position)}”: "
-                    f"arkusz {emp.sheet}. Możesz wybrać inny.</span>", unsafe_allow_html=True)
-        if new_sheet != cycle.sheet:
-            problems = change_sheet(state, cycle.id, new_sheet)
-            if problems:
-                ui.show_problems(problems)
-            else:
-                for k in _slot_keys(cycle):
-                    if st.session_state.get(k) in rules.mandatory(new_sheet):
-                        st.session_state[k] = None
-                st.rerun()
-    else:
-        ui.html(f"<p>{ui.badge('Arkusz ' + cycle.sheet, 'b-blue')} {escape(sheets[cycle.sheet]['opis'])}</p>")
+    ui.html(f"<p>{ui.badge('Arkusz ' + ev['arkusz'], 'b-blue')} <span class='lock'>dobrany przez system na podstawie "
+            f"stanowiska: {escape(ev['oceniany'].get('stanowisko') or '')}</span></p>")
 
     st.markdown("#### Kryteria oceny")
-    ui.card("Kryteria obowiązkowe (stałe dla arkusza)", ui.ul(_criteria_names(state, rules.mandatory(cycle.sheet))))
-    st.markdown(f"**Kryteria dodatkowe** <span class='lock'>– najwyżej {rules.max_additional_criteria}, "
-                "bez powtórzeń; puste pole = brak</span>", unsafe_allow_html=True)
-    options = [c["id"] for c in kprm.optional_criteria(cycle.sheet)]
-    keys = _slot_keys(cycle)[:rules.max_additional_criteria]
-    for i, k in enumerate(keys):
-        if k not in st.session_state:
-            st.session_state[k] = cycle.additional_criteria[i] if i < len(cycle.additional_criteria) else None
-    for i, k in enumerate(keys):
-        taken = {st.session_state.get(o) for o in keys if o != k}
-        opts = [None] + [o for o in options if o not in taken]
-        if st.session_state.get(k) not in opts:
-            st.session_state[k] = None
-        st.selectbox(f"Kryterium dodatkowe {i + 1}", opts, key=k, disabled=not editable, placeholder="— brak —",
-                     format_func=lambda c: "— brak —" if c is None else rules.criterion_name(c))
+    with st.container(border=True):
+        st.markdown("**Kryteria obowiązkowe** (stałe dla arkusza)")
+        for k in [k for k in ev["kryteria"] if k["typ"] == "OBOWIAZKOWE"]:
+            st.markdown(f"- {k['nazwa']}", help=_indicators(crit.get(k["criterion_kod"])) or None)
+    chosen = [k["criterion_kod"] for k in ev["kryteria"] if k["typ"] == "DODATKOWE"]
+    optional = [c["kod"] for c in crit.values() if c.get("typ_dla_arkusza") == "DODATKOWE"]
+    st.markdown("**Kryteria dodatkowe** <span class='lock'>– najwyżej 3, bez powtórzeń; puste pole = brak</span>",
+                unsafe_allow_html=True)
+    slots = [chosen[i] if i < len(chosen) else None for i in range(3)]
+
+    def save_slot(i: int) -> None:
+        new = list(slots)
+        new[i] = st.session_state[f"add_{ev['id']}_{i}"]
+        _call(api.additional, ev["id"], [c for c in new if c])
+
+    for i in range(3):
+        key = f"add_{ev['id']}_{i}"
+        _sync(key, slots[i])
+        opts = [None] + [c for c in optional if c == slots[i] or c not in slots]
+        st.selectbox(f"Kryterium dodatkowe {i + 1}", opts, key=key, disabled=not editable, placeholder="— brak —",
+                     format_func=lambda c: "— brak —" if c is None else crit[c]["nazwa"],
+                     on_change=save_slot, args=(i,),
+                     help=_indicators(crit.get(slots[i])) or None)
     if not editable:
-        _locked()
-
-    if editable and ai_on():
-        with st.expander("✨ Asystent: zaproponuj kryteria dodatkowe", expanded=not _chosen(cycle)):
-            st.caption("Asystent dobiera kryteria dodatkowe pasujące do stanowiska i opisanych zadań, "
-                       "z krótkim uzasadnieniem. To tylko propozycja – kryterium dodajesz sam przyciskiem „Dodaj”.")
-            desc = st.text_area("Główne zadania na stanowisku (opcjonalnie – poprawia trafność)",
-                                key=f"desc_{cycle.id}", height=70,
-                                placeholder="np. obsługa interesantów, analizy, projekty unijne…")
-            if st.button("Zaproponuj kryteria", key=f"sugg_{cycle.id}"):
-                state.ai_cache.pop(repr(("crit", cycle.id, cycle.sheet, desc)), None)
-                st.session_state[f"sugg_on_{cycle.id}"] = desc
-            if f"sugg_on_{cycle.id}" in st.session_state:
-                d = st.session_state[f"sugg_on_{cycle.id}"]
-                sug = _cached(state, ("crit", cycle.id, cycle.sheet, d),
-                              lambda: state.assistant.suggest_criteria(emp, cycle.sheet, d))
-                ui.html(f"<p>{ui.source_note(sug.source)} To tylko propozycja – decydujesz Ty.</p>")
-                chosen = _chosen(cycle)
-                for item in sug.items:
-                    a, b = st.columns([4, 1], vertical_alignment="center")
-                    what = "; ".join(rules.criteria[item.criterion_id].indicators)
-                    why = item.reason if sug.source == "AI" else "pasuje do nazwy stanowiska i opisu zadań"
-                    a.markdown(f"**{item.name}** – {why}  \n<span class='lock'>Co ocenia: {escape(what)}</span>",
-                               unsafe_allow_html=True)
-                    b.button("Dodaj", key=f"addsug_{cycle.id}_{item.criterion_id}",
-                             disabled=item.criterion_id in chosen or len(chosen) >= len(keys),
-                             on_click=_put_in_free_slot, args=(cycle, item.criterion_id))
-
-    st.markdown("#### Oczekiwania i cele na okres oceny")
-    goals_key = f"goals_{cycle.id}"
-    if goals_key not in st.session_state:
-        st.session_state[goals_key] = "\n".join(cycle.goals)
-    st.text_area("Jeden cel w wierszu", key=goals_key, height=90, disabled=not editable,
-                 placeholder="np. Terminowe przygotowywanie opinii prawnych (14 dni)")
+        _locked("Kryteria można zmieniać do zatwierdzenia ich przez oceniającego.")
 
     st.markdown("#### Termin sporządzenia oceny")
-    default_deadline = state.service.evaluation_deadline(cycle.id)
-    override = cycle.deadline_override
-    if editable:
-        st.markdown(f"Termin: **{ui.fmt(default_deadline)}** <span class='lock'>"
-                    + ("(ustalony przez oceniającego)" if override else
-                       f"(wyliczony z przepisów: {rules.cycle_months} mies. od {ui.fmt(cycle.start_date)})")
-                    + "</span>", unsafe_allow_html=True)
+    st.markdown(f"**{ui.fmt(ev['czesc_i']['termin_oceny'])}** <span class='lock'>wyliczony przez system "
+                "(24 miesiące od początku cyklu, z pominięciem dni wolnych)</span>", unsafe_allow_html=True)
+    if "termin_oceny" in ev["edytowalne_pola"]:
         with st.popover("📆 Zmień termin oceny"):
-            new = st.date_input("Nowy termin sporządzenia oceny", default_deadline, key=f"ovr_{cycle.id}",
-                                format="DD.MM.YYYY", min_value=state.today)
-            a, b = st.columns(2)
-            if a.button("Zapisz termin", type="primary", key=f"ovr_save_{cycle.id}", use_container_width=True):
-                _, problems = safe(state.service.edit, cycle.id, cycle.evaluator_id, deadline_override=new)
-                if problems:
-                    ui.show_problems(problems)
-                else:
-                    st.toast(f"Nowy termin oceny: {ui.fmt(new)}")
+            new = st.date_input("Nowy termin", to_date(ev["czesc_i"]["termin_oceny"]), key=f"ovr_{ev['id']}",
+                                format="DD.MM.YYYY", min_value=today)
+            if st.button("Zapisz termin", type="primary", key=f"ovr_save_{ev['id']}"):
+                if _call(api.patch, ev, termin_oceny=new, ok=f"Nowy termin oceny: {ui.fmt(new)}"):
                     st.rerun()
-            if override and b.button("Przywróć wyliczony", key=f"ovr_reset_{cycle.id}", use_container_width=True):
-                _, problems = safe(state.service.edit, cycle.id, cycle.evaluator_id, deadline_override=None)
-                ui.show_problems(problems) if problems else st.rerun()
-    else:
-        st.markdown(f"**{ui.fmt(default_deadline)}**")
-        _locked("Zmiana terminu po potwierdzeniu kryteriów – w trybie zmiany terminu oceny.")
+                st.rerun()
 
-    if current:
+    if ev["jako_oceniajacy"] and current_stage(ev) == 1:
         with st.expander("📅 Zaproszenie na rozmowę rozpoczynającą"):
-            _invite_block(state, cycle, 1, "Rozmowa rozpoczynająca ocenę okresową", 45)
-        if ai_on():
+            _invite(ev, today, 1, "Rozmowa rozpoczynająca ocenę okresową", 45)
+        if ai:
             with st.expander("🗣️ Wskazówki do rozmowy rozpoczynającej"):
-                st.caption("Podpowiedź przed rozmową z pracownikiem: cel rozmowy, plan z czasem, a dla każdego kryterium "
-                           "pytania i oczekiwania, które warto omówić. Na tej rozmowie ustalacie, czego oczekujesz "
-                           "w okresie oceny – przepisy wymagają jej przy wyznaczaniu kryteriów (§ 5 rozporządzenia).")
-                _render_prep(_prep(state, cycle, "ROZPOCZYNAJACA"))
-
-    if not current:
-        ui.html(f"<p class='lock'>Kryteria wyznaczone {ui.fmt(cycle.criteria_set_on)}, potwierdzone przez "
-                f"ocenianego {ui.fmt(cycle.criteria_confirmed_on)}.</p>")
-        return
+                st.caption("Podpowiedź przed rozmową: cel, plan z czasem i pytania do każdego kryterium "
+                           "(§ 5 rozporządzenia).")
+                _prep(api, ev, "ROZPOCZYNAJACA")
+    if ev["status"] == "KRYTERIA_DO_POTWIERDZENIA":
+        st.info("⏳ Kryteria przekazane ocenianemu – czeka na potwierdzenie rozmowy i zapoznania się z kryteriami.")
     st.divider()
-    if cycle.status is Status.CRITERIA_SET:
-        st.info("⏳ Kryteria przekazane ocenianemu – czeka na potwierdzenie rozmowy i zapoznania się z kryteriami. "
-                "Do tego czasu możesz je jeszcze poprawić.")
-    label = "Zapisz zmiany i przekaż ponownie" if cycle.status is Status.CRITERIA_SET else \
-        "Zatwierdź etap ✓ – przekaż ocenianemu do potwierdzenia"
-    if st.button(label, type="primary", key=f"setcrit_{cycle.id}"):
-        goals = [g for g in st.session_state[goals_key].splitlines() if g.strip()]
-        _, problems = safe(state.service.set_criteria, cycle.id, cycle.evaluator_id,
-                           _chosen(cycle), goals, override)
-        if problems:
-            ui.show_problems(problems)
-        else:
-            st.toast("Kryteria zapisane i przekazane ocenianemu.")
-            st.rerun()
+    _action(api, ev, "ZATWIERDZ_KRYTERIA")
 
 
-# ---------------------------------------------------------------- stage 2
+# ---------------------------------------------------------------- stage 2: observation
 
-def _note_form(state: DemoState, cycle, key: str) -> None:
+def _note_form(api: Api, ev: dict, today: date, key: str) -> None:
     with st.form(key, clear_on_submit=True, border=False):
         text = st.text_area("Obserwacja", height=80, placeholder="Co się wydarzyło? Konkretne zachowanie i efekt.")
-        c1, c2 = st.columns([1, 1])
-        on = c1.date_input("Data", state.today, max_value=state.today, format="DD.MM.YYYY")
-        c2.write("")
+        c1, c2 = st.columns(2, vertical_alignment="bottom")
+        on = c1.date_input("Data", today, max_value=today, format="DD.MM.YYYY")
         submitted = c2.form_submit_button("Dodaj notatkę", type="primary", use_container_width=True)
-    if submitted and text.strip():
-        note = state.add_note(cycle.id, text, on, cycle.evaluator_id)
-        emp = state.employee(cycle.employee_id)
-        if ai_on():
-            with st.spinner("Asystent przypisuje notatkę do kryterium…"):
-                state.ai_cache[repr(("cls", note.id))] = state.assistant.classify_note(
-                    note, cycle.sheet, cycle.additional_criteria, [emp])
-        st.toast("Notatka dodana.")
-        st.rerun()
+    if submitted:
+        if not text.strip():
+            st.error("Wpisz treść obserwacji, a potem kliknij „Dodaj notatkę”.")
+        elif _call(api.add_note, ev["id"], on, text.strip(), ok="Notatka zapisana."):
+            st.rerun()
 
 
-def _note_row(state: DemoState, cycle, note: Note, editable: bool) -> None:
-    rules = state.service.rules
-    tag = ""
-    if note.criterion_id:
-        cls, lab = ui.SENTIMENT.get(note.sentiment.value if note.sentiment else "", ("b-grey", "bez wydźwięku"))
-        tag = ui.badge(rules.criterion_name(note.criterion_id), "b-blue") + " " + ui.badge(lab, cls)
+def _note_row(api: Api, ev: dict, n: dict, crit: dict, can_edit: bool, ai: bool) -> None:
+    if n.get("criterion_kod"):
+        cls = {"POZYTYWNY": "b-green", "NEGATYWNY": "b-red"}.get(n.get("wydzwiek"), "b-grey")
+        tag = ui.badge(crit.get(n["criterion_kod"], {}).get("nazwa", n["criterion_kod"]), "b-blue") + " " + \
+            ui.badge(SENTIMENTS.get(n.get("wydzwiek"), "bez wydźwięku"), cls)
+    elif n.get("status_klasyfikacji") == "W_TOKU":
+        tag = ui.badge("asystent analizuje…", "b-violet")
     else:
         tag = ui.badge("do przypisania", "b-amber")
-    ui.html(f'<div class="note"><span class="d">{note.on:%d.%m.%Y}</span> {tag}<br>{escape(note.text)}</div>')
-    if not editable:
+    ui.html(f'<div class="note"><span class="d">{ui.fmt(n["data"])} · {escape(name(n.get("autor")))}</span> {tag}<br>'
+            f'{escape(n["tresc"])}</div>')
+    if not can_edit:
         return
-    cls_result = None
-    if not note.criterion_id and ai_on():
-        emp = state.employee(cycle.employee_id)
-        cls_result = _cached(state, ("cls", note.id), lambda: state.assistant.classify_note(
-            note, cycle.sheet, cycle.additional_criteria, [emp]))
-    if not note.criterion_id and cls_result is not None and cls_result.suggestions:
-        cols = st.columns(len(cls_result.suggestions[:3]) + 1)
-        cols[0].caption(f"Propozycja {cls_result.source}:")
-        for col, s in zip(cols[1:], cls_result.suggestions[:3]):
-            sent = SENT_OPTS.get(s.sentiment.value, "") if s.sentiment else ""
-            col.button(f"{s.criterion_name} {sent} ({int(s.confidence * 100)}%)", key=f"acc_{note.id}_{s.criterion_id}",
-                       use_container_width=True,
-                       on_click=state.tag_note, args=(cycle.id, note.id, s.criterion_id, s.sentiment, s.indicator))
-    with st.popover("Przypisz / zmień", use_container_width=False):
-        ids = cycle.criteria_ids(rules)
-        crit = st.selectbox("Kryterium", ids, format_func=rules.criterion_name, key=f"mc_{note.id}",
-                            index=ids.index(note.criterion_id) if note.criterion_id in ids else 0)
-        sent = st.radio("Wydźwięk", list(SENT_OPTS), format_func=SENT_OPTS.get, horizontal=True, key=f"ms_{note.id}")
+    sug = n.get("sugestie_ai") or []
+    if ai and not n.get("criterion_kod") and sug:
+        s0 = sug[0]
+        cols = st.columns([3, 1], vertical_alignment="center")
+        cols[0].caption(f"Propozycja ({'AI' if n.get('zrodlo_sugestii') == 'AI' else 'reguły'}): "
+                        f"{s0.get('nazwa') or s0['criterion_kod']} {SENTIMENTS.get(s0.get('wydzwiek'), '')} "
+                        f"({int(s0['pewnosc'] * 100)}%)")
+        if cols[1].button("Przyjmij", key=f"acc_{n['id']}", use_container_width=True):
+            _call(api.patch_note, n["id"], zaakceptuj_sugestie=True, ok="Przypisano notatkę.")
+            st.rerun()
+    with st.popover("Przypisz / zmień"):
+        codes = [k["criterion_kod"] for k in ev["kryteria"]]
+        c = st.selectbox("Kryterium", codes, key=f"mc_{n['id']}",
+                         index=codes.index(n["criterion_kod"]) if n.get("criterion_kod") in codes else 0,
+                         format_func=lambda x: crit.get(x, {}).get("nazwa", x))
+        s = st.radio("Wydźwięk", list(SENTIMENTS), format_func=SENTIMENTS.get, horizontal=True, key=f"ms_{n['id']}")
         a, b = st.columns(2)
-        a.button("Zapisz", key=f"msave_{note.id}", type="primary", use_container_width=True,
-                 on_click=state.tag_note, args=(cycle.id, note.id, crit, Sentiment(sent)))
-        b.button("Usuń notatkę", key=f"mdel_{note.id}", use_container_width=True,
-                 on_click=state.delete_note, args=(cycle.id, note.id))
-
-
-def _stage_observation(state: DemoState, cycle, current: bool) -> None:
-    rules = state.service.rules
-    notes = sorted(_notes(state, cycle), key=lambda n: n.on, reverse=True)
-    tab_notes, tab_crit, tab_period = st.tabs(["📝 Notatnik", "📊 Wg kryteriów", "📆 Zmiana okresu / nieobecności"])
-    with tab_notes:
-        st.caption("Zapisuj obserwacje przez cały okres oceny. Każdą notatkę przypisujemy do kryterium oceny, "
-                   "bo arkusz ocenia się kryterium po kryterium: dzięki temu przy każdej ocenie cząstkowej widać "
-                   "zebrane przykłady (+/−), wskazówki do rozmowy pytają o kryteria bez obserwacji, a szkic "
-                   "uzasadnienia cytuje właściwe notatki. Asystent proponuje kryterium – decydujesz Ty.")
-        if current or state.stage(cycle) < DONE:
-            _note_form(state, cycle, f"nf_{cycle.id}")
-        if not notes:
-            st.caption("Brak notatek.")
-        for n in notes:
-            _note_row(state, cycle, n, editable=state.stage(cycle) < DONE)
-    with tab_crit:
-        ev = evidence_by_criterion(notes, cycle.criteria_ids(rules))
-        for cid, e in ev.items():
-            bar = "🟩" * len(e.positive) + "⬜" * len(e.neutral) + "🟥" * len(e.negative)
-            st.markdown(f"**{rules.criterion_name(cid)}** · +{len(e.positive)} / −{len(e.negative)} {bar}")
-        untagged = [n for n in notes if not n.criterion_id]
-        if untagged:
-            st.warning(f"{len(untagged)} notatek bez kryterium – nie są brane pod uwagę.")
-    with tab_period:
-        deadline = state.service.evaluation_deadline(cycle.id)
-        st.markdown(f"Aktualny termin oceny: **{ui.fmt(deadline)}**")
-        st.caption(f"Usprawiedliwiona, ciągła nieobecność dłuższa niż {rules.absence_extends_after_months} mies. "
-                   "przesuwa termin oceny o czas jej trwania.")
-        for a in cycle.absences:
-            st.markdown(f"- {ui.fmt(a.start)} – {ui.fmt(a.end)} · {a.kind or 'nieobecność'} ({a.days} dni)")
-        if state.stage(cycle) < 5:
-            with st.form(f"abs_{cycle.id}", clear_on_submit=True):
-                c1, c2, c3 = st.columns(3)
-                start = c1.date_input("Od", state.today - timedelta(days=40), format="DD.MM.YYYY")
-                end = c2.date_input("Do", state.today - timedelta(days=5), format="DD.MM.YYYY")
-                kind = c3.selectbox("Rodzaj", ["zwolnienie lekarskie", "urlop wypoczynkowy", "urlop rodzicielski",
-                                               "inna usprawiedliwiona"])
-                if st.form_submit_button("Dodaj nieobecność"):
-                    try:
-                        absence = Absence(start, end, kind)
-                    except Exception as e:  # ValidationError for end < start
-                        ui.show_problems(getattr(e, "problems", [str(e)]))
-                    else:
-                        new, problems = safe(state.service.register_absence, cycle.id, absence)
-                        if problems:
-                            ui.show_problems(problems)
-                        else:
-                            st.toast(f"Termin oceny: {ui.fmt(new)}")
-                            st.rerun()
-    if current:
-        st.divider()
-        if st.button("Zatwierdź etap ✓ – przejdź do przygotowania rozmowy oceniającej", type="primary",
-                     key=f"obs_done_{cycle.id}"):
-            state.review_started.add(cycle.id)
-            st.session_state[f"sel_{cycle.id}"] = 3
+        if a.button("Zapisz", key=f"msave_{n['id']}", type="primary", use_container_width=True):
+            _call(api.patch_note, n["id"], criterion_kod=c, wydzwiek=s, ok="Zapisano.")
+            st.rerun()
+        if b.button("Usuń notatkę", key=f"mdel_{n['id']}", use_container_width=True):
+            _call(api.delete_note, n["id"], ok="Usunięto notatkę.")
             st.rerun()
 
 
-# ---------------------------------------------------------------- stage 3
+def _stage_observation(api: Api, ev: dict, me: dict, ai: bool, today: date) -> None:
+    crit = _crit_dict(api, ev["arkusz"])
+    work = ev["jako_oceniajacy"] or me["rola"] == "KADRY"
+    tab_notes, tab_crit, tab_period = st.tabs(["📝 Notatnik", "📊 Wg kryteriów", "📆 Zmiana okresu"])
+    with tab_notes:
+        if not work:
+            st.caption("Notatki przełożonego są materiałem roboczym – widzi je oceniający i kadry.")
+        else:
+            st.caption("Zapisuj obserwacje przez cały okres oceny. Każdą notatkę przypisujemy do kryterium, bo arkusz "
+                       "ocenia się kryterium po kryterium: przy ocenie cząstkowej widać zebrane przykłady, a szkic "
+                       "uzasadnienia cytuje właściwe notatki. Asystent proponuje kryterium – decydujesz Ty.")
+            if ev["jako_oceniajacy"] and ev["status"] not in ("ZAKONCZONA", "OCENA_DO_ZAPOZNANIA"):
+                _note_form(api, ev, today, f"nf_{ev['id']}")
+            notes = sorted(api.notes(ev["id"]), key=lambda n: n["data"], reverse=True)
+            if not notes:
+                st.caption("Brak notatek.")
+            for n in notes:
+                _note_row(api, ev, n, crit, ev["jako_oceniajacy"], ai)
+    with tab_crit:
+        if work:
+            evid = api.evidence(ev["id"])
+            for e in evid["kryteria"]:
+                bar = "🟩" * e["plus"] + "⬜" * e["neutralne"] + "🟥" * e["minus"]
+                st.markdown(f"**{e['nazwa']}** · +{e['plus']} / −{e['minus']} {bar}")
+                if e.get("wskazniki_bez_obserwacji"):
+                    st.caption("Brak obserwacji: " + "; ".join(e["wskazniki_bez_obserwacji"]))
+            if evid["notatki_do_przypisania"]:
+                st.warning(f"Notatki bez kryterium: {evid['notatki_do_przypisania']} – nie są brane pod uwagę.")
+    with tab_period:
+        c1, c2 = ev["czesc_i"], ev["czesc_ii"]
+        start = to_date(c2.get("okres_od") or c1.get("data_wyznaczenia_kryteriow")) or today
+        end = to_date(c2.get("okres_do") or c1["termin_oceny"])
+        st.markdown(f"Okres oceny: **{ui.fmt(start)} – {ui.fmt(end)}**")
+        if "okres_od" in ev["edytowalne_pola"]:
+            a, b = st.columns(2)
+            new_from = a.date_input("Okres oceny od", start, format="DD.MM.YYYY", key=f"per_f_{ev['id']}")
+            new_to = b.date_input("Okres oceny do", end, format="DD.MM.YYYY", key=f"per_t_{ev['id']}")
+            if st.button("Zapisz okres oceny", type="primary", key=f"per_save_{ev['id']}"):
+                if new_to < new_from:
+                    st.error("Data „do” jest wcześniejsza niż data „od”.")
+                else:
+                    _call(api.patch, ev, okres_od=new_from, okres_do=new_to,
+                          ok=f"Okres oceny: {ui.fmt(new_from)} – {ui.fmt(new_to)}")
+                    st.rerun()
+        else:
+            _locked("Okres oceny można zmienić od potwierdzenia kryteriów do zapisania rozmowy oceniającej.")
+    if ev["status"] == "OKRES_OCENY" and ev["jako_oceniajacy"]:
+        st.divider()
+        if st.button("Przejdź do przygotowania rozmowy oceniającej →", type="primary", key=f"to3_{ev['id']}"):
+            st.session_state[f"sel_{ev['id']}"] = 3
+            st.rerun()
 
-def _stage_review(state: DemoState, cycle, current: bool) -> None:
-    if current:
-        with st.expander("📅 Zaproszenie na rozmowę oceniającą", expanded=(cycle.id, 3) not in state.invites):
-            _invite_block(state, cycle, 3, "Rozmowa oceniająca", 60)
-    st.markdown("#### Przygotowanie do rozmowy")
-    if ai_on():
-        _render_prep(_prep(state, cycle, "OCENIAJACA"))
-    else:
-        st.caption("Asystent jest wyłączony – wskazówki do rozmowy są ukryte.")
-    st.markdown("#### Odbycie rozmowy")
-    if not current:
-        ui.html(f"<p>Rozmowa odbyła się <b>{ui.fmt(cycle.meeting_date)}</b>; okres oceny "
-                f"{ui.fmt(cycle.period_from)} – {ui.fmt(cycle.period_to)}.</p>")
+
+# ---------------------------------------------------------------- stage 3: review meeting
+
+def _stage_review(api: Api, ev: dict, ai: bool, today: date) -> None:
+    if ev["status"] != "OKRES_OCENY":
+        st.markdown(f"Rozmowa oceniająca odbyła się **{ui.fmt(ev['czesc_ii'].get('data_rozmowy_oceniajacej'))}**.")
         _locked()
         return
-    planned = state.invites.get((cycle.id, 3))
-    c1, c2, c3 = st.columns(3)
-    meeting = c1.date_input("Data rozmowy oceniającej", min(planned.date(), state.today) if planned else state.today,
-                            max_value=state.today, format="DD.MM.YYYY", key=f"md_{cycle.id}")
-    pf = c2.date_input("Okres oceny od", cycle.criteria_set_on or cycle.start_date, format="DD.MM.YYYY",
-                       key=f"pf_{cycle.id}")
-    pt = c3.date_input("Okres oceny do", meeting, format="DD.MM.YYYY", key=f"pt_{cycle.id}")
-    a, b = st.columns([2, 1])
-    if a.button("Zatwierdź etap ✓ – rozmowa odbyta, przejdź do arkusza", type="primary", key=f"rev_{cycle.id}"):
-        _, problems = safe(state.service.record_review_meeting, cycle.id, cycle.evaluator_id, meeting, pf, pt)
-        if problems:
-            ui.show_problems(problems)
+    if ev["jako_oceniajacy"]:
+        with st.expander("📅 Zaproszenie na rozmowę oceniającą"):
+            _invite(ev, today, 3, "Rozmowa oceniająca", 60)
+        st.markdown("#### Przygotowanie do rozmowy")
+        if ai:
+            _prep(api, ev, "OCENIAJACA")
         else:
-            st.session_state[f"sel_{cycle.id}"] = 4
-            st.rerun()
-    if b.button("← Wróć do obserwacji", key=f"back_obs_{cycle.id}"):
-        state.review_started.discard(cycle.id)
-        st.session_state[f"sel_{cycle.id}"] = 2
-        st.rerun()
+            st.caption("Asystent jest wyłączony – wskazówki do rozmowy są ukryte.")
+        st.divider()
+    _action(api, ev, "ROZPOCZNIJ_ROZMOWE",
+            note=f"Jako datę rozmowy system zapisze dzisiejszą datę ({ui.fmt(today)}).")
 
 
-# ---------------------------------------------------------------- stage 4
+# ---------------------------------------------------------------- stage 4: the sheet
 
-def _live_result(state: DemoState, cycle, scores: dict):
-    ids = cycle.criteria_ids(state.service.rules)
-    if all(scores.get(c) for c in ids):
-        return compute_result([scores[c] for c in ids], state.service.rules)
-    return None
+def _basis_hint(ev: dict, notes_by_id: dict, evid: dict | None) -> str:
+    lines = ["Propozycja – na czym oprzeć uzasadnienie:"]
+    by_code = {e["criterion_kod"]: e for e in (evid or {}).get("kryteria", [])}
+    for k in ev["kryteria"]:
+        e = by_code.get(k["criterion_kod"])
+        pts = k.get("punkty")
+        if pts is None and not e:
+            continue
+        line = f"• {k['nazwa']} – " + (f"{pts} pkt ({SCALE_LABEL.get(pts, '')})" if pts else "jeszcze nie oceniono")
+        if e:
+            line += f"; notatki +{e['plus']}/−{e['minus']}"
+            ids = [i for i in e["notatki_ids"] if i in notes_by_id]
+            if ids:
+                n = notes_by_id[ids[0]]
+                text = n["tresc"] if len(n["tresc"]) <= 90 else n["tresc"][:87] + "…"
+                line += f" – np. {ui.fmt(n['data'])}: „{text}”"
+        lines.append(line)
+    lines.append("Opisz konkretne zachowania i ich skutki w okresie oceny, a nie cechy osoby.")
+    return "\n".join(lines)
 
 
-def _result_box(result, rules, partial: int, total: int) -> None:
-    if result is None:
-        ui.html(f'<div class="result pending">Oceniono {partial} z {total} kryteriów – średnia i ocena pojawią się '
-                'po uzupełnieniu wszystkich.</div>')
+def _iprz_hint(ev: dict) -> str:
+    weak = [k["nazwa"] for k in ev["kryteria"] if k.get("punkty") is not None and k["punkty"] <= 3]
+    strong = [k["nazwa"] for k in ev["kryteria"] if k.get("punkty") is not None and k["punkty"] >= 7]
+    lines = ["Propozycja – co ująć we wnioskach rozwojowych:",
+             "• Obszary do rozwoju: " + (", ".join(weak) if weak else "kryteria z najniższą oceną")]
+    if strong:
+        lines.append("• Mocne strony do wykorzystania: " + ", ".join(strong))
+    lines.append("• Konkretne działania i termin: szkolenie, mentoring, nowe zadanie, udział w projekcie.")
+    return "\n".join(lines)
+
+
+def _result_box(c2: dict, scored: int, total: int) -> None:
+    if c2.get("srednia") is None:
+        ui.html(f'<div class="result pending">Oceniono {scored} z {total} kryteriów – średnia i ocena pojawią się po '
+                'uzupełnieniu wszystkich.</div>')
         return
-    cls = "pos" if result.outcome is Outcome.POSITIVE else "neg"
-    avg = f"{result.average_display:.2f}".replace(".", ",")
-    ui.html(f'<div class="result {cls}">Średnia <b>{avg}</b> · poziom <b>{escape(result.level)}</b> · '
-            f'ocena <b>{result.outcome.value.upper()}</b></div>')
+    cls = "pos" if c2["wynik"] == "POZYTYWNA" else "neg"
+    avg = f"{c2['srednia']:.2f}".replace(".", ",")
+    ui.html(f'<div class="result {cls}">Średnia <b>{avg}</b> · poziom <b>{escape(LEVEL_LABEL.get(c2["poziom"], ""))}'
+            f'</b> · ocena <b>{c2["wynik"]}</b></div>')
 
 
-def _stage_sheet(state: DemoState, cycle, current: bool) -> None:
-    rules = state.service.rules
-    emp = state.employee(cycle.employee_id)
-    evaluator = state.employee(cycle.evaluator_id)
-    ids = cycle.criteria_ids(rules)
-    editable = current and cycle.is_editable("scores")
-    notes = _notes(state, cycle)
-    ev = evidence_by_criterion(notes, ids)
+def _pdf_button(api: Api, ev: dict) -> None:
+    if st.button("🖨️ Przygotuj PDF arkusza", key=f"pdf_{ev['id']}"):
+        out = _call(api.pdf, ev["id"])
+        if out:
+            st.session_state[f"pdf_{ev['id']}_data"] = out
+    data = st.session_state.get(f"pdf_{ev['id']}_data")
+    if data:
+        st.download_button("⬇️ Pobierz PDF arkusza (wzór z rozporządzenia)", data[0], file_name=data[1],
+                           mime="application/pdf", key=f"pdfdl_{ev['id']}")
 
-    with st.expander("Część I – dane z systemu (uzupełnione automatycznie)"):
-        ui.html(ui.kv([("Urząd", emp.office), ("Oceniany", f"{emp.full_name}, {emp.position}, {emp.unit}"),
-                       ("Oceniający", f"{evaluator.full_name}, {evaluator.position}" if evaluator else "—"),
-                       ("Kryteria wyznaczone", ui.fmt(cycle.criteria_set_on)),
-                       ("Rozmowa oceniająca", ui.fmt(cycle.meeting_date)),
-                       ("Okres oceny", f"{ui.fmt(cycle.period_from)} – {ui.fmt(cycle.period_to)}")]))
 
-    points = sorted(rules.scale)
-    bands = "\n".join(f"- {b.level}: średnia " + (f"powyżej {float(b.lower_exclusive):g}" if b.lower_exclusive is not None
-                                                  else "od 1") + f" do {float(b.upper_inclusive):g} pkt"
-                       for b in rules.level_bands)
+def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
+    eid = ev["id"]
+    crit = _crit_dict(api, ev["arkusz"])
+    can_score = "punkty" in ev["edytowalne_pola"]
+    work = ev["jako_oceniajacy"] or me["rola"] == "KADRY"
+    evid = api.evidence(eid) if work else None
+    notes_by_id = {n["id"]: n for n in api.notes(eid)} if work else {}
+    by_code = {e["criterion_kod"]: e for e in (evid or {}).get("kryteria", [])}
+    scale = meta.get("skala_punktow", [1, 3, 5, 7, 9])
+
+    def set_score(code: str, key: str) -> None:
+        _call(api.scores, eid, {code: st.session_state[key]})
+
+    def accept(code: str, key: str, pts: int) -> None:
+        st.session_state[key] = pts
+        _call(api.scores, eid, {code: pts}, ok="Przyjęto sugerowaną ocenę.")
+
+    bands = "\n".join(f"- {LEVEL_LABEL[k]}: średnia {lo:g}–{hi:g} pkt" for k, (lo, hi) in meta["progi_poziomow"].items())
     st.markdown("#### Oceny cząstkowe", help=(
-        "**Jak ocenić (§ 11 rozporządzenia PRM z 4.04.2016, Dz. U. poz. 470):**\n\n"
-        + "\n".join(f"- **{p} pkt** – {rules.scale[p]}" for p in points)
-        + "\n\nŚrednia z ocen cząstkowych wyznacza poziom:\n" + bands
-        + f"\n\nOcena jest **negatywna**, gdy poziom jest poniżej oczekiwań albo gdy choć jedno kryterium ma "
-          f"{rules.forbidden_partial_score} pkt. Przy każdym kryterium znak **?** pokazuje, czego dotyczy "
-          "(wskaźniki z załącznika nr 1 do rozporządzenia)."))
-    ui.html("<p class='lock'>" + " · ".join(f"<b>{p}</b> {escape(rules.scale[p])}" for p in points) + "</p>")
-    scores: dict[str, int] = {}
-    score_box = st.container(key="scores")
-    for cid in ids:
-        key = f"sc_{cycle.id}_{cid}"
-        if key not in st.session_state and cid in cycle.scores:
-            st.session_state[key] = cycle.scores[cid]
-        e = ev[cid]
-        c1, c2 = score_box.columns([1.4, 1.6], vertical_alignment="center")
-        mand = cid in rules.mandatory(cycle.sheet)
-        crit = rules.criteria[cid]
-        c1.markdown(f"**{crit.name}**{'' if mand else ' · dodatkowe'}<br>"
-                    f"<span class='lock'>notatki: +{len(e.positive)} / −{len(e.negative)}</span>",
-                    unsafe_allow_html=True,
-                    help=f"**Na co patrzeć – {crit.name}** (wskaźniki z załącznika nr 1 do rozporządzenia PRM "
-                         "z 4.04.2016):\n\n" + "\n".join(f"- {i}" for i in crit.indicators))
+        "**Jak ocenić (§ 11 rozporządzenia PRM z 4.04.2016):**\n\n"
+        + "\n".join(f"- **{p} pkt** – {SCALE_LABEL.get(p, '')}" for p in scale)
+        + "\n\nŚrednia wyznacza poziom:\n" + bands
+        + "\n\nOcena jest **negatywna**, gdy poziom jest poniżej oczekiwań albo choć jedno kryterium ma 1 pkt. "
+          "Znak **?** przy kryterium pokazuje, czego ono dotyczy."))
+    ui.html("<p class='lock'>" + " · ".join(f"<b>{p}</b> {escape(SCALE_LABEL.get(p, ''))}" for p in scale) + "</p>")
+    box = st.container(key="scores")
+    for k in ev["kryteria"]:
+        code = k["criterion_kod"]
+        key = f"sc_{eid}_{code}"
+        _sync(key, k.get("punkty"))
+        e = by_code.get(code)
+        counts = k.get("liczba_dowodow") or {}
+        c1, c2 = box.columns([1.4, 1.6], vertical_alignment="center")
+        c1.markdown(f"**{k['nazwa']}**{'' if k['typ'] == 'OBOWIAZKOWE' else ' · dodatkowe'}<br>"
+                    f"<span class='lock'>notatki: +{counts.get('POZYTYWNY', 0)} / −{counts.get('NEGATYWNY', 0)}</span>",
+                    unsafe_allow_html=True, help=_indicators(crit.get(code)) or None)
         with c2:
-            val = st.segmented_control(rules.criterion_name(cid), points, key=key, format_func=str,
-                                       label_visibility="collapsed", disabled=not editable)
-            st.caption(rules.scale[val] if val is not None else "nie oceniono")
-        if val is not None:
-            scores[cid] = val
-    result = cycle.result or _live_result(state, cycle, scores)
-    _result_box(result, rules, len(scores), len(ids))
-    if any(v == rules.forbidden_partial_score for v in scores.values()):
-        st.warning(f"Ocena cząstkowa „{rules.scale[rules.forbidden_partial_score]}” oznacza ocenę NEGATYWNĄ "
-                   "niezależnie od średniej (§ 11 rozporządzenia).")
+            val = st.segmented_control(k["nazwa"], scale, key=key, format_func=str, label_visibility="collapsed",
+                                       disabled=not can_score, on_change=set_score, args=(code, key))
+            st.caption(SCALE_LABEL.get(val, "") if val is not None else "nie oceniono")
+        sug = k.get("sugerowane_punkty")
+        if work and sug is not None:
+            s1, s2 = box.columns([3, 1], vertical_alignment="center")
+            why = (e or {}).get("uzasadnienie_sugestii") or ""
+            s1.caption(f"✨ Sugerowane: **{sug} pkt** · {why}" + (" · zgodne z oceną" if val == sug else ""))
+            if can_score and val != sug:
+                s2.button("Przyjmij", key=f"acc_sc_{eid}_{code}", on_click=accept, args=(code, key, sug),
+                          help=f"Ustaw ocenę {sug} pkt dla kryterium {k['nazwa']}")
+        ids = [i for i in (e or {}).get("notatki_ids", []) if i in notes_by_id]
+        if ids:
+            with box.expander(f"Pokaż notatki ({len(ids)})"):
+                for i in ids[:5]:
+                    n = notes_by_id[i]
+                    ui.html(f'<div class="note"><span class="d">{ui.fmt(n["data"])}</span> '
+                            f'{ui.badge(SENTIMENTS.get(n.get("wydzwiek"), "—"), "b-grey")}<br>{escape(n["tresc"])}</div>')
+    scored = sum(k.get("punkty") is not None for k in ev["kryteria"])
+    _result_box(ev["czesc_ii"], scored, len(ev["kryteria"]))
+    st.caption("Ocena jest negatywna także wtedy, gdy którekolwiek kryterium ma 1 punkt (§ 11 rozporządzenia).")
 
-    def draft_into(kind: str, target_key: str) -> None:
-        # the draft uses the current scores, so save them as a draft first
-        safe(state.service.edit, cycle.id, cycle.evaluator_id, scores=scores)
-        fresh = state.cycle(cycle.id)
-        d = state.assistant.draft(kind, fresh, emp, notes)
-        st.session_state[target_key] = d.text
-        st.session_state[f"src_{target_key}"] = d.source
+    # ---- texts + assistant drafts (proposal: Wstaw / Edytuj / Odrzuć)
+    blocks = {w["pole"] for w in ev["walidacje"] if w["waga"] == "BLAD"}
+    drafts_on = ai and ev["jako_oceniajacy"] and meta.get("funkcje_ai", {}).get("szkic_uzasadnienia", True)
+    hints = {"uzasadnienie": _basis_hint(ev, notes_by_id, evid), "wnioski_iprz": _iprz_hint(ev)}
 
-    negative = (result is not None and result.outcome is Outcome.NEGATIVE) or \
-        rules.forbidden_partial_score in scores.values()
-    for kind, field, title, required in (
-        ("UZASADNIENIE", "justification", "Uzasadnienie oceny", negative),
-        ("IPRZ", "iprz_conclusions", "Wnioski dotyczące indywidualnego programu rozwoju zawodowego", True),
-    ):
-        key = f"{field}_{cycle.id}"
-        if key not in st.session_state:
-            st.session_state[key] = getattr(cycle, field)
-        h, btn = st.columns([3, 1])
-        src = st.session_state.get(f"src_{key}")
-        h.markdown(f"#### {title} {'*' if required else '(opcjonalne)'} "
-                   + (ui.source_badge(src) if src else ""), unsafe_allow_html=True)
-        if editable and ai_on():
-            btn.button("✨ Szkic asystenta", key=f"dr_{key}", use_container_width=True,
-                       on_click=draft_into, args=(kind, key))
-        st.text_area(title, key=key, height=150, disabled=not editable, label_visibility="collapsed")
-    if editable and negative and not st.session_state[f"justification_{cycle.id}"].strip():
-        st.error("Ocena jest negatywna – uzasadnienie jest obowiązkowe. Bez niego nie można zatwierdzić oceny.")
+    def request_draft(kind: str, dkey: str) -> None:
+        out = _call(api.draft, eid, kind)
+        if out:
+            st.session_state[dkey] = out
+
+    for field, (title, kind) in TEXT_FIELDS.items():
+        tkey = f"tx_{eid}_{field}"
+        dkey = f"draft_{eid}_{field}"
+        _sync(tkey, ev["czesc_ii"].get(field) or "")
+        editable = field in ev["edytowalne_pola"]
+        required = field in blocks or field == "wnioski_iprz" or ev["czesc_ii"].get("wynik") == "NEGATYWNA"
+        h, btn = st.columns([3, 1], vertical_alignment="bottom")
+        h.markdown(f"#### {title} " + ("*" if required else "<span class='lock'>(opcjonalne przy ocenie pozytywnej)</span>"),
+                   unsafe_allow_html=True)
+        if editable and drafts_on:
+            btn.button("✨ Szkic od asystenta", key=f"dr_{tkey}", use_container_width=True,
+                       on_click=request_draft, args=(kind, dkey))
+        # a negative result needs a justification: offer the assistant's draft straight away (once)
+        if (field == "uzasadnienie" and editable and drafts_on and ev["czesc_ii"].get("wynik") == "NEGATYWNA"
+                and not st.session_state[tkey].strip() and not st.session_state.get(f"auto_{eid}")):
+            st.session_state[f"auto_{eid}"] = True
+            request_draft(kind, dkey)
+        d = st.session_state.get(dkey)
+        if d and editable:
+            with st.container(border=True):
+                src = "Wygenerowane przez model lokalny" if d["zrodlo"] == "AI" else "Szablon z danych (model niedostępny)"
+                based = f" · na podstawie {len(d.get('oparte_na_notatkach') or [])} notatek" if d.get("oparte_na_notatkach") else ""
+                ui.html(f"{ui.badge('✨ Propozycja asystenta', 'b-violet')} <span class='lock'>{src}{based} · nic nie "
+                        f"zostanie zapisane bez Twojej decyzji.</span>")
+                st.markdown(d["tekst"])
+                a, b, c = st.columns(3)
+
+                def use(save: bool, field=field, tkey=tkey, dkey=dkey) -> None:
+                    st.session_state[tkey] = st.session_state[dkey]["tekst"]
+                    st.session_state.pop(dkey, None)
+                    if save:
+                        fresh = api.evaluation(eid)
+                        _call(api.patch, fresh, **{field: st.session_state[tkey]}, ok="Wstawiono i zapisano.")
+
+                a.button("Wstaw", key=f"use_{dkey}", type="primary", use_container_width=True, on_click=use, args=(True,))
+                b.button("✏️ Edytuj", key=f"edit_{dkey}", use_container_width=True, on_click=use, args=(False,))
+                c.button("✖ Odrzuć", key=f"rej_{dkey}", use_container_width=True,
+                         on_click=lambda dkey=dkey: st.session_state.pop(dkey, None))
+        st.text_area(title, key=tkey, height=170, disabled=not editable, label_visibility="collapsed",
+                     placeholder=hints[field] if editable else "")
+        if field in blocks and editable and not st.session_state[tkey].strip():
+            st.error(next(w["komunikat"] for w in ev["walidacje"] if w["pole"] == field))
+        if not editable and ev["czesc_ii"].get("podpis_oceniajacego", {}).get("at"):
+            _locked("Zablokowane po zatwierdzeniu oceny.")
+
+    def dirty() -> dict:
+        return {f: st.session_state[f"tx_{eid}_{f}"] for f in TEXT_FIELDS
+                if f in ev["edytowalne_pola"] and st.session_state[f"tx_{eid}_{f}"] != (ev["czesc_ii"].get(f) or "")}
+
+    def save_texts() -> bool:
+        changes = dirty()
+        if not changes:
+            return True
+        return _call(api.patch, api.evaluation(eid), **changes) is not None
 
     st.markdown("#### Część III – wniosek o kolejny stopień służbowy")
-    gr = state.grade_request.setdefault(cycle.id, {"official": False, "attach": False, "text": ""})
-    gr["official"] = st.toggle("Oceniany jest urzędnikiem służby cywilnej (mianowanym)", value=gr["official"],
-                               key=f"off_{cycle.id}", disabled=not editable)
-    if gr["official"]:
-        if result is not None and result.outcome is Outcome.POSITIVE:
-            gr["attach"] = st.checkbox("Dołączam umotywowany wniosek o przyznanie kolejnego stopnia służbowego",
-                                       value=gr["attach"], key=f"att_{cycle.id}", disabled=not editable)
-            if gr["attach"]:
-                tkey = f"grade_{cycle.id}"
-                if tkey not in st.session_state:
-                    st.session_state[tkey] = gr["text"]
-                if editable and ai_on():
-                    st.button("✨ Szkic uzasadnienia wniosku", key=f"dr_{tkey}",
-                              on_click=draft_into, args=("UMOTYWOWANIE_STOPNIA", tkey))
-                gr["text"] = st.text_area("Umotywowanie wniosku", key=tkey, height=110, disabled=not editable)
-        else:
-            gr["attach"] = False
-            st.caption("Wniosek można dołączyć tylko do oceny pozytywnej.")
+    c3 = ev.get("czesc_iii")
+    if ev["oceniany"].get("typ_zatrudnienia") != "URZEDNIK":
+        st.caption("Nie dotyczy – oceniany jest pracownikiem służby cywilnej (część III dotyczy urzędników).")
+    elif c3:
+        st.markdown(f"Wnioskowany stopień: **{c3.get('wnioskowany_stopien') or '—'}**"
+                    + (" · stopień obligatoryjny" if c3.get("stopien_obligatoryjny") else ""))
     else:
-        st.caption("Nie dotyczy – część III wypełnia się tylko dla urzędników służby cywilnej.")
+        st.caption(f"Wniosek o stopień: {ev['czesc_ii'].get('wniosek_o_stopien', 'NIE_DOTYCZY').replace('_', ' ').lower()}.")
 
-    if editable:
-        st.divider()
-        a, b, _ = st.columns([1.6, 1, 1.4])
-        payload = dict(scores=scores, justification=st.session_state[f"justification_{cycle.id}"],
-                       iprz_conclusions=st.session_state[f"iprz_conclusions_{cycle.id}"])
-        if b.button("Zapisz szkic", key=f"save_{cycle.id}", use_container_width=True):
-            _, problems = safe(state.service.edit, cycle.id, cycle.evaluator_id, **payload)
-            ui.show_problems(problems) if problems else st.toast("Szkic zapisany.")
-        if a.button("Zatwierdź ocenę ✓ – przekaż do zapoznania", type="primary", key=f"submit_{cycle.id}",
-                    use_container_width=True):
-            _, problems = safe(state.service.submit_evaluation, cycle.id, cycle.evaluator_id, **payload)
-            if problems:
-                ui.show_problems(problems)
-            else:
-                st.session_state[f"sel_{cycle.id}"] = 5
+    st.divider()
+    a, b = st.columns([1, 1.6], vertical_alignment="top")
+    if any(f in ev["edytowalne_pola"] for f in TEXT_FIELDS):
+        if a.button("💾 Zapisz roboczo", key=f"save_{eid}", use_container_width=True):
+            if not dirty():
+                st.toast("Brak zmian do zapisania.")
+            elif save_texts():
+                st.toast("Zapisano roboczo.")
                 st.rerun()
-    elif not current:
-        _locked()
-    _export(state, cycle)
-
-
-def _export(state: DemoState, cycle) -> None:
-    emp = state.employee(cycle.employee_id)
-    doc = sheet_html(state.cycle(cycle.id), emp, state.employee(cycle.evaluator_id), state.service.rules,
-                     state.service.evaluation_deadline(cycle.id), state.grade_request.get(cycle.id))
-    st.download_button("🖨️ Pobierz arkusz do druku / PDF", doc.encode("utf-8"),
-                       file_name=f"arkusz-{cycle.sheet}-{cycle.employee_id}.html", mime="text/html",
-                       key=f"exp_{cycle.id}_{state.stage(cycle)}")
+    with b:
+        _action(api, ev, "ZATWIERDZ_OCENE", before=save_texts)
+    _pdf_button(api, ev)
 
 
 # ---------------------------------------------------------------- stage 5
 
-def _stage_ack(state: DemoState, cycle, current: bool) -> None:
-    rules = state.service.rules
-    if cycle.result:
-        _result_box(cycle.result, rules, 0, 0)
-    if cycle.status is Status.EVALUATION_DONE:
-        st.info(f"⏳ Ocena sporządzona {ui.fmt(cycle.evaluated_on)} i przekazana ocenianemu – czeka na potwierdzenie "
-                "zapoznania się z oceną.")
-    else:
-        objection = state.service.objection_deadline(cycle.id)
-        st.success(f"✔ Oceniany zapoznał się z oceną {ui.fmt(cycle.acknowledged_on)}.")
-        if objection:
-            st.markdown(f"Termin na sprzeciw do dyrektora generalnego: **{ui.fmt(objection)}** "
-                        f"({ui.days_text((objection - state.today).days)}).")
-        due = cycle.next_evaluation_due(rules)
-        if due:
-            st.warning(f"Po ocenie negatywnej ponowna ocena: {ui.fmt(due)}.")
-    _export(state, cycle)
-
-
-STAGE_RENDER = {1: _stage_criteria, 2: _stage_observation, 3: _stage_review, 4: _stage_sheet, 5: _stage_ack}
+def _stage_ack(api: Api, ev: dict) -> None:
+    c2 = ev["czesc_ii"]
+    scored = sum(k.get("punkty") is not None for k in ev["kryteria"])
+    _result_box(c2, scored, len(ev["kryteria"]))
+    if ev["status"] == "OCENA_DO_ZAPOZNANIA":
+        st.info(f"⏳ Ocena sporządzona {ui.fmt(c2.get('data_sporzadzenia'))} i przekazana ocenianemu – czeka na "
+                "potwierdzenie zapoznania się z oceną.")
+    elif c2.get("zapoznanie", {}).get("at"):
+        st.success(f"✔ Oceniany zapoznał się z oceną {ui.fmt(c2['zapoznanie']['at'])}"
+                   + (" (fikcja zapoznania)." if c2.get("fikcja_zapoznania") else "."))
+        if c2.get("termin_sprzeciwu"):
+            st.markdown(f"Termin na sprzeciw do dyrektora generalnego: **{ui.fmt(c2['termin_sprzeciwu'])}**.")
+    for akcja in ("FIKCJA_ZAPOZNANIA", "POTWIERDZ_ZAPOZNANIE"):
+        _action(api, ev, akcja)
+    _pdf_button(api, ev)
 
 
 # ---------------------------------------------------------------- side panel
 
-def _summary(state: DemoState, cycle) -> None:
-    rules = state.service.rules
-    emp = state.employee(cycle.employee_id)
-    result = cycle.result
-    if result is None:
-        scores = {c: v for c, v in cycle.scores.items() if v}
-        result = _live_result(state, cycle, scores)
-    prev = cycle.previous_evaluation or emp.previous_evaluation
-    rows = [("Arkusz", f"{cycle.sheet} · {len(rules.mandatory(cycle.sheet))} obowiązkowych + "
-                       f"{len(cycle.additional_criteria)} dodatkowe"),
-            ("Etap", ui.stage_label(state.stage(cycle))),
-            ("Termin oceny", ui.fmt(state.service.evaluation_deadline(cycle.id))),
-            ("Notatki", str(len(_notes(state, cycle)))),
-            ("Poprzednia", f"{prev.outcome}, {ui.fmt(prev.date)}" if prev and prev.outcome else "brak")]
+def _progress(ev: dict) -> None:
+    cur = current_stage(ev)
+    done = cur == DONE
+    with st.container(border=True):
+        st.markdown("**🧭 Postęp**" + (" · proces zakończony" if done else f" · krok {cur} z {len(STAGES)}"))
+        st.progress(min(cur - 1, len(STAGES)) / len(STAGES) if not done else 1.0)
+        st.caption(STATUS_LABEL.get(ev["status"], ev["status"]))
+        if ev["status"] == "ROZMOWA_OCENIAJACA" and ev["jako_oceniajacy"]:
+            st.markdown("**Do uzupełnienia przed zatwierdzeniem**")
+            blocks = [w for w in ev["walidacje"] if w["waga"] == "BLAD"]
+            missing = sum(k.get("punkty") is None for k in ev["kryteria"])
+            items = ([f"🔴 Oceny cząstkowe: brakuje {missing}"] if missing else []) + \
+                [f"🔴 {CHECK_LABEL.get(w['kod'], w['komunikat'])}" for w in blocks if w["kod"] != "BRAK_OCENY"]
+            for line in items or ["✅ Wszystko gotowe do zatwierdzenia."]:
+                st.markdown(line)
+        for w in [w for w in ev["walidacje"] if w["waga"] == "OSTRZEZENIE"]:
+            st.caption(f"⚠️ {w['komunikat']}")
+
+
+def _summary(ev: dict) -> None:
+    c2 = ev["czesc_ii"]
     with st.container(border=True):
         st.markdown("**Ocena w skrócie**")
-        if result is None:
-            ui.html('<div class="result pending">w trakcie</div>')
+        if c2.get("wynik"):
+            cls = "pos" if c2["wynik"] == "POZYTYWNA" else "neg"
+            avg = f"{c2['srednia']:.2f}".replace(".", ",")
+            ui.html(f'<div class="result {cls}"><b>{c2["wynik"]}</b>'
+                    f'{"" if c2.get("data_sporzadzenia") else " (wstępnie)"}<br>średnia {avg} · '
+                    f'{escape(LEVEL_LABEL.get(c2["poziom"], ""))}</div>')
         else:
-            cls = "pos" if result.outcome is Outcome.POSITIVE else "neg"
-            avg = f"{result.average_display:.2f}".replace(".", ",")
-            label = "" if cycle.result else " (wstępnie)"
-            ui.html(f'<div class="result {cls}"><b>{result.outcome.value.upper()}</b>{label}<br>'
-                    f'średnia {avg} · {escape(result.level)}</div>')
-        ui.html(ui.kv(rows))
+            ui.html('<div class="result pending">w trakcie</div>')
+        add = sum(k["typ"] == "DODATKOWE" for k in ev["kryteria"])
+        ui.html(ui.kv([("Arkusz", f"{ev['arkusz']} · {len(ev['kryteria']) - add} obowiązkowych + {add} dodatkowe"),
+                       ("Termin oceny", ui.fmt(ev["czesc_i"]["termin_oceny"])),
+                       ("Oceniający", name(ev["oceniajacy"]))]))
 
 
-def _hr_partner(state: DemoState, cycle) -> None:
-    emp = state.employee(cycle.employee_id)
-    notes = _notes(state, cycle)
-    key = ("hr", cycle.id, len(notes), tuple((n.id, n.criterion_id) for n in notes), len(cycle.absences),
-           state.today, cycle.result is not None)
-    report = _cached(state, key, lambda: state.assistant.hr_partner(cycle, emp, notes, cycle.absences, state.today))
-    tones = {"PRZECIAZENIE": ("⚠️ Przeciążenie", "c-amber"), "DLUGA_NIEOBECNOSC": ("🏥 Długa nieobecność", "c-blue"),
-             "ZMIANA_OBOWIAZKOW": ("🔄 Zmiana obowiązków", "c-blue"), "SPADEK_OCEN": ("📉 Spadek ocen", "c-red"),
-             "DO_DOCENIENIA": ("👏 Warto docenić", "c-green")}
+def _hr_partner(api: Api, ev: dict) -> None:
+    report = _cached(("hr", ev["id"], ev["updated_at"]), lambda: api.hr_partner(ev["id"]))
     with st.container(border=True):
-        ui.html(f"<b>🤝 HR partner</b><br>{ui.source_note(report.source)}<br>"
-                "<span class='lock'>Propozycje na podstawie notatek, nieobecności i oceny. "
-                "AI tylko proponuje – decyzja należy do Ciebie.</span>")
-        shown = [s for s in report.signals if f"{cycle.id}:{s.kind}" not in state.dismissed]
-        if not shown:
-            st.caption("Brak sygnałów wymagających uwagi.")
-        for s in shown:
-            title, tone = tones.get(s.kind, ("💡 " + s.kind, "c-blue"))
-            body = f"<p>{escape(s.description)}</p>" + ("<b>Co możesz zrobić:</b>" + ui.ul(s.recommendations)
-                                                        if s.recommendations else "")
+        if isinstance(report, ApiError):
+            st.markdown("**🤝 HR partner**")
+            st.caption(report.komunikat)
+            return
+        ui.html(f"<b>🤝 HR partner</b><br>{ui.source_note('AI' if report['zrodlo_tekstow'] == 'AI' else 'REGULY')}<br>"
+                "<span class='lock'>Podpowiedzi dla przełożonego przed rozmową – nie są oceną pracownika.</span>")
+        if not report["sygnaly"]:
+            st.caption("Brak sygnałów w notatkach z ostatnich miesięcy.")
+        for sg in report["sygnaly"]:
+            title, tone = SIGNAL_LABEL.get(sg["typ"], (sg["typ"], "c-blue"))
+            body = f"<p>{escape(sg['opis'])}</p>" + ("<b>Co możesz zrobić:</b>" + ui.ul(sg["rekomendacje"])
+                                                    if sg.get("rekomendacje") else "")
             ui.card(title, body, tone)
-            with st.expander("Na podstawie"):
-                ui.html(ui.ul(s.evidence))
-            st.button("Oznacz jako omówione", key=f"dis_{cycle.id}_{s.kind}", use_container_width=True,
-                      on_click=state.dismissed.add, args=(f"{cycle.id}:{s.kind}",))
+            if sg.get("dowody"):
+                with st.expander("Na podstawie"):
+                    ui.html(ui.ul(sg["dowody"]))
+            if sg["status"] != "NOWY":
+                st.markdown(ui.badge("✔ Przyjęto" if sg["status"] == "ZAAKCEPTOWANY" else "✖ Odrzucono",
+                                     "b-green" if sg["status"] == "ZAAKCEPTOWANY" else "b-grey"),
+                            unsafe_allow_html=True)
+            else:
+                a, b = st.columns(2)
+
+                def decide(sid: int, status: str) -> None:
+                    if _call(api.hr_decision, sid, status, ok="Zapisano decyzję."):
+                        pass
+                    st.session_state.get("ai_cache", {}).pop(("hr", ev["id"], ev["updated_at"]), None)
+
+                a.button("Przyjmij", key=f"hr_ok_{sg['id']}", type="primary", use_container_width=True,
+                         on_click=decide, args=(sg["id"], "ZAAKCEPTOWANY"))
+                b.button("Odrzuć", key=f"hr_no_{sg['id']}", use_container_width=True,
+                         on_click=decide, args=(sg["id"], "ODRZUCONY"))
+        st.caption("Asystent tylko podpowiada. Ocenę wystawia przełożony.")
 
 
 # ---------------------------------------------------------------- page
 
-def render(state: DemoState, employee_id: str) -> None:
-    people = state.evaluated()
-    ids = [e.id for e in people]
+def render(api: Api, me: dict, meta: dict, evaluation_id: int, ai: bool) -> None:
+    today = to_date(meta["dzis"])
+    items = [i for i in api.dashboard()["pozycje"] if i["evaluation_id"]]
+    ids = [i["evaluation_id"] for i in items]
+    labels = {i["evaluation_id"]: f"{name(i['oceniany'])} – {i['oceniany'].get('stanowisko') or ''}" for i in items}
     top1, top2, _ = st.columns([1, 1.6, 2.4])
     if top1.button("← Mój zespół", use_container_width=True):
         st.session_state.view = "team"
         st.rerun()
-    chosen = top2.selectbox("Pracownik", ids, index=ids.index(employee_id) if employee_id in ids else 0,
-                            format_func=lambda i: f"{state.employee(i).full_name} – {state.employee(i).position}",
-                            label_visibility="collapsed")
-    if chosen != employee_id:
-        open_evaluation(chosen)
-        st.rerun()
-
-    emp = state.employee(employee_id)
-    cycle = state.cycle_for(employee_id)
-    if cycle is None:
-        st.info(f"{emp.full_name} nie ma otwartego cyklu oceny.")
-        if st.button("Rozpocznij cykl oceny", type="primary"):
-            _, problems = safe(state.service.start_cycle, employee_id)
-            ui.show_problems(problems) if problems else st.rerun()
+    if ids:
+        chosen = top2.selectbox("Pracownik", ids, index=ids.index(evaluation_id) if evaluation_id in ids else 0,
+                                format_func=labels.get, label_visibility="collapsed")
+        if chosen != evaluation_id:
+            open_evaluation(chosen)
+            st.rerun()
+    try:
+        ev = api.evaluation(evaluation_id)
+    except ApiError as e:
+        st.error(e.komunikat)
         return
+    _show_flash()
+    _header(ev, today)
 
-    sel_key = f"sel_{cycle.id}"
-    current = state.stage(cycle)
-    seen_key = f"seen_{cycle.id}"
-    if sel_key not in st.session_state or st.session_state.get(seen_key) != current:
-        # default: the stage the process is at now (also after it moved on, e.g. the employee confirmed)
-        st.session_state[sel_key] = min(current, len(STAGES))
-        st.session_state[seen_key] = current
-    st.markdown(f"### {emp.full_name} <span class='lock'>· {escape(emp.position)} · {escape(emp.unit)}</span>",
-                unsafe_allow_html=True)
-    selected = ui.stepper(state, cycle, st.session_state[sel_key], sel_key)
-    label, due = state.deadline_hint(cycle)
-    ui.deadline_bar(label, due, state.today)
+    sel_key = f"sel_{evaluation_id}"
+    cur = current_stage(ev)
+    if sel_key not in st.session_state:
+        st.session_state[sel_key] = min(cur, len(STAGES))
+    selected = ui.stepper(ev, st.session_state[sel_key], sel_key)
 
     main, side = st.columns([2.6, 1.25], gap="large")
     with main:
+        _person(ev)
         with st.container(border=True):
             st.markdown(f"### Etap {selected}: {STAGES[selected - 1]}")
-            if selected > current:
-                st.info("Ten etap jeszcze się nie rozpoczął – najpierw zatwierdź poprzednie.")
-                if selected == 2 and current == 1:
-                    st.caption("Notatki możesz dodawać już teraz – przycisk „+ Notatka” w panelu obok.")
+            reachable = selected <= cur or (selected == 3 and ev["status"] == "OKRES_OCENY")
+            if not reachable:
+                st.info("Ten etap jeszcze się nie rozpoczął – najpierw zakończ poprzednie.")
+            elif selected == 1:
+                _stage_criteria(api, ev, ai, today)
+            elif selected == 2:
+                _stage_observation(api, ev, me, ai, today)
+            elif selected == 3:
+                _stage_review(api, ev, ai, today)
+            elif selected == 4:
+                _stage_sheet(api, ev, me, ai, meta)
             else:
-                STAGE_RENDER[selected](state, cycle, current=(selected == current))
+                _stage_ack(api, ev)
     with side:
-        if current < DONE:
-            with st.popover("➕ Notatka", use_container_width=True):
-                _note_form(state, cycle, f"qnf_{cycle.id}")
-        _summary(state, cycle)
-        if ai_on():
-            _hr_partner(state, cycle)
-    if cycle.status is Status.ACKNOWLEDGED:
-        if st.button("Rozpocznij kolejny cykl oceny"):
-            _, problems = safe(state.service.start_cycle, employee_id)
-            ui.show_problems(problems) if problems else st.rerun()
+        _progress(ev)
+        _summary(ev)
+        if (ai and ev["jako_oceniajacy"] and meta.get("funkcje_ai", {}).get("hr_partner")
+                and ev["status"] not in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA")):
+            _hr_partner(api, ev)

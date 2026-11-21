@@ -1,136 +1,105 @@
-"""View 3: the evaluated person – status of the evaluation, confirmations and requests."""
+"""View 3: the evaluated person – their own evaluation from the API (read-only sheet + their own steps)."""
 from __future__ import annotations
 
 from html import escape
 
 import streamlit as st
 
-from app.domain.calendar import add_months
-from app.domain.cycle import Status
-from backend import kprm
 from frontend import ui
-from frontend.demo_state import REQUEST_KINDS, REQUEST_STATUS, DemoState, safe
-from frontend.sheet_export import sheet_html
+from frontend.api_client import Api, ApiError, as_hr
+from frontend.process import ACTION_DONE, ACTION_LABEL, LEVEL_LABEL, STATUS_LABEL, name
 
 
-def _can_request(state: DemoState, cycle) -> dict[str, str | None]:
-    """Request kind -> None if allowed, else the reason why not."""
-    months = kprm.rules()["terminy"]["zmiana_terminu_mozliwa_po_miesiacach_od_ostatniej_oceny"]
-    out: dict[str, str | None] = {}
-    since = add_months(cycle.start_date, months)
-    out["ZMIANA_TERMINU"] = None if state.today >= since and cycle.status in (
-        Status.CYCLE_STARTED, Status.CRITERIA_SET, Status.CRITERIA_CONFIRMED) else (
-        f"możliwy od {ui.fmt(since)} ({months} mies. od poprzedniej oceny), przed rozmową oceniającą")
-    objection = state.service.objection_deadline(cycle.id)
-    out["SPRZECIW"] = None if objection and state.today <= objection else (
-        f"możliwy do {ui.fmt(objection)}" if objection else "możliwy w ciągu 7 dni od zapoznania się z oceną")
-    return out
+def _my_evaluation_id(me: dict) -> int | None:
+    """The contract has no "my evaluations" endpoint yet (docs/api.md: GET /api/evaluations?oceniany_id=):
+    look the id up in the office list, then read the evaluation as the user (the server checks access)."""
+    mine = [i for i in as_hr().dashboard()["pozycje"] if i["oceniany"]["id"] == me["pracownik"]["id"]]
+    return mine[0]["evaluation_id"] if mine else None
 
 
-def render(state: DemoState, employee_id: str, page: str = "ocena") -> None:
-    """page: "ocena" (status, confirmations, sheet + requests) or "wnioski" (requests only)."""
-    emp = state.employee(employee_id)
-    cycle = state.cycle_for(employee_id)
-    rules = state.service.rules
-    st.subheader(f"Moje wnioski – {emp.full_name}" if page == "wnioski" else f"Moja ocena okresowa – {emp.full_name}")
-    if cycle is None:
+def render(api: Api, me: dict, page: str = "ocena") -> None:
+    person = me["pracownik"]
+    st.subheader(f"Moje wnioski – {name(person)}" if page == "wnioski" else f"Moja ocena okresowa – {name(person)}")
+    if page == "wnioski":
+        st.info("Wnioski pracownika (zmiana terminu oceny, sprzeciw) czekają na obsługę w backendzie – w API nie ma "
+                "jeszcze endpointów do ich składania. Gdy koledzy je dodadzą, pojawią się tutaj.")
+        return
+    eid = _my_evaluation_id(me)
+    if eid is None:
         st.info("Nie masz jeszcze rozpoczętego cyklu oceny.")
         return
-    if page == "wnioski":
-        col, _ = st.columns([1.6, 1])
-        with col:
-            _requests(state, employee_id, cycle)
+    try:
+        ev = api.evaluation(eid)
+    except ApiError as e:
+        st.error(e.komunikat)
         return
-    evaluator = state.employee(cycle.evaluator_id)
-    stage = state.stage(cycle)
-    left, right = st.columns([1.7, 1.3], gap="large")
+    for kind, text in st.session_state.pop("flash", []):
+        (st.error if kind == "error" else st.success)(text)
 
+    left, right = st.columns([1.7, 1.3], gap="large")
     with left:
         with st.container(border=True):
             st.markdown("**Status oceny**")
-            ui.mini_stepper(state, cycle)
-            label, due = state.deadline_hint(cycle)
-            planned = sorted((w for (cid, _), w in state.invites.items() if cid == cycle.id and w.date() >= state.today))
-            ui.html(ui.kv([
-                ("Etap", ui.stage_label(stage)),
-                ("Oceniający", f"{evaluator.full_name}, {evaluator.position}" if evaluator else "—"),
-                ("Arkusz", cycle.sheet),
-                (label, ui.fmt(due)),
-                ("Zaplanowana rozmowa", f"{planned[0]:%d.%m.%Y, %H:%M}" if planned else "—"),
-                ("Ocena", cycle.result.outcome.value if cycle.result and stage >= 5 else "w trakcie"),
-            ]))
+            ui.mini_stepper(ev)
+            c1, c2 = ev["czesc_i"], ev["czesc_ii"]
+            ui.html(ui.kv([("Etap", STATUS_LABEL.get(ev["status"], ev["status"])),
+                           ("Oceniający", name(ev["oceniajacy"])), ("Arkusz", ev["arkusz"]),
+                           ("Termin oceny", ui.fmt(c1["termin_oceny"])),
+                           ("Ocena", c2["wynik"].lower() if c2.get("wynik") and c2.get("data_sporzadzenia")
+                            else "w trakcie")]))
 
-        if cycle.status is Status.CRITERIA_SET:
+        for akcja in ev["dozwolone_akcje"]:
             with st.container(border=True):
-                st.markdown("**✍️ Do potwierdzenia: rozmowa i kryteria oceny**")
-                ui.html("<b>Kryteria obowiązkowe:</b>" + ui.ul(rules.criterion_name(c) for c in rules.mandatory(cycle.sheet))
-                        + "<b>Kryteria dodatkowe:</b>" + (ui.ul(rules.criterion_name(c) for c in cycle.additional_criteria)
-                                                         or "<p>brak</p>")
-                        + ("<b>Oczekiwania i cele:</b>" + ui.ul(cycle.goals) if cycle.goals else "")
-                        + f"<p>Termin sporządzenia oceny: <b>{ui.fmt(state.service.evaluation_deadline(cycle.id))}</b></p>")
-                if st.button("Potwierdzam odbycie rozmowy i zapoznanie się z kryteriami oraz terminem oceny",
-                             type="primary", use_container_width=True):
-                    _, problems = safe(state.service.confirm_criteria, cycle.id, employee_id)
-                    ui.show_problems(problems) if problems else st.rerun()
-        elif cycle.status is Status.EVALUATION_DONE:
-            with st.container(border=True):
-                st.markdown("**✍️ Do potwierdzenia: zapoznanie się z oceną**")
-                r = cycle.result
-                avg = f"{r.average_display:.2f}".replace(".", ",")
-                ui.html(f'<div class="result {"pos" if r.outcome.value == "pozytywna" else "neg"}">'
-                        f'Ocena <b>{r.outcome.value.upper()}</b> · średnia {avg} · {escape(r.level)}</div>')
-                if cycle.justification:
-                    ui.html(f"<b>Uzasadnienie:</b><p>{escape(cycle.justification)}</p>")
-                ui.html(f"<b>Wnioski rozwojowe (IPRZ):</b><p>{escape(cycle.iprz_conclusions)}</p>")
-                if st.button("Potwierdzam zapoznanie się z oceną", type="primary", use_container_width=True):
-                    _, problems = safe(state.service.acknowledge, cycle.id, employee_id)
-                    ui.show_problems(problems) if problems else st.rerun()
-        elif cycle.status is Status.ACKNOWLEDGED:
-            objection = state.service.objection_deadline(cycle.id)
-            if objection and state.today <= objection:
-                st.info(f"Jeśli nie zgadzasz się z oceną, możesz złożyć sprzeciw do dyrektora generalnego do "
-                        f"**{ui.fmt(objection)}** ({ui.days_text((objection - state.today).days)}).")
-        if stage >= 2:
-            with st.container(border=True):
-                st.markdown("**Moje kryteria i cele**")
-                ui.html(ui.ul(rules.criterion_name(c) for c in cycle.criteria_ids(rules))
-                        + ("<b>Cele:</b>" + ui.ul(cycle.goals) if cycle.goals else ""))
-        if stage >= 5:
-            doc = sheet_html(cycle, emp, evaluator, rules, state.service.evaluation_deadline(cycle.id),
-                             state.grade_request.get(cycle.id))
-            st.download_button("📄 Pobierz arkusz oceny (do druku / PDF)", doc.encode("utf-8"),
-                               file_name=f"arkusz-{cycle.sheet}-{employee_id}.html", mime="text/html")
+                if akcja == "POTWIERDZ_KRYTERIA":
+                    st.markdown("**✍️ Do potwierdzenia: rozmowa i kryteria oceny**")
+                    ui.html("<b>Kryteria:</b>" + ui.ul(f"{k['nazwa']}{'' if k['typ'] == 'OBOWIAZKOWE' else ' (dodatkowe)'}"
+                                                         for k in ev["kryteria"])
+                            + f"<p>Termin sporządzenia oceny: <b>{ui.fmt(ev['czesc_i']['termin_oceny'])}</b></p>")
+                elif akcja == "POTWIERDZ_ZAPOZNANIE":
+                    c2 = ev["czesc_ii"]
+                    st.markdown("**✍️ Do potwierdzenia: zapoznanie się z oceną**")
+                    if c2.get("wynik"):
+                        avg = f"{c2['srednia']:.2f}".replace(".", ",")
+                        ui.html(f'<div class="result {"pos" if c2["wynik"] == "POZYTYWNA" else "neg"}">Ocena '
+                                f'<b>{c2["wynik"]}</b> · średnia {avg} · {escape(LEVEL_LABEL.get(c2["poziom"], ""))}</div>')
+                    if c2.get("uzasadnienie"):
+                        ui.html(f"<b>Uzasadnienie:</b><p>{escape(c2['uzasadnienie'])}</p>")
+                    if c2.get("wnioski_iprz"):
+                        ui.html(f"<b>Wnioski rozwojowe (IPRZ):</b><p>{escape(c2['wnioski_iprz'])}</p>")
+                key = f"emp_confirm_{eid}_{akcja}"
+                if st.session_state.get(key):
+                    st.warning(f"Czy na pewno: **{ACTION_LABEL.get(akcja, akcja).lower()}**?")
+                    a, b = st.columns(2)
+                    if a.button("✔ Tak, potwierdzam", type="primary", key=f"{key}_yes", use_container_width=True):
+                        st.session_state.pop(key, None)
+                        try:
+                            api.action(eid, akcja)
+                            st.toast(ACTION_DONE.get(akcja, "Zapisano."))
+                        except ApiError as e:
+                            st.session_state.setdefault("flash", []).append(("error", " ".join(e.messages)))
+                        st.rerun()
+                    if b.button("Anuluj", key=f"{key}_no", use_container_width=True):
+                        st.session_state.pop(key, None)
+                        st.rerun()
+                elif st.button(ACTION_LABEL.get(akcja, akcja), type="primary", key=f"{key}_btn",
+                               use_container_width=True):
+                    st.session_state[key] = True
+                    st.rerun()
+
+        if ev["status"] == "ZAKONCZONA" and ev["czesc_ii"].get("termin_sprzeciwu"):
+            st.info(f"Jeśli nie zgadzasz się z oceną, możesz złożyć sprzeciw do dyrektora generalnego do "
+                    f"**{ui.fmt(ev['czesc_ii']['termin_sprzeciwu'])}**.")
 
     with right:
-        _requests(state, employee_id, cycle)
-
-
-def _requests(state: DemoState, employee_id: str, cycle) -> None:
-    with st.container(border=True):
-        st.markdown("**📨 Wnioski**")
-        allowed = _can_request(state, cycle)
-        with st.popover("Złóż wniosek", use_container_width=True):
-            kind = st.selectbox("Rodzaj wniosku", list(REQUEST_KINDS), format_func=REQUEST_KINDS.get)
-            reason = allowed[kind]
-            if reason:
-                st.warning(f"Tego wniosku nie można teraz złożyć – jest {reason}.")
-            text = st.text_area("Uzasadnienie wniosku", key=f"req_text_{employee_id}",
-                                placeholder="Napisz krótko, czego dotyczy wniosek i dlaczego go składasz.")
-            if st.button("Wyślij wniosek", type="primary", disabled=bool(reason), use_container_width=True):
-                if not text.strip():
-                    st.error("Wpisz uzasadnienie wniosku, a potem kliknij „Wyślij wniosek”.")
-                else:
-                    state.submit_request(employee_id, cycle.id, kind, text)
-                    st.session_state.pop(f"req_text_{employee_id}", None)
-                    st.toast("Wniosek wysłany do oceniającego.")
-                    st.rerun()
-        mine = sorted((r for r in state.requests if r.employee_id == employee_id),
-                      key=lambda r: r.created, reverse=True)
-        st.markdown("**Historia wniosków**")
-        if not mine:
-            st.caption("Nie złożono żadnych wniosków.")
-        for r in mine:
-            ui.html(f'<div class="note"><b>{escape(REQUEST_KINDS[r.kind])}</b> · {ui.fmt(r.created)}<br>'
-                    f'{escape(r.text)}<br><span class="d">{REQUEST_STATUS[r.status]}'
-                    f'{" · " + ui.fmt(r.decided) if r.decided else ""}</span></div>')
-    st.caption("Wniosek o kolejny stopień służbowy składa oceniający (część III arkusza).")
+        with st.container(border=True):
+            st.markdown("**Moje kryteria**")
+            ui.html(ui.ul(k["nazwa"] for k in ev["kryteria"]))
+        if ev["status"] in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"):
+            if st.button("🖨️ Przygotuj PDF arkusza", key=f"emp_pdf_{eid}"):
+                try:
+                    st.session_state[f"emp_pdf_{eid}_data"] = api.pdf(eid)
+                except ApiError as e:
+                    st.error(e.komunikat)
+            data = st.session_state.get(f"emp_pdf_{eid}_data")
+            if data:
+                st.download_button("⬇️ Pobierz arkusz oceny (PDF)", data[0], file_name=data[1], mime="application/pdf")

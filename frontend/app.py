@@ -1,9 +1,11 @@
 """Cyfrowy Asystent Ocen Okresowych – Streamlit app. Run from projekt/: streamlit run frontend/app.py
 
-Calls the application layer directly (no HTTP), so it deploys as one app. Pages (side menu):
-  evaluator: Mój zespół (views/team.py), Ocena pracownika (views/evaluation.py), Harmonogram, Wnioski
-  evaluated person: Moja ocena, Moje wnioski (views/employee.py)
-Wireframes: frontend/design/wireframes.drawio
+Everything goes through the backend's /api contract (frontend/api_client.py): the server keeps the data in
+the database and decides rules, permissions and allowed steps. Set API_URL=http://localhost:8000 to share
+a running `uvicorn backend.main:app` with the web UI; without it the API runs inside this process.
+
+Pages (side menu): evaluator / HR – Mój zespół (views/team.py), Ocena pracownika (views/evaluation.py), Terminy;
+evaluated person – Moja ocena, Moje wnioski (views/employee.py). Wireframes: frontend/design/wireframes.drawio
 """
 import sys
 from pathlib import Path
@@ -12,22 +14,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
 
-from backend import config
 from frontend import ui
-from frontend.demo_state import REQUEST_KINDS, REQUEST_STATUS, ai_on, get_state, open_evaluation, reset_state
+from frontend.api_client import Api, ApiError
+from frontend.process import name, to_date
 from frontend.views import employee, evaluation, team
 
 st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide",
                    initial_sidebar_state="expanded")
 st.session_state.setdefault("a11y_font", "Duża")  # larger text by default – easier to read
 st.session_state.setdefault("ai_on", True)
-ui.inject_css(ui.FONT_SCALES.get(st.session_state.a11y_font, 1.0), st.session_state.get("a11y_contrast", False))
-state = get_state()
-
-ROLE_EVALUATOR, ROLE_EMPLOYEE = "Oceniający (przełożony)", "Oceniany (pracownik)"
-st.session_state.setdefault("role", ROLE_EVALUATOR)
+st.session_state.setdefault("user_id", "henryk.pryncypal")
 st.session_state.setdefault("view", "team")
 st.session_state.setdefault("emp_view", "ocena")
+ui.inject_css(ui.FONT_SCALES.get(st.session_state.a11y_font, 1.0), st.session_state.get("a11y_contrast", False))
+
+api = Api(st.session_state.user_id)
+try:
+    me, meta, users = api.me(), api.meta(), api.users()
+except ApiError as e:
+    st.error(f"Nie udało się połączyć z serwerem: {e.komunikat}")
+    st.stop()
+evaluator_ui = me["rola"] == "KADRY" or me["czy_oceniajacy"]
+ai = bool(st.session_state.ai_on)
 
 
 def go(view: str) -> None:
@@ -38,52 +46,48 @@ def go_employee(view: str) -> None:
     st.session_state.emp_view = view
 
 
-def open_current_evaluation() -> None:
-    open_evaluation(st.session_state.get("eval_employee") or state.evaluated()[0].id)
+def open_current() -> None:
+    eid = st.session_state.get("eval_id")
+    if not eid:
+        first = next((i for i in api.dashboard()["pozycje"] if i["evaluation_id"]), None)
+        eid = first["evaluation_id"] if first else None
+    if eid:
+        team.open_evaluation(eid)
 
 
-def notifications(role: str, person: str | None) -> list[tuple[str, str, str | None]]:
-    """(icon, text, employee id to open or None). Most urgent first."""
-    evaluated = {e.id for e in state.evaluated()}
-    items = []
-    for r in state.service.reminders(lead_days=30):
-        mine = r.recipient_id == person if role == ROLE_EMPLOYEE else r.recipient_id not in evaluated
-        if mine:
-            items.append(("🔴" if r.days_left < 0 else "🟡" if r.days_left <= 7 else "🔔", r.message, r.employee_id))
-    if role == ROLE_EVALUATOR:
-        items += [("📥", f"Nowy wniosek: {REQUEST_KINDS[q.kind].lower()} – {state.employee(q.employee_id).full_name}",
-                   None) for q in state.pending_requests()]
-    else:
-        for (cycle_id, stage), when in sorted(state.invites.items(), key=lambda x: x[1]):
-            c = state.cycle(cycle_id)
-            if c.employee_id == person and when.date() >= state.today:
-                kind = "rozpoczynającą ocenę" if stage == 1 else "oceniającą"
-                items.append(("✉️", f"Zaproszenie na rozmowę {kind}: {when:%d.%m.%Y, %H:%M} "
-                                    f"(od: {state.employee(c.evaluator_id).full_name})", None))
-        items += [("📨", f"{REQUEST_KINDS[q.kind]}: {REQUEST_STATUS[q.status]}", None)
-                  for q in state.requests if q.employee_id == person and q.decided]
-    return items
+def switch_user() -> None:
+    for k in [k for k in st.session_state if k.startswith(("sel_", "tx_", "sc_", "add_", "draft_", "confirm_",
+                                                            "emp_", "pdf_", "auto_"))]:
+        del st.session_state[k]
+    st.session_state.pop("ai_cache", None)
+    st.session_state.pop("eval_id", None)
+    st.session_state.view = "team"
+    st.session_state.emp_view = "ocena"
+
+
+def open_notification(nid: int, eid: int | None) -> None:
+    try:
+        api.read_notification(nid)
+    except ApiError:
+        pass
+    if eid and evaluator_ui:
+        team.open_evaluation(eid)
 
 
 def menu_item(label: str, active: bool, on_click, args=()) -> None:
-    st.button(label, use_container_width=True, type="primary" if active else "secondary",
-              on_click=on_click, args=args)
+    st.button(label, use_container_width=True, type="primary" if active else "secondary", on_click=on_click, args=args)
 
 
 # ---------------------------------------------------------------- side menu
-role = st.session_state.role
-person = st.session_state.get("person") if role == ROLE_EMPLOYEE else None
 with st.sidebar:
     ui.html('<p class="app-title">🏛️ Asystent Ocen Okresowych</p>')
     st.caption("Ocena okresowa w służbie cywilnej")
     st.markdown("**Menu**")
-    if role == ROLE_EVALUATOR:
+    if evaluator_ui:
         view = st.session_state.view
-        pending = len(state.pending_requests())
-        menu_item("👥 Mój zespół", view == "team", go, ("team",))
-        menu_item("📝 Ocena pracownika", view == "eval", open_current_evaluation)
-        menu_item("🗓️ Harmonogram", view == "schedule", go, ("schedule",))
-        menu_item(f"📥 Wnioski ({pending})" if pending else "📥 Wnioski", view == "requests", go, ("requests",))
+        menu_item("👥 Mój zespół" if me["rola"] != "KADRY" else "👥 Oceny w urzędzie", view == "team", go, ("team",))
+        menu_item("📝 Ocena pracownika", view == "eval", open_current)
+        menu_item("🗓️ Terminy", view == "schedule", go, ("schedule",))
     else:
         menu_item("📄 Moja ocena", st.session_state.emp_view == "ocena", go_employee, ("ocena",))
         menu_item("📨 Moje wnioski", st.session_state.emp_view == "wnioski", go_employee, ("wnioski",))
@@ -91,81 +95,86 @@ with st.sidebar:
     st.divider()
     with st.expander("⚙️ Ustawienia", expanded=False):
         st.toggle("🤖 Asystent AI", key="ai_on",
-                  help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: propozycje kryteriów, wskazówki do "
-                       "rozmów, przypisywanie notatek, szkice tekstów i HR partnera. Proces oceny działa bez zmian.")
+                  help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: wskazówki do rozmów, propozycje "
+                       "przypisania notatek, sugerowane oceny, szkice tekstów i HR partnera. Proces oceny działa bez zmian.")
         st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font")
         st.toggle("Wysoki kontrast", key="a11y_contrast",
                   help="Ciemniejszy tekst pomocniczy, grubsze obramowania i podkreślone odnośniki.")
-        st.caption("Dostępność zgodnie z WCAG 2.1: powiększenie tekstu (1.4.4), kontrast (1.4.3), widoczny "
-                   "fokus przy obsłudze klawiaturą (2.4.7). Stronę można też powiększyć skrótem Ctrl i +.")
+        st.caption("Dostępność zgodnie z WCAG 2.1: powiększenie tekstu (1.4.4), kontrast (1.4.3), widoczny fokus "
+                   "przy obsłudze klawiaturą (2.4.7). Stronę można też powiększyć skrótem Ctrl i +.")
 
     with st.expander("🎬 Tryb demo", expanded=False):
-        st.caption("Bez logowania: wybierz, kim jesteś w prezentacji.")
-        st.selectbox("Widok jako", [ROLE_EVALUATOR, ROLE_EMPLOYEE], key="role")
-        if st.session_state.role == ROLE_EMPLOYEE:
-            st.selectbox("Pracownik", [e.id for e in state.evaluated()], key="person",
-                         format_func=lambda i: state.employee(i).full_name)
-        st.markdown(f"**⏩ Data w aplikacji: {ui.fmt(state.today)}**")
-        st.caption("Na prezentacji nie poczekamy 24 miesięcy – tu przesuwasz kalendarz aplikacji, żeby pokazać "
-                   "przypomnienia i terminy. W prawdziwym wdrożeniu tej opcji nie ma.")
+        ids = [u["id"] for u in users]
+        labels = {u["id"]: f"{u['nazwa']} – {u['opis']}" for u in users}
+        st.selectbox("Zalogowany jako", ids, key="user_id", format_func=labels.get, on_change=switch_user,
+                     help="Bez logowania: wybierz osobę. Uprawnienia (kto co widzi i może zrobić) wylicza serwer.")
+        st.markdown(f"**⏩ Data w aplikacji (zegar serwera): {ui.fmt(meta['dzis'])}**")
+        st.caption("Na prezentacji nie poczekamy 24 miesięcy – przesuwasz zegar serwera, a system wysyła "
+                   "przypomnienia z tego okresu. W prawdziwym wdrożeniu tej opcji nie ma.")
         a, b, c = st.columns(3)
         for col, label, days in ((a, "+1 dz.", 1), (b, "+7 dni", 7), (c, "+30 dni", 30)):
             if col.button(label, use_container_width=True, key=f"adv_{days}"):
-                state.clock.advance(days=days)
+                try:
+                    r = api.clock(days=days)
+                    st.toast(f"Zegar: {ui.fmt(r.get('dzis'))}. Nowe przypomnienia: {r.get('nowe_powiadomienia', 0)}.")
+                except ApiError as e:
+                    st.toast(e.komunikat)
+                st.session_state.pop("ai_cache", None)
                 st.rerun()
-        new = st.date_input("Ustaw datę", state.today, format="DD.MM.YYYY")
-        if st.button("Ustaw datę", use_container_width=True, disabled=new == state.today):
-            state.clock.set(new)
+        new = st.date_input("Ustaw datę", to_date(meta["dzis"]), format="DD.MM.YYYY")
+        if st.button("Ustaw datę", use_container_width=True, disabled=new is None):
+            try:
+                api.clock(set_to=new)
+            except ApiError as e:
+                st.toast(e.komunikat)
+            st.session_state.pop("ai_cache", None)
             st.rerun()
-        if st.button("↺ Zacznij demo od nowa", use_container_width=True):
-            reset_state()
-            for k in list(st.session_state):
-                if k not in ("role", "a11y_font", "a11y_contrast", "ai_on"):
-                    del st.session_state[k]
+        if st.button("↺ Przywróć dane przykładowe", use_container_width=True):
+            api.reset()
+            switch_user()
+            st.toast("Przywrócono dane przykładowe.")
             st.rerun()
 
-    st.caption(f"Data: {ui.fmt(state.today)} · {'Asystent AI włączony' if ai_on() else 'Asystent AI wyłączony'}")
-
-role = st.session_state.role
-person = st.session_state.get("person") if role == ROLE_EMPLOYEE else None
-if role == ROLE_EMPLOYEE and person is None:
-    person = state.evaluated()[0].id
+    mode = meta["tryb_ai"]
+    available = meta.get("funkcje_ai", {}).get("model_dostepny")
+    chip = ("wyłączony w aplikacji" if not ai else "wyłączony na serwerze (szablony)" if mode == "OFF"
+            else "usługa zewnętrzna" if mode == "API" else "model lokalny" if available
+            else "model lokalny niedostępny – szablony")
+    st.caption(f"Data: {ui.fmt(meta['dzis'])} · Asystent AI: {chip}")
 
 # ---------------------------------------------------------------- header: who + notifications
 who, bell_col = st.columns([5, 1], vertical_alignment="center")
-who.markdown(f"<span class='lock'>Zalogowano jako (demo):</span> **"
-             + (state.employee(person).full_name + " – oceniany" if role == ROLE_EMPLOYEE else "oceniający")
-             + "**", unsafe_allow_html=True)
-notes = notifications(role, person)
-with bell_col.popover(f"🔔 {len(notes)}" if notes else "🔔", use_container_width=True):
+role = "kadry" if me["rola"] == "KADRY" else "oceniający" if me["czy_oceniajacy"] else "oceniany"
+who.markdown(f"<span class='lock'>Zalogowano jako (demo):</span> **{name(me['pracownik'])}** · {role} · "
+             f"<span class='lock'>{me['urzad']}</span>", unsafe_allow_html=True)
+try:
+    notes = sorted(api.notifications(), key=lambda n: n["zaplanowane_na"], reverse=True)
+except ApiError:
+    notes = []
+unread = [n for n in notes if not n["przeczytane"]]
+with bell_col.popover(f"🔔 {len(unread)}" if unread else "🔔", use_container_width=True):
     st.markdown("**Powiadomienia**")
     if not notes:
-        st.caption("Brak nowych powiadomień.")
-    for i, (icon, text, emp_id) in enumerate(notes):
-        if role == ROLE_EVALUATOR:
-            st.button(f"{icon} {text}", key=f"notif_{i}", type="tertiary",
-                      on_click=open_evaluation if emp_id else go, args=(emp_id,) if emp_id else ("requests",))
-        else:
-            st.markdown(f"{icon} {text}")
-if not ai_on():
+        st.caption("Brak powiadomień do dziś (zegar serwera).")
+    for n in notes[:15]:
+        when = ui.fmt(n["zaplanowane_na"])
+        label = f"{'🔵 ' if not n['przeczytane'] else ''}{when} · {n['tresc']}"
+        st.button(label, key=f"notif_{n['id']}", type="tertiary", on_click=open_notification,
+                  args=(n["id"], n.get("evaluation_id")),
+                  help="Kliknij, aby oznaczyć jako przeczytane" + (" i otworzyć ocenę" if evaluator_ui else ""))
+if not ai:
     st.info("Asystent AI jest wyłączony – aplikacja działa bez podpowiedzi. Włączysz go w menu: ⚙️ Ustawienia.")
 
 # ---------------------------------------------------------------- routing
-if role == ROLE_EMPLOYEE:
-    employee.render(state, person, st.session_state.emp_view)
-elif st.session_state.view == "eval" and st.session_state.get("eval_employee"):
-    evaluation.render(state, st.session_state.eval_employee)
+if not evaluator_ui:
+    employee.render(api, me, st.session_state.emp_view)
+elif st.session_state.view == "eval" and st.session_state.get("eval_id"):
+    evaluation.render(api, me, meta, st.session_state.eval_id, ai)
 elif st.session_state.view == "schedule":
-    team.render_schedule(state)
-elif st.session_state.view == "requests":
-    team.render_requests(state)
+    team.render_schedule(api, me)
 else:
-    team.render(state)
+    team.render(api, me)
 
 st.divider()
-if ai_on():
-    st.caption(f"Tryb asystenta AI: {config.AI_MODE}{' (atrapa – LLM_MOCK)' if config.LLM_MOCK else ''}. "
-               "Asystent tylko proponuje – decyzje podejmuje oceniający. Dane osobowe są pseudonimizowane przed "
-               "wysłaniem do modelu. Dane w demo są fikcyjne (przykłady KPRM).")
-else:
-    st.caption("Asystent AI wyłączony. Dane w demo są fikcyjne (przykłady KPRM).")
+st.caption("Dane i reguły pochodzą z serwera (API i baza danych). Asystent tylko proponuje – decyzje podejmuje "
+           "oceniający. Dane osobowe są pseudonimizowane przed wysłaniem do modelu. Dane w demo są fikcyjne.")

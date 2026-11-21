@@ -6,7 +6,7 @@ from html import escape
 
 import streamlit as st
 
-from frontend.demo_state import DONE, STAGES, DemoState
+from frontend.process import DONE, STAGES, stage_date, stage_state, to_date
 
 CSS = """
 <style>
@@ -44,6 +44,18 @@ div[data-testid="stToast"] p { font-size: 1.2rem; font-weight: 600; line-height:
 section[data-testid="stSidebar"] .stButton button { justify-content: flex-start; min-height: 2.8rem; }
 section[data-testid="stSidebar"] .stButton button div,
 section[data-testid="stSidebar"] .stButton button p { justify-content: flex-start; text-align: left; font-weight: 600; }
+/* overview: stat cards */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 8px 0 12px; }
+.stat .v { font-size: 2rem; font-weight: 700; line-height: 1.2; }
+/* overview: stage bar */
+.funnel-bar { display: flex; height: 18px; border-radius: 6px; overflow: hidden; margin: 8px 0; background: var(--grey-bg); }
+.funnel-bar span { display: block; height: 100%; }
+.funnel-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .85rem; }
+.funnel-item .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+/* evaluation: person card */
+.person-card { display: flex; gap: 14px; align-items: flex-start; }
+.avatar { flex: 0 0 auto; width: 52px; height: 52px; border-radius: 50%; background: var(--blue-bg); color: var(--blue);
+          display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; }
 /* link-like buttons (schedule, notifications, names, column headers): left-aligned */
 button[data-testid="stBaseButton-tertiary"] { justify-content: flex-start; text-align: left; }
 button[data-testid="stBaseButton-tertiary"] div, button[data-testid="stBaseButton-tertiary"] p { text-align: left; justify-content: flex-start; }
@@ -61,6 +73,12 @@ button[data-testid="stBaseButton-tertiary"] div, button[data-testid="stBaseButto
 .step.sel { outline: 2px solid var(--blue); outline-offset: -1px; }
 .step .n { font-size: .7rem; color: var(--muted); font-weight: 600; letter-spacing: .02em; }
 .step .t { font-weight: 650; font-size: .9rem; line-height: 1.2; }
+.step { position: relative; }
+.step .d { font-size: .72rem; color: var(--ink); font-weight: 600; margin-top: 2px; }
+/* the line between steps: the process is one sequence */
+.step:not(.last)::after { content: ""; position: absolute; top: 50%; right: calc(-1rem - 1px); width: calc(1rem + 1px);
+                          height: 3px; background: var(--line); z-index: 0; }
+.step.done:not(.last)::after { background: var(--green); }
 .step.done { background: var(--green-bg); border-color: var(--green); }
 .step.active { background: var(--blue-bg); border-color: var(--blue); }
 .step.waiting { background: var(--amber-bg); border-color: var(--amber); }
@@ -130,7 +148,8 @@ def source_note(source: str) -> str:
     return f"{source_badge(source)} <span class='lock'>Źródło: {escape(SOURCE_TEXT.get(source, source))}.</span>"
 
 
-def fmt(d: date | None) -> str:
+def fmt(d) -> str:
+    d = to_date(d)
     return d.strftime("%d.%m.%Y") if d else "—"
 
 
@@ -171,7 +190,8 @@ def urgency_badge(key: str) -> str:
     return badge(label, cls)
 
 
-def deadline_bar(label: str, due: date | None, today: date) -> None:
+def deadline_bar(label: str, due, today) -> None:
+    due, today = to_date(due), to_date(today)
     if due is None:
         html(f'<div class="deadline">{escape(label)}</div>')
         return
@@ -184,27 +204,29 @@ def stage_label(stage: int) -> str:
     return "Zakończona" if stage == DONE else f"{stage} · {STAGES[stage - 1]}"
 
 
-def stepper(state: DemoState, cycle, selected: int, key: str) -> int:
-    """Clickable process steps; returns the stage the user selected."""
+def stepper(ev: dict, selected: int, key: str) -> int:
+    """Clickable process steps with dates from the server; returns the stage the user selected."""
     cols = st.columns(len(STAGES))
     for i, (col, name) in enumerate(zip(cols, STAGES), start=1):
-        st_state, st_label = state.stage_status(cycle, i)
+        st_state, st_label = stage_state(ev, i)
         with col:
             sel = " sel" if i == selected else ""
-            html(f'<div class="step {st_state}{sel}"><div class="n">ETAP {i}</div><div class="t">{escape(name)}</div>'
-                 f'<div class="n">{STATE_ICON[st_state]} {escape(st_label)}</div></div>')
+            last = " last" if i == len(STAGES) else ""
+            when = stage_date(ev, i)
+            html(f'<div class="step {st_state}{sel}{last}"><div class="n">ETAP {i}</div><div class="t">{escape(name)}</div>'
+                 f'<div class="n">{STATE_ICON[st_state]} {escape(st_label)}</div>'
+                 + (f'<div class="d">📅 {escape(when)}</div>' if when else "") + "</div>")
             if st.button("Pokaż" if i != selected else "Wybrany", key=f"{key}_{i}", use_container_width=True,
                          type="primary" if i == selected else "secondary", disabled=i == selected):
-                selected = i
                 st.session_state[key] = i
                 st.rerun()
     return selected
 
 
-def mini_stepper(state: DemoState, cycle) -> None:
+def mini_stepper(ev: dict) -> None:
     parts = []
     for i, name in enumerate(STAGES, start=1):
-        st_state, _ = state.stage_status(cycle, i)
+        st_state, _ = stage_state(ev, i)
         cls = {"done": "b-green", "active": "b-blue", "waiting": "b-amber", "todo": "b-grey"}[st_state]
         parts.append(badge(f"{STATE_ICON[st_state]} {i}. {name}", cls))
     html(" ".join(parts))
@@ -222,6 +244,11 @@ def kv(rows: list[tuple[str, str]]) -> str:
 def ul(items) -> str:
     items = [i for i in items if i]
     return "<ul>" + "".join(f"<li>{escape(str(i))}</li>" for i in items) + "</ul>" if items else ""
+
+
+def api_error(e) -> None:
+    """Show an ApiError (komunikat + walidacje) from the server."""
+    show_problems(getattr(e, "messages", None) or [str(e)])
 
 
 def show_problems(problems: list[str]) -> None:
