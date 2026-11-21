@@ -11,7 +11,12 @@ Run all commands below from `projekt/`.
 - Demo UI: `streamlit run frontend/app.py`; API: `uvicorn backend.main:app --reload`
 
 ## Architecture
-- `backend/llm.py` – the ONLY place that calls an LLM: use `ask_llm()` / `ask_llm_json()`. Never import litellm/openai/anthropic elsewhere.
+- `backend/llm.py` – the ONLY place that calls an LLM: `ask_llm()` / `ask_llm_json()` (LiteLLM) and `ask_ollama()` /
+  `stream_ollama()` (local model). Never import litellm/openai/anthropic/requests-to-a-model elsewhere.
+- AI suggestions (UC1, UC4, UC5, UC7): `app/application/assistant.py` (`AiSuggestionService`), prompts in
+  `app/application/prompts/`, model adapters in `app/infrastructure/ai_models.py` (`AI_MODE` off|local|api; api raises
+  `NotImplementedError` on purpose). Every feature must keep its no-AI fallback, pseudonymise prompts and validate the
+  model's answer. Details: `docs/asystent.md`.
 - `backend/parsers.py` – file parsing (PDF/XML/CSV/XLSX/OCR). Add new formats here.
 - `backend/db.py` – SQLite access. Schema changes go in `init_db()`.
 - `backend/main.py` – FastAPI endpoints. Keep them thin; logic lives in backend modules.

@@ -222,6 +222,10 @@ class DashboardItem(_Out):
     dni_do_terminu: int | None
     pilnosc: Literal["PO_TERMINIE", "PILNE", "WKROTCE", "OK"] = "OK"   # PILNE ≤ 7 dni, WKROTCE ≤ 30
     sygnaly_hr: int = 0                  # count of open HR-partner signals (badge)
+    # optional extras for the overview table (added with the web UI; backward compatible)
+    komorka: str | None = None
+    wynik: Wynik | None = None           # only once the evaluation is made
+    termin_oceny: date | None = None     # evaluation deadline (termin = the deadline relevant right now)
 
 
 class DashboardOut(_Out):
@@ -393,10 +397,11 @@ class NotePatch(BaseModel):
 
 class SugestiaKlasyfikacji(_Out):
     criterion_kod: str
+    nazwa: str = ""
     wskaznik: str | None = None                 # behavioural indicator text
-    wydzwiek: Wydzwiek
+    wydzwiek: Wydzwiek | None = None            # null when the suggestion comes from the no-AI fallback
     pewnosc: float = Field(ge=0, le=1)
-    fragment: str                               # quote from the note that justifies it
+    fragment: str = ""                          # quote from the note that justifies it (empty in fallback)
 
 
 class NoteOut(_Out):
@@ -409,7 +414,9 @@ class NoteOut(_Out):
     criterion_kod: str | None = None
     wydzwiek: Wydzwiek | None = None
     widoczna_dla_ocenianego: bool
-    status_klasyfikacji: Literal["BRAK", "W_TOKU", "SUGESTIA", "ZATWIERDZONA", "RECZNA", "BLAD"] = "BRAK"
+    # SUGESTIA = confident AI proposal; DO_PRZYPISANIA = low confidence or no AI -> evaluator picks
+    status_klasyfikacji: Literal["BRAK", "W_TOKU", "SUGESTIA", "DO_PRZYPISANIA", "ZATWIERDZONA", "RECZNA", "BLAD"] = "BRAK"
+    zrodlo_sugestii: Literal["AI", "REGULY"] | None = None
     sugestie_ai: list[SugestiaKlasyfikacji] = []
 
 
@@ -436,6 +443,7 @@ class EvidenceOut(_Out):
 
 class KryteriumSugestia(_Out):
     kod: str
+    nazwa: str = ""
     uzasadnienie: str
 
 
@@ -445,13 +453,22 @@ class SuggestCriteriaOut(_Out):
     zrodlo: Literal["AI", "REGULY"]             # REGULY when AI is off
 
 
+class PrzykladNotatki(_Out):
+    """A note quoted as an example in the conversation prep (no author/visibility details needed)."""
+    id: int | str
+    data: date
+    tresc: str
+    wydzwiek: Wydzwiek | None = None
+
+
 class PrepKryterium(_Out):
     criterion_kod: str
     nazwa: str
+    obowiazkowe: bool = True
     plus: int
     minus: int
-    przyklady: list[NoteOut] = []
-    luki: list[str] = []
+    przyklady: list[PrzykladNotatki] = []
+    luki: list[str] = []                        # behavioural indicators without any observation -> ask
     pytania: list[str] = []
 
 
@@ -468,6 +485,8 @@ class ConversationPrepOut(_Out):
     sygnaly_hr: list["HrSignal"] = []
     propozycje_rozwoju: list[str] = []
     plan_minuty: list[tuple[str, int]] = Field(default_factory=list, examples=[[["Otwarcie", 5], ["Kryteria", 20]]])
+    cele: list[str] = []                        # goals agreed at the opening conversation
+    dni_do_terminu: int | None = None
     zrodlo_tekstow: Literal["AI", "SZABLON"]
 
 
@@ -496,7 +515,7 @@ class HrSignal(_Out):
 class HrPartnerOut(_Out):
     """GET /api/evaluations/{id}/hr-partner – hints for the manager, never a diagnosis of the employee."""
     sygnaly: list[HrSignal]
-    zrodlo_tekstow: Literal["AI", "SZABLON"]
+    zrodlo_tekstow: Literal["AI", "REGULY"]     # signals always come from rules; AI only words them
 
 
 class HrSignalDecision(BaseModel):
