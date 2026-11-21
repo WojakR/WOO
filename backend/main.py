@@ -3,12 +3,16 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app.api.errors import install_error_handlers
+from app.api.routes import router as api_router
 from backend import config, db
 from backend.llm import ask_llm
 from backend.parsers import parse_file, to_llm_text
 
 app = FastAPI(title="HackNation 2026 – API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(api_router)  # contract endpoints /api/... (docs/api.md)
+install_error_handlers(app)
 
 
 class AskIn(BaseModel):
