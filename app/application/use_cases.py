@@ -42,6 +42,7 @@ class EvaluationService:
         clock: Clock,
         calendar: WorkingCalendar | None = None,
         new_id: Callable[[], str] = lambda: uuid.uuid4().hex[:12],
+        deputies: Callable[[str, date], set[str]] = lambda evaluator_id, day: set(),
     ):
         self.rules = rules
         self.cycles = cycles
@@ -49,6 +50,26 @@ class EvaluationService:
         self.clock = clock
         self.calendar = calendar or WorkingCalendar()
         self._new_id = new_id
+        self.deputies = deputies  # evaluator id, day -> ids of people standing in for them that day
+
+    def _as_evaluator(self, cycle_id: str, actor_id: str, step: str,
+                      action: Callable[[EvaluationCycle, str], Any]) -> Any:
+        """Run an evaluator's step. An active deputy acts on the evaluator's behalf (the domain still checks
+        "only the evaluator"); the cycle records who really acted, and who drew up the evaluation."""
+        today = self.clock.today()
+
+        def run(c: EvaluationCycle) -> Any:
+            acting = actor_id
+            if (actor_id not in (c.evaluator_id, c.employee_id)
+                    and actor_id in self.deputies(c.evaluator_id, today)):
+                acting = c.evaluator_id
+                c.deputy_actions.append((today, actor_id, step))
+            out = action(c, acting)
+            if step == "submit_evaluation":
+                c.drawn_up_by = actor_id
+            return out
+
+        return self._apply(cycle_id, run)
 
     # ---- helpers ---------------------------------------------------------------------------------
     def _employee(self, employee_id: str) -> Employee:
@@ -110,13 +131,13 @@ class EvaluationService:
         deadline_override: date | None = None,
     ) -> EvaluationCycle:
         today = self.clock.today()
-        self._apply(cycle_id, lambda c: c.set_criteria(
-            actor_id, today, self.rules, additional_criteria, goals, deadline_override))
+        self._as_evaluator(cycle_id, actor_id, "set_criteria", lambda c, a: c.set_criteria(
+            a, today, self.rules, additional_criteria, goals, deadline_override))
         return self._cycle(cycle_id)
 
     def edit(self, cycle_id: str, actor_id: str, **changes: Any) -> EvaluationCycle:
         """Draft edits (e.g. scores during the meeting); locked fields raise FieldLocked."""
-        self._apply(cycle_id, lambda c: c.edit(actor_id, self.rules, **changes))
+        self._as_evaluator(cycle_id, actor_id, "edit", lambda c, a: c.edit(a, self.rules, **changes))
         return self._cycle(cycle_id)
 
     # ---- UC2 -------------------------------------------------------------------------------------
@@ -213,8 +234,8 @@ class EvaluationService:
         period_to: date | None = None,
     ) -> EvaluationCycle:
         today = self.clock.today()
-        self._apply(cycle_id, lambda c: c.record_review_meeting(
-            actor_id, today, self.rules, meeting_date or today, period_from, period_to))
+        self._as_evaluator(cycle_id, actor_id, "record_review_meeting", lambda c, a: c.record_review_meeting(
+            a, today, self.rules, meeting_date or today, period_from, period_to))
         return self._cycle(cycle_id)
 
     def submit_evaluation(
@@ -226,8 +247,8 @@ class EvaluationService:
         iprz_conclusions: str | None = None,
     ) -> EvaluationResult:
         today = self.clock.today()
-        return self._apply(cycle_id, lambda c: c.submit_evaluation(
-            actor_id, today, self.rules, scores, justification, iprz_conclusions))
+        return self._as_evaluator(cycle_id, actor_id, "submit_evaluation", lambda c, a: c.submit_evaluation(
+            a, today, self.rules, scores, justification, iprz_conclusions))
 
     def acknowledge(self, cycle_id: str, actor_id: str) -> EvaluationCycle:
         today = self.clock.today()

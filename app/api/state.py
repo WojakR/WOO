@@ -17,12 +17,14 @@ from typing import Iterator
 
 from app.application.assistant import AiSuggestionService, HrReport, NoteClassification
 from app.application.use_cases import EvaluationService
+from app.domain.access import AccessPolicy
 from app.domain.deadlines import Absence
 from app.domain.employee import Employee
 from app.domain.notes import Note
 from app.infrastructure.assistant_factory import build_assistant
 from app.infrastructure.kprm_adapter import KprmEmployeeDirectory, kprm_rulebook
 from app.infrastructure.memory import FixedClock, InMemoryCycleRepository
+from app.infrastructure.settings import OfficeSettings, load_office_settings
 from backend import config
 
 DEMO_TODAY = date(2026, 5, 25)  # Grzegorz Wzór's deadline 12.06.2026 is then 18 days away
@@ -75,6 +77,22 @@ class DeadlineChangeRecord:
 
 
 @dataclass
+class DeputyRecord:
+    """Zastępstwo: `deputy_id` stands in for evaluator `evaluator_id` from `od` to `do` (inclusive)."""
+    id: int
+    evaluator_id: str
+    deputy_id: str
+    od: date
+    do: date
+
+    def active_on(self, day: date) -> bool:
+        return self.od <= day <= self.do
+
+
+HR = "kadry"  # demo identity of the HR department / office administrator
+
+
+@dataclass
 class DemoState:
     clock: FixedClock  # the server's own clock (contract rule 7: never the browser's date)
     directory: KprmEmployeeDirectory
@@ -89,6 +107,22 @@ class DemoState:
     hr_decisions: dict[int, str] = field(default_factory=dict)  # signal id -> ZAAKCEPTOWANY / ODRZUCONY
     absences: list[AbsenceRecord] = field(default_factory=list)
     deadline_changes: list[DeadlineChangeRecord] = field(default_factory=list)
+    settings: OfficeSettings = field(default_factory=load_office_settings)
+    deputy_records: list[DeputyRecord] = field(default_factory=list)
+
+    def active_deputies(self, evaluator_id: str, day: date) -> set[str]:
+        return {d.deputy_id for d in self.deputy_records if d.evaluator_id == evaluator_id and d.active_on(day)}
+
+    def policy(self) -> AccessPolicy:
+        """Who may see / act on what today (app/domain/access.py), from the tree, settings and deputies."""
+        today = self.clock.today()
+        evaluators = {d.evaluator_id for d in self.deputy_records}
+        return AccessPolicy(
+            evaluator_of={e.id: e.evaluator_id for e in self.directory.all()},
+            scope=self.settings.visibility_scope,
+            deputies={ev: frozenset(self.active_deputies(ev, today)) for ev in evaluators},
+            admins=frozenset({HR}),
+        )
 
     def notes_of(self, evaluation_id: int) -> list[NoteRecord]:
         return [r for r in self.notes.values() if r.evaluation_id == evaluation_id]
@@ -138,6 +172,7 @@ def build_state(today: date | None = None, ai_mode: str | None = None, scenario:
                                     new_id=lambda: str(next(ids)))
     mode = (ai_mode or config.AI_MODE).lower()
     st = DemoState(clock, directory, evaluations, build_assistant(mode), mode)
+    evaluations.deputies = st.active_deputies  # deputies may act on the evaluator's behalf (use_cases)
     if scenario:
         from .demo_seed import seed_scenario
 

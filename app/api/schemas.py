@@ -601,3 +601,23 @@ class ClockOut(_Out):
 
 ConversationPrepOut.model_rebuild()
 PositionChangeOut.model_rebuild()
+
+
+# ---------------------------------------------------------------- zastępstwa (deputy evaluator)
+
+class ZastepstwoIn(BaseModel):
+    """POST /api/zastepstwa – `zastepca_id` stands in for evaluator `oceniajacy_id` from `od` to `do`:
+    may hold the conversations and draw up the evaluation (KPRM mentor, 21.11.2026)."""
+    oceniajacy_id: int
+    zastepca_id: int
+    od: date
+    do: date
+
+
+class ZastepstwoOut(_Out):
+    id: int
+    oceniajacy: OsobaRef
+    zastepca: OsobaRef
+    od: date
+    do: date
+    aktywne: bool                               # on the server's today

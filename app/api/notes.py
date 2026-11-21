@@ -13,6 +13,8 @@ from app.domain.notes import Note, Sentiment
 
 from . import assistant_mapping as m
 from . import schemas as s
+from .access import actor as _actor
+from .access import require_evaluator
 from .state import DemoState, NoteRecord, get_state
 
 router = APIRouter(prefix="/api", tags=["notatki"])
@@ -34,9 +36,8 @@ def _record(st: DemoState, note_id: int) -> NoteRecord:
     return r
 
 
-def _require_evaluator(cycle: EvaluationCycle, user_id: str | None) -> None:
-    if user_id is not None and user_id != cycle.evaluator_id:
-        raise NotAuthorized("Notatki z okresu oceny prowadzi tylko oceniający.")
+def _require_evaluator(st: DemoState, cycle: EvaluationCycle, who: str) -> None:
+    require_evaluator(st, who, cycle, "Notatki z okresu oceny prowadzi tylko oceniający (lub jego zastępca).")
 
 
 def _require_open(cycle: EvaluationCycle) -> None:
@@ -98,11 +99,12 @@ def add_note(evaluation_id: int, body: s.NoteIn, background: BackgroundTasks,
              x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)) -> s.NoteOut:
     """Saved at once; untagged notes are classified in the background (`status_klasyfikacji: W_TOKU`)."""
     cycle = _cycle(st, evaluation_id)
-    _require_evaluator(cycle, x_user_id)
+    who = _actor(st, x_user_id)
+    _require_evaluator(st, cycle, who)
     _require_open(cycle)
     cid = _criterion(cycle, st, body.criterion_kod) if body.criterion_kod else None
     note_id = next(st.note_ids)
-    note = Note(str(note_id), body.data, body.tresc.strip(), author_id=x_user_id or cycle.evaluator_id,
+    note = Note(str(note_id), body.data, body.tresc.strip(), author_id=who,
                 criterion_id=cid, sentiment=Sentiment(body.wydzwiek.value) if body.wydzwiek else None)
     r = NoteRecord(note, evaluation_id, body.typ.value, body.widoczna_dla_ocenianego,
                    status="RECZNA" if cid else "W_TOKU")
@@ -118,11 +120,12 @@ def list_notes(evaluation_id: int, x_user_id: str | None = Header(default=None),
     """The evaluator sees all notes; the evaluated person only those marked `widoczna_dla_ocenianego`."""
     cycle = _cycle(st, evaluation_id)
     records = sorted(st.notes_of(evaluation_id), key=lambda r: (r.note.on, int(r.note.id)))
-    if x_user_id is None or x_user_id == cycle.evaluator_id:
-        return [_out(st, r) for r in records]
-    if x_user_id == cycle.employee_id:
+    who = _actor(st, x_user_id)
+    if st.policy().can_see_working_material(who, cycle.employee_id, cycle.evaluator_id):
+        return [_out(st, r) for r in records]  # evaluator, deputy, HR
+    if who == cycle.employee_id:
         return [_out(st, r) for r in records if r.visible_to_employee]
-    raise NotAuthorized("Notatki z okresu oceny widzą tylko oceniający i oceniany.")
+    raise NotAuthorized("Notatki z okresu oceny widzą tylko oceniający (lub jego zastępca) i oceniany.")
 
 
 @router.patch("/notes/{note_id}", response_model=s.NoteOut)
@@ -131,7 +134,7 @@ def patch_note(note_id: int, body: s.NotePatch, x_user_id: str | None = Header(d
     """Manual tagging, or `zaakceptuj_sugestie` – the only way an AI suggestion becomes evidence."""
     r = _record(st, note_id)
     cycle = _cycle(st, r.evaluation_id)
-    _require_evaluator(cycle, x_user_id)
+    _require_evaluator(st, cycle, _actor(st, x_user_id))
     _require_open(cycle)
     note = r.note
     if body.tresc is not None:
@@ -163,7 +166,7 @@ def delete_note(note_id: int, x_user_id: str | None = Header(default=None),
                 st: DemoState = Depends(get_state)) -> Response:
     r = _record(st, note_id)
     cycle = _cycle(st, r.evaluation_id)
-    _require_evaluator(cycle, x_user_id)
+    _require_evaluator(st, cycle, _actor(st, x_user_id))
     _require_open(cycle)
     del st.notes[note_id]
     return Response(status_code=204)

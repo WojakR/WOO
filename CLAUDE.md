@@ -40,6 +40,10 @@ Run all commands below from `projekt/`.
   cycle state machine with field locks; no fastapi/sqlite/litellm/backend imports – enforced by a test),
   `app/application/` use cases (`EvaluationService`) + ports (`typing.Protocol`), `app/infrastructure/` adapters
   (rule book from `backend.kprm`, in-memory repo, `FixedClock` for "przewiń czas").
+- Access: `app/domain/access.py` (`AccessPolicy`) is the ONE place that decides who reads / writes an evaluation
+  (supervisor subtree or direct reports per `config/ustawienia_urzedu.json`, deputies, HR). Routers call
+  `app/api/access.py`; never write `actor == c.evaluator_id` checks by hand. Office settings (decisions of the office)
+  live in `config/`, rules of law in `server/data/kprm/reguly.json`.
 - `backend/kprm.py` – the ONLY reader of domain data in `../server/data/kprm/` (criteria, sheets A/B/C, rules and
   deadlines, sample employees, knowledge base, sample evaluations). Path: `KPRM_DATA_DIR`. Never hard-code values
   that come from regulations (thresholds, deadlines, criteria lists) – read them from `kprm.rules()` etc.

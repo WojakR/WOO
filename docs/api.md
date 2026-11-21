@@ -77,6 +77,26 @@ Akcje i kto je wykonuje:
 | 🟢 `DELETE /api/notes/{id}` | – | 204 | |
 | 🟢 `GET /api/evaluations/{id}/evidence` | – | `EvidenceOut` | mapa dowodów i sugerowane punkty; odpytywać co ~3 s, gdy `w_toku > 0` |
 
+### Widoczność i zastępstwa
+
+Jedna polityka dostępu (`app/domain/access.py`, używana przez wszystkie routery przez `app/api/access.py`):
+
+| Kto | Czyta ocenę (arkusz, status, terminy) | Wypełnia ocenę i widzi materiały robocze (notatki, przygotowanie, szkice, dowody, HR partner) |
+|---|---|---|
+| oceniany | tylko własną | nie – z notatek tylko `widoczna_dla_ocenianego` |
+| bezpośredni oceniający | swoich ocenianych | tak (art. 81 ust. 1) |
+| zastępca (w okresie zastępstwa) | jak oceniający | tak; cykl zapisuje, kto działał (`deputy_actions`, `drawn_up_by`); nigdy własnej oceny |
+| przełożony wyżej | całe poddrzewo (domyślnie) albo nic poza bezpośrednimi – ustawienie urzędu `zakres_widocznosci` | nie (tylko odczyt) |
+| kadry (`X-User-Id: kadry` albo brak nagłówka) | cały urząd | materiały robocze tak, wypełnianie nie |
+
+Ustawienia urzędu: `projekt/config/ustawienia_urzedu.json` (`PODDRZEWO` albo `BEZPOSREDNI`) – decyzje urzędu, oddzielone od przepisów w `reguly.json`.
+
+| Metoda i ścieżka | Wejście | Wyjście | Uwagi |
+|---|---|---|---|
+| `GET /api/zastepstwa` | – | `ZastepstwoOut[]` | kadry: wszystkie; inni: gdzie są oceniającym albo zastępcą |
+| `POST /api/zastepstwa` | `ZastepstwoIn` | `ZastepstwoOut` 201 | kadry albo sam oceniający; 422: ktoś, kto nikogo nie ocenia, sam siebie, `do < od` |
+| `DELETE /api/zastepstwa/{id}` | – | 204 | kadry albo oceniający |
+
 ### Asystent i HR partner: UC1, UC4, UC5, UC7
 
 | Metoda i ścieżka | Wejście | Wyjście | Uwagi |

@@ -11,6 +11,7 @@ from app.api.errors import install_error_handlers
 from app.api.evaluations import router as evaluations_router
 from app.api.routes import router as api_router
 from app.api.notes import router as notes_router
+from app.api.deputies import router as deputies_router
 from backend import config, db
 from backend.llm import ask_llm
 from backend.parsers import parse_file, to_llm_text
@@ -19,6 +20,7 @@ app = FastAPI(title="HackNation 2026 – API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(api_router)  # contract endpoints /api/... (docs/api.md)
 app.include_router(notes_router)
+app.include_router(deputies_router)  # zastępstwa
 app.include_router(evaluations_router)  # sheet, dashboard, HR partner, demo – used by the web UI
 install_error_handlers(app)
 

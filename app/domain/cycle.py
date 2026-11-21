@@ -136,6 +136,9 @@ class EvaluationCycle:
     evaluated_on: date | None = None
     acknowledged_on: date | None = None
     position_changes: list[PositionChange] = field(default_factory=list)
+    # deputy (zastępca) – who really acted on the evaluator's behalf, and who drew up the evaluation
+    deputy_actions: list[tuple[date, str, str]] = field(default_factory=list)  # (day, deputy, step)
+    drawn_up_by: str | None = None
     history: list[tuple[date, Status]] = field(default_factory=list)
 
     # ---- creation -------------------------------------------------------------------------------
