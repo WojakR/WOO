@@ -90,13 +90,16 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] svg { color: var(--b
   fill: #ffffff !important; }
 /* Streamlit's own "Deploy" button is not part of the app */
 [data-testid="stAppDeployButton"] { display: none !important; }
-/* while a page is being rebuilt, hide the elements of the previous page instead of showing both for a moment */
+/* while a page is being rebuilt, hide the previous page: stale elements, and frames/columns left with only stale
+   content (otherwise their empty borders show up as doubled tiles for a moment) */
 [data-testid="stMain"] [data-stale="true"] { display: none !important; }
-/* tiles and framed sections: clearly separated from the background */
-[data-testid="stMain"] div[data-testid="stVerticalBlockBorderWrapper"]:not([class*="st-key-row_"]),
-[data-testid="stMain"] [data-testid="stExpander"] details, [data-testid="stMain"] .card {
-  border: 1.5px solid var(--tile-line) !important; background: var(--tile-bg) !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+[data-testid="stMain"] [data-testid="stLayoutWrapper"]:has([data-stale="true"]):not(:has([data-stale="false"])),
+[data-testid="stMain"] [data-testid="stHorizontalBlock"]:has([data-stale="true"]):not(:has([data-stale="false"])) {
+  display: none !important; }
+/* tiles and framed sections: clearly separated from the background (only framed blocks have a border width) */
+[data-testid="stMain"] [data-testid="stVerticalBlock"], [data-testid="stMain"] [data-testid="stExpander"] details,
+[data-testid="stMain"] .card, [data-testid="stMain"] [data-testid="stPopoverButton"] { border-color: var(--tile-line) !important; }
+[data-testid="stMain"] [data-testid="stExpander"] details, [data-testid="stMain"] .card { border-width: 1.5px !important; }
 [data-testid="stMain"] [class*="st-key-row_"] { border: 1.5px solid var(--tile-line) !important; background: var(--tile-bg); }
 /* footnotes: a short "*" explanation under a field instead of long inline hints */
 .footnote { font-size: .8rem; color: var(--muted); margin: 2px 0 10px; }
@@ -251,6 +254,8 @@ def inject_css(font_scale: float = 1.0, high_contrast: bool = False) -> None:
         tokens = f":root {{ {light} }}"
     else:
         tokens = f":root {{ {light} }} @media (prefers-color-scheme: dark) {{ :root {{ {dark} }} }}"
+    # the live theme (set by theme_watcher()) wins over the guess above – also right after a theme change
+    tokens += f" :root[data-aoo-theme='light'] {{ {light} }} :root[data-aoo-theme='dark'] {{ {dark} }}"
     st.markdown(f"<style>{tokens}</style>", unsafe_allow_html=True)
     st.markdown(CSS, unsafe_allow_html=True)
     st.markdown(ACCESSIBILITY_CSS.format(px=round(17 * font_scale), contrast=HIGH_CONTRAST if high_contrast else ""),
@@ -376,3 +381,40 @@ def show_problems(problems: list[str]) -> None:
 def footnote(text: str, mark: str = "*") -> None:
     """Short explanation under a field, referenced by an asterisk in its label."""
     html(f'<p class="footnote">{escape(mark)} {escape(text)}</p>')
+
+
+THEME_WATCHER = r"""
+<script>
+// Marks the app page with data-aoo-theme="light" / "dark" from the real background colour of the app and keeps it
+// up to date, so the app's own colours switch together with Streamlit's theme (Settings -> Theme) at once.
+// The watcher is installed once into the page itself (not this helper frame, which Streamlit may rebuild).
+(function () {
+  const doc = window.parent.document;
+  if (doc.getElementById('aoo-theme-watcher')) return;
+  const s = doc.createElement('script');
+  s.id = 'aoo-theme-watcher';
+  s.textContent = `(function () {
+    function update() {
+      const app = document.querySelector('.stApp');
+      if (!app) return;
+      const bg = getComputedStyle(app).backgroundColor;
+      const m = bg.slice(bg.indexOf('(') + 1, bg.indexOf(')')).split(',').map(Number);
+      if (m.length < 3 || m.some(isNaN)) return;
+      const lum = 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];
+      const theme = lum < 128 ? 'dark' : 'light';
+      if (document.documentElement.dataset.aooTheme !== theme) document.documentElement.dataset.aooTheme = theme;
+    }
+    update();
+    setInterval(update, 400);
+  })();`;
+  doc.head.appendChild(s);
+})();
+</script>
+"""
+
+
+def theme_watcher() -> None:
+    """Zero-height helper (same-origin iframe) that keeps data-aoo-theme on the page in step with the theme."""
+    import streamlit.components.v1 as components
+
+    components.html(THEME_WATCHER, height=0)

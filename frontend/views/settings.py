@@ -34,7 +34,8 @@ def _ok(fn, *args, ok: str, **kw) -> bool:
 def _assistant(api: Api, me: dict) -> None:
     hr = me["rola"] == "KADRY"
     with st.container(border=True):
-        st.markdown("#### 🤖 Asystent AI i HR partner")
+        st.markdown("#### 🤖 Asystent AI i HR partner", help="Asystenta AI włączasz przełącznikiem w prawym górnym "
+                    "rogu – ustawienie zapisuje się na Twoim koncie. Wyłączenie przez kadry obowiązuje cały urząd.")
         if hr:
             o = api.office()
             if o["tryb_ai_serwera"] == "OFF":
@@ -54,8 +55,6 @@ def _assistant(api: Api, me: dict) -> None:
         if b != mine["hr_partner"]:
             if _ok(api.set_my_assistant, hr_partner=b, ok="Zapisano."):
                 st.rerun()
-        st.caption("Asystenta AI włączasz i wyłączasz przełącznikiem w prawym górnym rogu – ustawienie zapisuje się "
-                   "na Twoim koncie.")
 
 
 def _visibility(api: Api, me: dict) -> None:
@@ -75,9 +74,9 @@ def _visibility(api: Api, me: dict) -> None:
 def _rules(api: Api, me: dict) -> None:
     r = api.rules()
     with st.container(border=True):
-        st.markdown("#### 📜 Wymagania z rozporządzenia")
-        st.caption("To, czego pilnuje system. Po nowelizacji przepisów administrator (kadry) zmienia tu terminy – "
-                   "bez przebudowy aplikacji. Każda zmiana jest zapisywana razem z podstawą prawną.")
+        st.markdown("#### 📜 Wymagania z rozporządzenia", help="To, czego pilnuje system. Po nowelizacji przepisów "
+                    "administrator (kadry) zmienia tu terminy – bez przebudowy aplikacji. Każda zmiana jest zapisywana "
+                    "razem z podstawą prawną.")
         if r["zmienione"]:
             st.warning("Część wartości różni się od opublikowanego rozporządzenia – zobacz historię zmian poniżej.")
         for w in r["wymagania"]:
@@ -116,11 +115,11 @@ def _reminders(api: Api, me: dict) -> None:
     hr = me["rola"] == "KADRY"
     data = api.reminders(office=hr)
     with st.container(border=True):
-        st.markdown("#### 🔔 Przypomnienia" + (" – domyślne dla urzędu" if hr else ""))
-        st.caption(("Domyślny harmonogram urzędu – każdy pracownik może ustawić własny. " if hr else
-                    ("Używasz własnego harmonogramu. " if data["wlasne"] else "Używasz domyślnego harmonogramu urzędu. "))
-                   + f"Przypomnienia przychodzą tylko w dni robocze, w godzinach pracy urzędu "
-                     f"({data['godziny_pracy'][0]}–{data['godziny_pracy'][1]}).")
+        st.markdown("#### 🔔 Przypomnienia" + (" – domyślne dla urzędu" if hr else ""), help=(
+            ("Domyślny harmonogram urzędu – każdy pracownik może ustawić własny. " if hr else
+             ("Używasz własnego harmonogramu. " if data["wlasne"] else "Używasz domyślnego harmonogramu urzędu. "))
+            + f"Przypomnienia przychodzą tylko w dni robocze, w godzinach pracy urzędu "
+              f"({data['godziny_pracy'][0]}–{data['godziny_pracy'][1]})."))
         start, end = data["godziny_pracy"]
         hours = []
         hh, mm = map(int, start.split(":"))
@@ -168,8 +167,8 @@ def _deputies(api: Api, me: dict, users: list[dict], today: date) -> None:
     if not (hr or me["czy_oceniajacy"]):
         return
     with st.container(border=True):
-        st.markdown("#### 🤝 Zastępstwa")
-        st.caption("W czasie zastępstwa zastępca może prowadzić rozmowy i sporządzić ocenę za oceniającego.")
+        st.markdown("#### 🤝 Zastępstwa",
+                    help="W czasie zastępstwa zastępca może prowadzić rozmowy i sporządzić ocenę za oceniającego.")
         rows = api.deputies()
         for d in rows:
             c1, c2 = st.columns([4, 1], vertical_alignment="center")
@@ -200,10 +199,9 @@ def _deputies(api: Api, me: dict, users: list[dict], today: date) -> None:
 
 
 def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
-    st.subheader("⚙️ Ustawienia")
     hr = me["rola"] == "KADRY"
-    st.caption("Domyślny harmonogram przypomnień, asystent i wymagania urzędu." if hr
-               else "Twoje przypomnienia, asystent i zastępstwa.")
+    st.subheader("⚙️ Ustawienia", help="Domyślny harmonogram przypomnień, asystent i wymagania urzędu." if hr
+                 else "Twoje przypomnienia, asystent i zastępstwa.")
     _assistant(api, me)
     if hr:
         _visibility(api, me)

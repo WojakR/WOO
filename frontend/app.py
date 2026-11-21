@@ -90,11 +90,10 @@ def menu_item(label: str, active: bool, on_click, args=()) -> None:
 
 
 def accessibility_panel() -> None:
-    st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font")
+    st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font",
+             help="Zgodnie z WCAG 2.1 (1.4.4). Stronę można też powiększyć skrótem Ctrl i +.")
     st.toggle("Wysoki kontrast", key="a11y_contrast",
-              help="Ciemniejszy tekst pomocniczy, grubsze obramowania i podkreślone odnośniki.")
-    st.caption("Dostępność zgodnie z WCAG 2.1: powiększenie tekstu (1.4.4), kontrast (1.4.3), widoczny fokus "
-               "przy obsłudze klawiaturą (2.4.7). Stronę można też powiększyć skrótem Ctrl i +.")
+              help="Ciemniejszy tekst pomocniczy, grubsze obramowania i podkreślone odnośniki (WCAG 2.1: 1.4.3).")
 
 
 def demo_panel() -> None:
@@ -102,9 +101,9 @@ def demo_panel() -> None:
     labels = {u["id"]: f"{u['nazwa']} – {u['opis']}" for u in users}
     st.selectbox("Zalogowany jako", ids, key="user_id", format_func=labels.get, on_change=switch_user,
                  help="Bez logowania: wybierz osobę. Uprawnienia (kto co widzi i może zrobić) wylicza serwer.")
-    st.markdown(f"**⏩ Data w aplikacji (zegar serwera): {ui.fmt(meta['dzis'])}**")
-    st.caption("Na prezentacji nie poczekamy 24 miesięcy – przesuwasz zegar serwera, a system wysyła "
-               "przypomnienia z tego okresu. W prawdziwym wdrożeniu tej opcji nie ma.")
+    st.markdown(f"**⏩ Data w aplikacji: {ui.fmt(meta['dzis'])}**", help="Na prezentacji nie poczekamy 24 miesięcy – "
+                "przesuwasz zegar serwera, a system wysyła przypomnienia z tego okresu. W prawdziwym wdrożeniu tej "
+                "opcji nie ma.")
     a, b, c = st.columns(3)
     for col, label, days in ((a, "+1 dz.", 1), (b, "+7 dni", 7), (c, "+30 dni", 30)):
         if col.button(label, use_container_width=True, key=f"adv_{days}"):
@@ -132,6 +131,7 @@ def demo_panel() -> None:
 
 # ---------------------------------------------------------------- side menu
 with st.sidebar:
+    ui.theme_watcher()
     ui.html('<p class="app-title">🏛️ Asystent Ocen Okresowych</p>')
     st.caption("Ocena okresowa w służbie cywilnej")
     st.markdown("**Menu**")
@@ -203,6 +203,4 @@ elif st.session_state.view == "schedule":
 else:
     team.render(api, me, ai)
 
-st.divider()
-st.caption("Dane i reguły pochodzą z serwera (API i baza danych). Asystent tylko proponuje – decyzje podejmuje "
-           "oceniający. Dane osobowe są pseudonimizowane przed wysłaniem do modelu. Dane w demo są fikcyjne.")
+

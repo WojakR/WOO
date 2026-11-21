@@ -221,10 +221,9 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
 
     st.markdown("#### Kryteria oceny")
     with st.container(border=True):
-        st.markdown("**Kryteria obowiązkowe***")
+        st.markdown("**Kryteria obowiązkowe**")
         for k in [k for k in ev["kryteria"] if k["typ"] == "OBOWIAZKOWE"]:
             st.markdown(f"- {k['nazwa']}", help=_indicators(crit.get(k["criterion_kod"])) or None)
-        ui.footnote("Stałe dla arkusza – wynikają z rozporządzenia.")
     chosen = [k["criterion_kod"] for k in ev["kryteria"] if k["typ"] == "DODATKOWE"]
     optional = [c["kod"] for c in crit.values() if c.get("typ_dla_arkusza") == "DODATKOWE"]
     st.markdown("**Kryteria dodatkowe***")
@@ -264,8 +263,6 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
             _invite(ev, today, 1, "Rozmowa rozpoczynająca ocenę okresową", 45)
         if ai:
             with st.expander("🗣️ Wskazówki do rozmowy rozpoczynającej"):
-                st.caption("Podpowiedź przed rozmową: cel, plan z czasem i pytania do każdego kryterium "
-                           "(§ 5 rozporządzenia).")
                 _prep(api, ev, "ROZPOCZYNAJACA")
     if ev["status"] == "KRYTERIA_DO_POTWIERDZENIA":
         st.info("⏳ Kryteria przekazane ocenianemu – czeka na potwierdzenie rozmowy i zapoznania się z kryteriami.")
@@ -277,7 +274,10 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
 
 def _note_form(api: Api, ev: dict, today: date, key: str) -> None:
     with st.form(key, clear_on_submit=True, border=False):
-        text = st.text_area("Obserwacja", height=80, placeholder="Co się wydarzyło? Konkretne zachowanie i efekt.")
+        text = st.text_area("Obserwacja", height=80, placeholder="Co się wydarzyło? Konkretne zachowanie i efekt.",
+                            help="Zapisuj obserwacje przez cały okres oceny. Notatkę przypisujemy do kryterium, bo arkusz "
+                                 "ocenia się kryterium po kryterium – przy ocenie widać zebrane przykłady, a szkic "
+                                 "uzasadnienia cytuje właściwe notatki. Asystent proponuje kryterium – decydujesz Ty.")
         c1, c2 = st.columns(2, vertical_alignment="bottom")
         on = c1.date_input("Data", today, max_value=today, format="DD.MM.YYYY")
         submitted = c2.form_submit_button("Dodaj notatkę", type="primary", use_container_width=True)
@@ -346,9 +346,6 @@ def _stage_observation(api: Api, ev: dict, me: dict, ai: bool, today: date) -> N
         if not work:
             st.caption("Notatki przełożonego są materiałem roboczym – widzi je oceniający i kadry.")
         else:
-            st.caption("Zapisuj obserwacje przez cały okres oceny. Każdą notatkę przypisujemy do kryterium, bo arkusz "
-                       "ocenia się kryterium po kryterium: przy ocenie cząstkowej widać zebrane przykłady, a szkic "
-                       "uzasadnienia cytuje właściwe notatki. Asystent proponuje kryterium – decydujesz Ty.")
             if ev["jako_oceniajacy"] and ev["status"] not in ("ZAKONCZONA", "OCENA_DO_ZAPOZNANIA"):
                 _note_form(api, ev, today, f"nf_{ev['id']}")
             notes = sorted(api.notes(ev["id"]), key=lambda n: n["data"], reverse=True)

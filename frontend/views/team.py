@@ -69,7 +69,7 @@ def _attention(items: list[dict]) -> None:
     not_started = [i for i in items if i["evaluation_id"] is None]
     objections = [i for i in items if i["status"] == "SPRZECIW"]
     count = len(upcoming) + len(waiting) + len(not_started) + len(objections)
-    with st.expander(f"🔎 Wymaga uwagi ({count})", expanded=True):
+    with st.expander(f"🔎 Wymaga uwagi ({count})", expanded=False):
         sections = (
             ("Najbliższe terminy", upcoming, "Brak zbliżających się terminów.",
              lambda i: f"{ui.fmt(i['termin'])} · {ui.days_text(i['dni_do_terminu'])}"),
@@ -94,9 +94,10 @@ def _attention(items: list[dict]) -> None:
 def render(api: Api, me: dict, ai: bool = True) -> None:
     items = api.dashboard()["pozycje"]
     hr = me["rola"] == "KADRY"
-    st.subheader("Oceny okresowe – cały urząd" if hr else "Mój zespół")
-    st.caption("Stan ocen okresowych w urzędzie (dane przykładowe)." if hr else
-               "Oceny osób, które oceniasz – termin, etap i to, kto ma teraz wykonać krok.")
+    st.subheader("Oceny okresowe – cały urząd" if hr else "Mój zespół",
+                 help="Stan ocen okresowych w urzędzie (dane przykładowe)." if hr else
+                 "Oceny osób, które oceniasz – termin, etap i to, kto ma teraz wykonać krok. Kliknij wiersz, "
+                 "aby otworzyć ocenę.")
     if not items:
         st.info("Nie oceniasz nikogo – brak ocen do pokazania.")
         return
@@ -177,9 +178,8 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
 
 def render_schedule(api: Api, me: dict) -> None:
     items = api.dashboard()["pozycje"]
-    st.subheader("🗓️ Terminy")
-    st.caption("Terminy liczone przez system (24 miesiące, dni wolne, nieobecności), od najbliższego. "
-               "Kliknij pozycję, aby przejść do oceny.")
+    st.subheader("🗓️ Terminy", help="Terminy liczone przez system (24 miesiące, dni wolne, nieobecności), "
+                 "od najbliższego. Kliknij pozycję, aby przejść do oceny.")
     rows = sorted((i for i in items if _urgency(i) != "none"), key=lambda i: i["dni_do_terminu"])
     with st.container(border=True):
         for k, i in enumerate(rows):
