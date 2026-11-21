@@ -92,6 +92,11 @@ section[data-testid="stSidebar"] .stButton button p { justify-content: flex-star
 [class*="st-key-aibox"] { border: 2px solid var(--ai) !important; border-radius: 10px; background: var(--ai-bg) !important; }
 [class*="st-key-aiprep"] [data-testid="stExpander"] details { border-color: var(--ai) !important; }
 [class*="st-key-aiprep"] [data-testid="stExpander"] summary p { color: var(--ai) !important; font-weight: 650; }
+/* assistant tips (conversation preparation): violet window like the HR partner */
+html body [class*="st-key-aiprep"] [data-testid="stExpander"] > details { background: var(--ai-bg) !important; border: 2px solid var(--ai) !important; }
+html:not([data-aoo-theme="dark"]) [class*="st-key-aiprep"] [data-testid="stExpander"] details { background: #ece3fb !important; }
+html:not([data-aoo-theme="dark"]) [class*="st-key-aiprep"] [data-testid="stVerticalBlock"][class*="st-key-"]:not([class*="st-key-aiprep"]),
+html:not([data-aoo-theme="dark"]) [class*="st-key-aiprep"] [data-testid="stLayoutWrapper"] > [data-testid="stVerticalBlock"] { background: #f6f1fe; }
 /* HR partner window: light violet background in the light theme */
 html:not([data-aoo-theme="dark"]) [data-testid="stPopoverBody"]:has(.st-key-hrpanel) { background: #ece3fb !important; }
 html:not([data-aoo-theme="dark"]) .st-key-hrpanel { background: #f6f1fe !important; border-color: #cdb8f4 !important; }

@@ -168,7 +168,7 @@ with demo_col.popover("🎬 Demo", use_container_width=True, help="Tryb demo: ki
     demo_panel()
 with ai_col.container(horizontal_alignment="right"):
     st.toggle("🤖 Asystent AI", key="ai_on", on_change=save_ai, disabled=not office_ai,
-              help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: wskazówki do rozmów, propozycje przypisania "
+              help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta AI: wskazówki do rozmów, propozycje przypisania "
                    "notatek, sugerowane oceny, szkice tekstów i HR partnera. Proces oceny działa bez zmian.")
 role = "kadry" if me["rola"] == "KADRY" else "oceniający" if me["czy_oceniajacy"] else "oceniany"
 who.markdown(f"<span class='lock'>Zalogowano jako (demo):</span> **{name(me['pracownik'])}** · {role} · "

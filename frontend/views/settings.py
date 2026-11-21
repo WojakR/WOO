@@ -39,7 +39,7 @@ def _assistant(api: Api, me: dict) -> None:
         if hr:
             o = api.office()
             if o["tryb_ai_serwera"] == "OFF":
-                st.caption("Serwer nie ma skonfigurowanego modelu – asystent działa na szablonach i regułach.")
+                st.caption("Serwer nie ma skonfigurowanego modelu – asystent AI działa na szablonach i regułach.")
             a = st.toggle("Asystent AI w całym urzędzie", value=o["asystent_ai"], key="office_ai",
                           help="Wyłączenie obowiązuje wszystkich – nikt nie dostanie podpowiedzi modelu językowego.")
             b = st.toggle("Wirtualny HR partner w całym urzędzie", value=o["hr_partner"], key="office_hr")
@@ -200,8 +200,8 @@ def _deputies(api: Api, me: dict, users: list[dict], today: date) -> None:
 
 def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
     hr = me["rola"] == "KADRY"
-    st.subheader("⚙️ Ustawienia", help="Domyślny harmonogram przypomnień, asystent i wymagania urzędu." if hr
-                 else "Twoje przypomnienia, asystent i zastępstwa.")
+    st.subheader("⚙️ Ustawienia", help="Domyślny harmonogram przypomnień, asystent AI i wymagania urzędu." if hr
+                 else "Twoje przypomnienia, asystent AI i zastępstwa.")
     _assistant(api, me)
     if hr:
         _visibility(api, me)

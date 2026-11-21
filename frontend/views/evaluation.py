@@ -65,7 +65,7 @@ def _notes_mark(api: Api, ev: dict) -> tuple:
 def _cached(key: tuple, compute):
     cache = st.session_state.setdefault("ai_cache", {})
     if key not in cache:
-        with st.spinner("Asystent przygotowuje propozycję…"):
+        with st.spinner("Asystent AI przygotowuje propozycję…"):
             try:
                 cache[key] = compute()
             except ApiError as e:
@@ -263,7 +263,7 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
             _invite(ev, today, 1, "Rozmowa rozpoczynająca ocenę okresową", 45)
         if ai:
             with st.container(key="aiprep_start"):
-                with st.expander("🤖 Wskazówki asystenta do rozmowy rozpoczynającej"):
+                with st.expander("🤖 Wskazówki asystenta AI do rozmowy rozpoczynającej"):
                     _prep(api, ev, "ROZPOCZYNAJACA")
     if ev["status"] == "KRYTERIA_DO_POTWIERDZENIA":
         st.info("⏳ Kryteria przekazane ocenianemu – czeka na potwierdzenie rozmowy i zapoznania się z kryteriami.")
@@ -278,7 +278,7 @@ def _note_form(api: Api, ev: dict, today: date, key: str) -> None:
         text = st.text_area("Obserwacja", height=80, placeholder="Co się wydarzyło? Konkretne zachowanie i efekt.",
                             help="Zapisuj obserwacje przez cały okres oceny. Notatkę przypisujemy do kryterium, bo arkusz "
                                  "ocenia się kryterium po kryterium – przy ocenie widać zebrane przykłady, a szkic "
-                                 "uzasadnienia cytuje właściwe notatki. Asystent proponuje kryterium – decydujesz Ty.")
+                                 "uzasadnienia cytuje właściwe notatki. Asystent AI proponuje kryterium – decydujesz Ty.")
         c1, c2 = st.columns(2, vertical_alignment="bottom")
         on = c1.date_input("Data", today, max_value=today, format="DD.MM.YYYY")
         submitted = c2.form_submit_button("Dodaj notatkę", type="primary", use_container_width=True)
@@ -295,7 +295,7 @@ def _note_row(api: Api, ev: dict, n: dict, crit: dict, can_edit: bool, ai: bool)
         tag = ui.badge(crit.get(n["criterion_kod"], {}).get("nazwa", n["criterion_kod"]), "b-blue") + " " + \
             ui.badge(SENTIMENTS.get(n.get("wydzwiek"), "bez wydźwięku"), cls)
     elif n.get("status_klasyfikacji") == "W_TOKU":
-        tag = ui.badge("asystent analizuje…", "b-violet")
+        tag = ui.badge("asystent AI analizuje…", "b-violet")
     else:
         tag = ui.badge("do przypisania", "b-amber")
     ui.html(f'<div class="note"><span class="d">{ui.fmt(n["data"])} · {escape(name(n.get("autor")))}</span> {tag}<br>'
@@ -422,10 +422,10 @@ def _stage_review(api: Api, ev: dict, ai: bool, today: date) -> None:
         _talk_tips()
         if ai:
             with st.container(key="aiprep_review"):
-                with st.expander("🤖 Wskazówki asystenta do rozmowy oceniającej", expanded=True):
+                with st.expander("🤖 Wskazówki asystenta AI do rozmowy oceniającej", expanded=True):
                     _prep(api, ev, "OCENIAJACA")
         else:
-            st.caption("Asystent jest wyłączony – wskazówki asystenta do rozmowy są ukryte.")
+            st.caption("Asystent AI jest wyłączony – wskazówki asystenta AI do rozmowy są ukryte.")
         st.divider()
     _action(api, ev, "ROZPOCZNIJ_ROZMOWE",
             note=f"Jako datę rozmowy system zapisze dzisiejszą datę ({ui.fmt(today)}).")
@@ -564,14 +564,14 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
         h, btn = st.columns([3, 1], vertical_alignment="bottom")
         h.markdown(f"#### {title}*")
         if editable and drafts_on:
-            btn.button("✨ Szkic od asystenta", key=f"dr_{tkey}", use_container_width=True,
+            btn.button("✨ Szkic od asystenta AI", key=f"dr_{tkey}", use_container_width=True,
                        on_click=request_draft, args=(kind, dkey))
         d = st.session_state.get(dkey)
         if d and editable:
             with st.container(key=f"aibox_{dkey}"):
                 src = "Wygenerowane przez model lokalny" if d["zrodlo"] == "AI" else "Szablon z danych (model niedostępny)"
                 based = f" · na podstawie {len(d.get('oparte_na_notatkach') or [])} notatek" if d.get("oparte_na_notatkach") else ""
-                ui.html(f"{ui.badge('✨ Propozycja asystenta', 'b-violet')} <span class='lock'>{src}{based} · nic nie "
+                ui.html(f"{ui.badge('✨ Propozycja asystenta AI', 'b-violet')} <span class='lock'>{src}{based} · nic nie "
                         f"zostanie zapisane bez Twojej decyzji.</span>")
                 st.markdown(d["tekst"])
                 a, b, c = st.columns(3)
@@ -836,7 +836,7 @@ def _hr_partner(api: Api, ev: dict) -> None:
                          on_click=decide, args=(sg["id"], "ZAAKCEPTOWANY"))
                 b.button("Odrzuć", key=f"hr_no_{sg['id']}", use_container_width=True,
                          on_click=decide, args=(sg["id"], "ODRZUCONY"))
-        st.caption("Asystent tylko podpowiada. Ocenę wystawia przełożony.")
+        st.caption("Asystent AI tylko podpowiada. Ocenę wystawia przełożony.")
 
 
 # ---------------------------------------------------------------- page
