@@ -21,10 +21,24 @@ CSS = """
           --grey-bg:rgba(110,118,129,.14); --surface:transparent; }
 }
 .block-container { padding-top: 3.6rem; max-width: 1400px; }
-/* toasts (bottom-right notifications): bigger and easier to notice */
-div[data-testid="stToast"] { min-width: 380px; padding: 14px 18px; font-size: 1.05rem;
-                             border-left: 5px solid var(--blue); box-shadow: 0 6px 24px rgba(0,0,0,.25); }
-div[data-testid="stToast"] p { font-size: 1.05rem; }
+/* toasts (bottom-right notifications): big, high-contrast, easy to notice */
+div[data-testid="stToastContainer"] { right: 24px; bottom: 24px; }
+div[data-testid="stToast"] { min-width: 460px; max-width: 560px; padding: 18px 22px; font-size: 1.2rem;
+                             border: 2px solid var(--blue); border-left: 8px solid var(--blue);
+                             box-shadow: 0 10px 32px rgba(0,0,0,.35); }
+div[data-testid="stToast"] p { font-size: 1.2rem; font-weight: 600; line-height: 1.4; }
+/* no keyboard-shortcut hints ("Press Ctrl+Enter to apply") – every action has its own button */
+[data-testid="InputInstructions"] { display: none !important; }
+/* WCAG 2.4.7: always visible keyboard focus */
+*:focus-visible { outline: 3px solid #f59e0b !important; outline-offset: 2px !important; }
+/* partial scores 1/3/5/7/9: the selected point is coloured from red to green */
+.st-key-scores button[role="radio"][aria-checked="true"] { color: #fff !important; font-weight: 700; }
+.st-key-scores button[role="radio"][aria-checked="true"]:nth-of-type(1) { background: #c62828 !important; border-color: #c62828 !important; }
+.st-key-scores button[role="radio"][aria-checked="true"]:nth-of-type(2) { background: #e8710a !important; border-color: #e8710a !important; }
+.st-key-scores button[role="radio"][aria-checked="true"]:nth-of-type(3) { background: #1a73e8 !important; border-color: #1a73e8 !important; }
+.st-key-scores button[role="radio"][aria-checked="true"]:nth-of-type(4) { background: #34a853 !important; border-color: #34a853 !important; }
+.st-key-scores button[role="radio"][aria-checked="true"]:nth-of-type(5) { background: #137333 !important; border-color: #137333 !important; }
+.st-key-scores button[role="radio"] p { font-size: 1.05rem; }
 /* link-like buttons (schedule, notifications, names, column headers): left-aligned */
 button[data-testid="stBaseButton-tertiary"] { justify-content: flex-start; text-align: left; }
 button[data-testid="stBaseButton-tertiary"] div, button[data-testid="stBaseButton-tertiary"] p { text-align: left; justify-content: flex-start; }
@@ -72,12 +86,43 @@ div[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 10px; }
 
 STATE_ICON = {"done": "✔", "active": "●", "waiting": "⏳", "todo": "○"}
 SOURCE_STYLE = {"AI": ("b-violet", "✨ AI"), "SZABLON": ("b-grey", "SZABLON"), "REGULY": ("b-blue", "REGUŁY")}
+SOURCE_TEXT = {
+    "AI": "wygenerowane przez model językowy (AI) na podstawie danych, po pseudonimizacji",
+    "SZABLON": "przygotowane z gotowego szablonu i danych oceny – bez udziału AI",
+    "REGULY": "wyliczone z reguł (słowa kluczowe, terminy, notatki) – bez udziału AI",
+}
+FONT_SCALES = {"Standardowa": 1.0, "Duża": 1.2, "Bardzo duża": 1.4}
+URGENCY = {"late": ("Po terminie", "b-red"), "soon": ("Wkrótce", "b-amber"),
+           "ok": ("W terminie", "b-green"), "none": ("Zakończona", "b-grey")}
+
+ACCESSIBILITY_CSS = """
+<style>
+html {{ font-size: {px}px; }}
+{contrast}
+</style>
+"""
+HIGH_CONTRAST = """
+:root { --muted: var(--ink) !important; --line: #57606a !important; }
+@media (prefers-color-scheme: dark) { :root { --line: #8b949e !important; } }
+[data-testid="stCaptionContainer"], .lock, .app-sub, .note .d { color: inherit !important; opacity: 1 !important; }
+.badge { border: 1px solid currentColor !important; }
+.card, .step, div[data-testid="stVerticalBlockBorderWrapper"] { border-width: 2px !important; }
+a, button[data-testid="stBaseButton-tertiary"] p { text-decoration: underline; }
+"""
 SENTIMENT = {"POZYTYWNY": ("b-green", "+ pozytywna"), "NEUTRALNY": ("b-grey", "neutralna"),
              "NEGATYWNY": ("b-red", "− negatywna")}
 
 
-def inject_css() -> None:
+def inject_css(font_scale: float = 1.0, high_contrast: bool = False) -> None:
+    """Base styles + accessibility settings (WCAG 2.1: 1.4.4 resize text, 1.4.3/1.4.6 contrast)."""
     st.markdown(CSS, unsafe_allow_html=True)
+    st.markdown(ACCESSIBILITY_CSS.format(px=round(17 * font_scale), contrast=HIGH_CONTRAST if high_contrast else ""),
+                unsafe_allow_html=True)
+
+
+def source_note(source: str) -> str:
+    """Badge + plain-language explanation of where a suggestion comes from."""
+    return f"{source_badge(source)} <span class='lock'>Źródło: {escape(SOURCE_TEXT.get(source, source))}.</span>"
 
 
 def fmt(d: date | None) -> str:
@@ -90,7 +135,7 @@ def badge(text: str, cls: str = "b-grey") -> str:
 
 def source_badge(source: str) -> str:
     cls, label = SOURCE_STYLE.get(source, ("b-grey", source))
-    return badge(label, cls)
+    return f'<span class="badge {cls}" title="{escape(SOURCE_TEXT.get(source, ""))}">{escape(label)}</span>'
 
 
 def html(markup: str) -> None:
@@ -106,13 +151,19 @@ def days_text(days: int) -> str:
 
 
 def urgency(days: int | None) -> str:
+    """Key of URGENCY: late / soon / ok / none."""
     if days is None:
-        return "⚪"
+        return "none"
     if days < 0:
-        return "🔴"
+        return "late"
     if days <= 30:
-        return "🟡"
-    return "🟢"
+        return "soon"
+    return "ok"
+
+
+def urgency_badge(key: str) -> str:
+    label, cls = URGENCY[key]
+    return badge(label, cls)
 
 
 def deadline_bar(label: str, due: date | None, today: date) -> None:

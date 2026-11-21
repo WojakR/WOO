@@ -19,7 +19,8 @@ from frontend.demo_state import REQUEST_KINDS, REQUEST_STATUS, get_state, open_e
 from frontend.views import employee, evaluation, team
 
 st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide")
-ui.inject_css()
+ui.inject_css(ui.FONT_SCALES.get(st.session_state.get("a11y_font", "Standardowa"), 1.0),
+              st.session_state.get("a11y_contrast", False))
 state = get_state()
 
 ROLE_EVALUATOR, ROLE_EMPLOYEE = "Oceniający (przełożony)", "Oceniany (pracownik)"
@@ -55,7 +56,8 @@ def notifications(role: str, person: str | None) -> list[tuple[str, str, str | N
 
 
 # ---------------------------------------------------------------- header
-title, role_col, who_col, time_col, bell_col = st.columns([2.4, 1.3, 1.5, 1.1, 0.7], vertical_alignment="center")
+title, role_col, who_col, a11y_col, time_col, bell_col = st.columns([2.2, 1.3, 1.4, 1.0, 1.1, 0.8],
+                                                                    vertical_alignment="center")
 with title:
     ui.html('<p class="app-title">🏛️ Cyfrowy Asystent Ocen Okresowych</p>'
             '<p class="app-sub">Ocena okresowa w służbie cywilnej – od kryteriów do arkusza, z wirtualnym HR partnerem</p>')
@@ -67,6 +69,15 @@ if role == ROLE_EMPLOYEE:
                                label_visibility="collapsed")
 else:
     who_col.caption("Demo bez logowania – rolę wybierasz z listy obok.")
+
+with a11y_col.popover("Aa Dostępność", use_container_width=True, help="Wielkość tekstu i kontrast (WCAG 2.1)"):
+    st.markdown("**Ustawienia dostępności**")
+    st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font", horizontal=True)
+    st.toggle("Wysoki kontrast", key="a11y_contrast",
+              help="Ciemniejszy tekst pomocniczy, grubsze obramowania i podkreślone odnośniki.")
+    st.caption("Zgodnie z WCAG 2.1: powiększenie tekstu bez utraty treści (1.4.4), kontrast (1.4.3), "
+               "widoczny fokus przy obsłudze klawiaturą (2.4.7). Przeglądarka pozwala też powiększać "
+               "stronę skrótem Ctrl i +.")
 
 with time_col.popover(f"📅 {ui.fmt(state.today)}", use_container_width=True, help="Przewiń czas (demo)"):
     st.markdown("**⏩ Przewiń czas (tylko demo)**")

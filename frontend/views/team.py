@@ -35,7 +35,7 @@ def _rows(state: DemoState) -> list[dict]:
         if cycle is None:
             rows.append({"id": emp.id, "Pracownik": emp.full_name, "Stanowisko": emp.position, "Komórka": emp.unit,
                          "Arkusz": emp.sheet, "Etap": "— brak cyklu", "Status": "", "Termin": None, "Dni": None,
-                         "Pilność": "⚪", "Sygnały HR": "", "_stage": 0, "_signals": 0})
+                         "Pilność": "none", "Sygnały HR": "", "_stage": 0, "_signals": 0})
             continue
         stage = state.stage(cycle)
         label, due = state.deadline_hint(cycle)
@@ -46,7 +46,7 @@ def _rows(state: DemoState) -> list[dict]:
         rows.append({
             "id": emp.id, "Pracownik": emp.full_name, "Stanowisko": emp.position, "Komórka": emp.unit,
             "Arkusz": emp.sheet, "Etap": ui.stage_label(stage), "Status": status,
-            "Termin": due, "Dni": days, "Pilność": ui.urgency(days) if stage != DONE else "⚪",
+            "Termin": due, "Dni": days, "Pilność": ui.urgency(days) if stage != DONE else "none",
             "Sygnały HR": " ".join(SIGNAL_ICONS.get(s.kind, s.kind) for s in signals),
             "_stage": stage, "_signals": len(signals), "_label": label,
         })
@@ -70,8 +70,10 @@ def render(state: DemoState) -> None:
 
     main, side = st.columns([2.7, 1.3], gap="large")
     with main:
-        q = st.text_input("Szukaj pracownika", placeholder="🔍 imię, nazwisko, stanowisko, komórka…",
-                          label_visibility="collapsed")
+        s1, s2 = st.columns([4, 1], vertical_alignment="bottom")
+        q = s1.text_input("Szukaj pracownika", placeholder="imię, nazwisko, stanowisko lub komórka organizacyjna",
+                          key="team_q")
+        s2.button("🔍 Szukaj", use_container_width=True, key="team_search")
         f1, f2, f3 = st.columns([1.5, 1, 1.2], vertical_alignment="bottom")
         stage_opts = [f"{i} · {s}" for i, s in enumerate(STAGES, start=1)] + ["Zakończona"]
         stages = f1.multiselect("Etap", stage_opts, placeholder="wszystkie etapy")
@@ -91,18 +93,20 @@ def render(state: DemoState) -> None:
         sort_col, asc = st.session_state.get("team_sort", ("pilnosc", True))
         view = sorted(view, key=SORT_KEYS[sort_col], reverse=not asc)
 
-        widths = [0.45, 2.2, 0.55, 1.9, 1.2, 1.9]
+        widths = [1.15, 2.1, 0.55, 1.8, 1.1, 1.7]
         head = st.columns(widths, vertical_alignment="center")
-        headers = [("pilnosc", "⏱"), ("pracownik", "Pracownik"), ("arkusz", "Ark."), ("etap", "Etap · status"),
+        headers = [("pilnosc", "Pilność"), ("pracownik", "Pracownik"), ("arkusz", "Ark."), ("etap", "Etap · status"),
                    ("termin", "Termin"), ("sygnaly", "Sygnały HR")]
         for col, (key, name) in zip(head, headers):
             arrow = (" ▲" if asc else " ▼") if key == sort_col else ""
             col.button(name + arrow, key=f"sort_{key}", type="tertiary", on_click=_toggle_sort, args=(key,),
-                       help="Kliknij, aby posortować; ponownie – odwrotnie")
+                       help=("Jak blisko jest termin bieżącego etapu: Po terminie / Wkrótce (do 30 dni) / "
+                             "W terminie / Zakończona. " if key == "pilnosc" else "")
+                       + "Kliknij, aby posortować; kliknij ponownie – odwrotna kolejność.")
         for r in view:
             with st.container(border=True):
                 c = st.columns(widths, vertical_alignment="center")
-                c[0].markdown(r["Pilność"])
+                c[0].markdown(ui.urgency_badge(r["Pilność"]), unsafe_allow_html=True)
                 c[1].button(f"**{r['Pracownik']}** →", key=f"open_{r['id']}", type="tertiary",
                             on_click=open_evaluation, args=(r["id"],), help="Otwórz ocenę pracownika")
                 c[1].caption(f"{r['Stanowisko']} · {r['Komórka']}")
@@ -122,14 +126,15 @@ def render(state: DemoState) -> None:
             items = []
             for r in in_progress:
                 if r["Termin"] is not None:
-                    items.append((r["Termin"], f'{r["_label"]} – {r["Pracownik"]}', r["Pilność"], r["id"], None))
+                    tag = {"late": "🔴 Po terminie · ", "soon": "🟡 Wkrótce · "}.get(r["Pilność"], "")
+                    items.append((r["Termin"], f'{r["_label"]} – {r["Pracownik"]}', tag, r["id"], None))
             for (cycle_id, stage), when in state.invites.items():
                 if when.date() >= state.today:
                     emp = state.employee(state.cycle(cycle_id).employee_id)
                     kind = "Rozmowa rozpoczynająca" if stage == 1 else "Rozmowa oceniająca"
-                    items.append((when.date(), f"{kind} {when:%H:%M} – {emp.full_name}", "📅", emp.id, stage))
+                    items.append((when.date(), f"{kind} {when:%H:%M} – {emp.full_name}", "📅 ", emp.id, stage))
             for i, (due, text, icon, emp_id, stage) in enumerate(sorted(items, key=lambda x: x[0])[:8]):
-                st.button(f"{icon} **{ui.fmt(due)}** · {text}", key=f"sched_{i}_{emp_id}", type="tertiary",
+                st.button(f"{icon}**{ui.fmt(due)}** · {text}", key=f"sched_{i}_{emp_id}", type="tertiary",
                           on_click=open_evaluation, args=(emp_id, stage))
             if not items:
                 st.caption("Brak zaplanowanych terminów.")

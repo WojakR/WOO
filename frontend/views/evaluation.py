@@ -76,7 +76,7 @@ def _prep(state: DemoState, cycle, kind: str):
 
 
 def _render_prep(prep) -> None:
-    ui.html(f"<p><b>Cel rozmowy:</b> {escape(prep.goal)} {ui.source_badge(prep.source)}</p>")
+    ui.html(f"<p><b>Cel rozmowy:</b> {escape(prep.goal)}</p><p>{ui.source_note(prep.source)}</p>")
     if prep.plan_minutes:
         total = sum(m for _, m in prep.plan_minutes)
         ui.html("<p><b>Plan (" + str(total) + " min):</b> " + " → ".join(
@@ -173,11 +173,14 @@ def _stage_criteria(state: DemoState, cycle, current: bool) -> None:
                 d = st.session_state[f"sugg_on_{cycle.id}"]
                 sug = _cached(state, ("crit", cycle.id, cycle.sheet, d),
                               lambda: state.assistant.suggest_criteria(emp, cycle.sheet, d))
-                ui.html(f"<p class='lock'>Źródło: {ui.source_badge(sug.source)} – to tylko propozycja.</p>")
+                ui.html(f"<p>{ui.source_note(sug.source)} To tylko propozycja – decydujesz Ty.</p>")
                 chosen = _chosen(cycle)
                 for item in sug.items:
                     a, b = st.columns([4, 1], vertical_alignment="center")
-                    a.markdown(f"**{item.name}** – {item.reason}")
+                    what = "; ".join(rules.criteria[item.criterion_id].indicators)
+                    why = item.reason if sug.source == "AI" else "pasuje do nazwy stanowiska i opisu zadań"
+                    a.markdown(f"**{item.name}** – {why}  \n<span class='lock'>Co ocenia: {escape(what)}</span>",
+                               unsafe_allow_html=True)
                     b.button("Dodaj", key=f"addsug_{cycle.id}_{item.criterion_id}",
                              disabled=item.criterion_id in chosen or len(chosen) >= len(keys),
                              on_click=_put_in_free_slot, args=(cycle, item.criterion_id))
@@ -218,7 +221,7 @@ def _stage_criteria(state: DemoState, cycle, current: bool) -> None:
     if current:
         with st.expander("📅 Zaproszenie na rozmowę rozpoczynającą"):
             _invite_block(state, cycle, 1, "Rozmowa rozpoczynająca ocenę okresową", 45)
-        with st.expander("🗣️ Ściąga na rozmowę rozpoczynającą"):
+        with st.expander("🗣️ Wskazówki do rozmowy rozpoczynającej"):
             st.caption("Podpowiedź przed rozmową z pracownikiem: cel rozmowy, plan z czasem, a dla każdego kryterium "
                        "pytania i oczekiwania, które warto omówić. Na tej rozmowie ustalacie, czego oczekujesz "
                        "w okresie oceny – przepisy wymagają jej przy wyznaczaniu kryteriów (§ 5 rozporządzenia).")
@@ -305,7 +308,10 @@ def _stage_observation(state: DemoState, cycle, current: bool) -> None:
     notes = sorted(_notes(state, cycle), key=lambda n: n.on, reverse=True)
     tab_notes, tab_crit, tab_period = st.tabs(["📝 Notatnik", "📊 Wg kryteriów", "📆 Zmiana okresu / nieobecności"])
     with tab_notes:
-        st.caption("Zapisuj obserwacje przez cały okres oceny. Asystent proponuje kryterium – decydujesz Ty.")
+        st.caption("Zapisuj obserwacje przez cały okres oceny. Każdą notatkę przypisujemy do kryterium oceny, "
+                   "bo arkusz ocenia się kryterium po kryterium: dzięki temu przy każdej ocenie cząstkowej widać "
+                   "zebrane przykłady (+/−), wskazówki do rozmowy pytają o kryteria bez obserwacji, a szkic "
+                   "uzasadnienia cytuje właściwe notatki. Asystent proponuje kryterium – decydujesz Ty.")
         if current or state.stage(cycle) < DONE:
             _note_form(state, cycle, f"nf_{cycle.id}")
         if not notes:
@@ -426,20 +432,33 @@ def _stage_sheet(state: DemoState, cycle, current: bool) -> None:
                        ("Rozmowa oceniająca", ui.fmt(cycle.meeting_date)),
                        ("Okres oceny", f"{ui.fmt(cycle.period_from)} – {ui.fmt(cycle.period_to)}")]))
 
-    st.markdown("#### Oceny cząstkowe")
     points = sorted(rules.scale)
+    bands = "\n".join(f"- {b.level}: średnia " + (f"powyżej {float(b.lower_exclusive):g}" if b.lower_exclusive is not None
+                                                  else "od 1") + f" do {float(b.upper_inclusive):g} pkt"
+                       for b in rules.level_bands)
+    st.markdown("#### Oceny cząstkowe", help=(
+        "**Jak ocenić (§ 11 rozporządzenia PRM z 4.04.2016, Dz. U. poz. 470):**\n\n"
+        + "\n".join(f"- **{p} pkt** – {rules.scale[p]}" for p in points)
+        + "\n\nŚrednia z ocen cząstkowych wyznacza poziom:\n" + bands
+        + f"\n\nOcena jest **negatywna**, gdy poziom jest poniżej oczekiwań albo gdy choć jedno kryterium ma "
+          f"{rules.forbidden_partial_score} pkt. Przy każdym kryterium znak **?** pokazuje, czego dotyczy "
+          "(wskaźniki z załącznika nr 1 do rozporządzenia)."))
     ui.html("<p class='lock'>" + " · ".join(f"<b>{p}</b> {escape(rules.scale[p])}" for p in points) + "</p>")
     scores: dict[str, int] = {}
+    score_box = st.container(key="scores")
     for cid in ids:
         key = f"sc_{cycle.id}_{cid}"
         if key not in st.session_state and cid in cycle.scores:
             st.session_state[key] = cycle.scores[cid]
         e = ev[cid]
-        c1, c2 = st.columns([1.4, 1.6], vertical_alignment="center")
+        c1, c2 = score_box.columns([1.4, 1.6], vertical_alignment="center")
         mand = cid in rules.mandatory(cycle.sheet)
-        c1.markdown(f"**{rules.criterion_name(cid)}**{'' if mand else ' · dodatkowe'}<br>"
+        crit = rules.criteria[cid]
+        c1.markdown(f"**{crit.name}**{'' if mand else ' · dodatkowe'}<br>"
                     f"<span class='lock'>notatki: +{len(e.positive)} / −{len(e.negative)}</span>",
-                    unsafe_allow_html=True)
+                    unsafe_allow_html=True,
+                    help=f"**Na co patrzeć – {crit.name}** (wskaźniki z załącznika nr 1 do rozporządzenia PRM "
+                         "z 4.04.2016):\n\n" + "\n".join(f"- {i}" for i in crit.indicators))
         with c2:
             val = st.segmented_control(rules.criterion_name(cid), points, key=key, format_func=str,
                                        label_visibility="collapsed", disabled=not editable)
@@ -595,7 +614,7 @@ def _hr_partner(state: DemoState, cycle) -> None:
              "ZMIANA_OBOWIAZKOW": ("🔄 Zmiana obowiązków", "c-blue"), "SPADEK_OCEN": ("📉 Spadek ocen", "c-red"),
              "DO_DOCENIENIA": ("👏 Warto docenić", "c-green")}
     with st.container(border=True):
-        ui.html(f"<b>🤝 HR partner</b> {ui.source_badge(report.source)}<br>"
+        ui.html(f"<b>🤝 HR partner</b><br>{ui.source_note(report.source)}<br>"
                 "<span class='lock'>Propozycje na podstawie notatek, nieobecności i oceny. "
                 "AI tylko proponuje – decyzja należy do Ciebie.</span>")
         shown = [s for s in report.signals if f"{cycle.id}:{s.kind}" not in state.dismissed]

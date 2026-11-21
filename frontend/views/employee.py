@@ -103,12 +103,17 @@ def render(state: DemoState, employee_id: str) -> None:
                 kind = st.selectbox("Rodzaj wniosku", list(REQUEST_KINDS), format_func=REQUEST_KINDS.get)
                 reason = allowed[kind]
                 if reason:
-                    st.caption(f"Wniosek {reason}.")
-                text = st.text_area("Uzasadnienie", key=f"req_text_{employee_id}")
-                if st.button("Wyślij wniosek", type="primary", disabled=bool(reason) or not text.strip()):
-                    state.submit_request(employee_id, cycle.id, kind, text)
-                    st.toast("Wniosek wysłany do oceniającego.")
-                    st.rerun()
+                    st.warning(f"Tego wniosku nie można teraz złożyć – jest {reason}.")
+                text = st.text_area("Uzasadnienie wniosku", key=f"req_text_{employee_id}",
+                                    placeholder="Napisz krótko, czego dotyczy wniosek i dlaczego go składasz.")
+                if st.button("Wyślij wniosek", type="primary", disabled=bool(reason), use_container_width=True):
+                    if not text.strip():
+                        st.error("Wpisz uzasadnienie wniosku, a potem kliknij „Wyślij wniosek”.")
+                    else:
+                        state.submit_request(employee_id, cycle.id, kind, text)
+                        st.session_state.pop(f"req_text_{employee_id}", None)
+                        st.toast("Wniosek wysłany do oceniającego.")
+                        st.rerun()
             mine = sorted((r for r in state.requests if r.employee_id == employee_id),
                           key=lambda r: r.created, reverse=True)
             st.markdown("**Historia wniosków**")
