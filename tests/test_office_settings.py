@@ -139,3 +139,25 @@ def test_deadlines_follow_the_process(st):
     assert t["KOLEJNA_OCENA"]["data"] == "2028-06-16"
     assert t["KRYTERIA_NASTEPNE"]["data"] == "2026-07-15"  # 30 days from drawing up
     assert t["KOLEJNA_OCENA"]["stan"] == "NASTEPNY_OKRES"
+
+
+def test_objection_deadlines_appear_after_filing_and_rejection(st):
+    st.evaluations.cycles._items.clear()
+    svc = st.evaluations
+    cid = svc.start_cycle(EMP, start_date=date(2026, 6, 15)).id
+    svc.set_criteria(cid, BOSS, [])
+    svc.confirm_criteria(cid, EMP)
+    svc.record_review_meeting(cid, BOSS)
+    ids = svc.cycles.get(cid).criteria_ids(svc.rules)
+    svc.edit(cid, BOSS, scores={c: 5 for c in ids}, iprz_conclusions="Szkolenie.")
+    svc.submit_evaluation(cid, BOSS)
+    svc.acknowledge(cid, EMP)
+    svc.file_objection(cid, EMP, "Nie zgadzam się z oceną komunikacji.")  # 15.06.2026
+    t = _kinds(client.get(f"/api/evaluations/{cid}", headers=AS_BOSS).json())
+    assert t["SPRZECIW"]["stan"] == "SPELNIONY"
+    assert t["ROZPATRZENIE_SPRZECIWU"]["data"] == "2026-06-29" and t["ROZPATRZENIE_SPRZECIWU"]["stan"] == "AKTUALNY"
+    assert "KOLEJNA_OCENA" not in t  # the evaluation is not final while the objection is pending
+    svc.decide_objection(cid, "kadry", False, "Ocena zgodna z notatkami z okresu.")
+    t = _kinds(client.get(f"/api/evaluations/{cid}", headers=AS_BOSS).json())
+    assert t["ROZPATRZENIE_SPRZECIWU"]["stan"] == "SPELNIONY" and t["SAD_PRACY"]["data"] == "2026-06-29"
+    assert t["KOLEJNA_OCENA"]["stan"] == "NASTEPNY_OKRES"

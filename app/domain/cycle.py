@@ -11,7 +11,7 @@ After that everything is locked (admin error correction is out of scope).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from enum import Enum
 from typing import Any, Mapping
 
@@ -39,6 +39,7 @@ class Status(str, Enum):
     MEETING_HELD = "rozmowa_oceniajaca_odbyta"
     EVALUATION_DONE = "ocena_sporzadzona"
     ACKNOWLEDGED = "ocena_zapoznana"
+    OBJECTION = "sprzeciw_zlozony"  # art. 83: the evaluated person objected; the reviewer (DG) decides
 
 
 STATUS_LABELS = {
@@ -48,6 +49,7 @@ STATUS_LABELS = {
     Status.MEETING_HELD: "rozmowa oceniająca odbyta",
     Status.EVALUATION_DONE: "ocena sporządzona",
     Status.ACKNOWLEDGED: "ocena zapoznana",
+    Status.OBJECTION: "sprzeciw złożony",
 }
 
 # step -> statuses it may start from, and the status it leads to
@@ -57,6 +59,9 @@ TRANSITIONS: dict[str, tuple[frozenset[Status], Status]] = {
     "record_review_meeting": (frozenset({Status.CRITERIA_CONFIRMED}), Status.MEETING_HELD),
     "submit_evaluation": (frozenset({Status.MEETING_HELD}), Status.EVALUATION_DONE),
     "acknowledge": (frozenset({Status.EVALUATION_DONE}), Status.ACKNOWLEDGED),
+    "file_objection": (frozenset({Status.ACKNOWLEDGED}), Status.OBJECTION),
+    # not upheld -> ACKNOWLEDGED again; upheld -> back to the evaluator (MEETING_HELD) to change / redo it
+    "decide_objection": (frozenset({Status.OBJECTION}), Status.ACKNOWLEDGED),
 }
 
 STEP_LABELS = {
@@ -65,6 +70,8 @@ STEP_LABELS = {
     "record_review_meeting": "zapisanie rozmowy oceniającej",
     "submit_evaluation": "dokonanie oceny",
     "acknowledge": "zapoznanie się z oceną",
+    "file_objection": "złożenie sprzeciwu",
+    "decide_objection": "rozpatrzenie sprzeciwu",
 }
 
 _CRITERIA_STAGE = frozenset({Status.CYCLE_STARTED, Status.CRITERIA_SET})
@@ -139,6 +146,13 @@ class EvaluationCycle:
     # deputy (zastępca) – who really acted on the evaluator's behalf, and who drew up the evaluation
     deputy_actions: list[tuple[date, str, str]] = field(default_factory=list)  # (day, deputy, step)
     drawn_up_by: str | None = None
+    # objection (sprzeciw, art. 83) – the latest one; an evaluation drawn up again may be objected to again
+    objection_filed_on: date | None = None
+    objection_text: str = ""
+    objection_decision: str | None = None  # UWZGLEDNIONY | NIEUWZGLEDNIONY
+    objection_decided_on: date | None = None
+    objection_decided_by: str | None = None
+    objection_reason: str = ""
     history: list[tuple[date, Status]] = field(default_factory=list)
 
     # ---- creation -------------------------------------------------------------------------------
@@ -200,6 +214,18 @@ class EvaluationCycle:
     def objection_deadline(self, rules: RuleBook, cal: WorkingCalendar) -> date | None:
         """Art. 83 ust. 1: last day to object to the evaluation; None until the evaluation is acknowledged."""
         return objection_deadline(self.acknowledged_on, rules, cal) if self.acknowledged_on else None
+
+    def objection_review_deadline(self, rules: RuleBook, cal: WorkingCalendar) -> date | None:
+        """Art. 83 ust. 3: the objection is decided within 14 days of filing it."""
+        if self.objection_filed_on is None:
+            return None
+        return cal.next_working_day(self.objection_filed_on + timedelta(days=rules.objection_review_days))
+
+    def labour_court_deadline(self, rules: RuleBook, cal: WorkingCalendar) -> date | None:
+        """Art. 83 ust. 5: 14 days for an appeal to the labour court after the objection was not upheld."""
+        if self.objection_decision != "NIEUWZGLEDNIONY" or self.objection_decided_on is None:
+            return None
+        return cal.next_working_day(self.objection_decided_on + timedelta(days=rules.labour_court_days))
 
     def next_evaluation_due(self, rules: RuleBook, cal: WorkingCalendar | None = None) -> date | None:
         """After an acknowledged NEGATIVE evaluation: when the re-evaluation is due (art. 81 ust. 9)."""
@@ -339,6 +365,38 @@ class EvaluationCycle:
         self._require_actor(actor_id, self.employee_id, "oceniany")
         self.acknowledged_on = today
         self._move(target, today)
+
+    # ---- objection (art. 83) ----------------------------------------------------------------------
+    def file_objection(self, actor_id: str, today: date, text: str, rules: RuleBook, cal: WorkingCalendar) -> None:
+        """The evaluated person objects within 7 days of acknowledging the evaluation (art. 83 ust. 1)."""
+        target = self._require_step("file_objection")
+        self._require_actor(actor_id, self.employee_id, "oceniany")
+        if self.objection_filed_on and self.acknowledged_on and self.objection_filed_on >= self.acknowledged_on:
+            raise InvalidTransition("Sprzeciw od tej oceny został już złożony i rozpatrzony.")
+        deadline = self.objection_deadline(rules, cal)
+        if deadline is None or today > deadline:
+            raise InvalidTransition(f"Termin na sprzeciw minął {deadline:%d.%m.%Y} (7 dni od zapoznania się z oceną, "
+                                    "art. 83 ust. 1 ustawy)." if deadline else "Ocena nie została jeszcze zapoznana.")
+        if not text.strip():
+            raise ValidationError(["Opisz, z czym się nie zgadzasz – treść sprzeciwu jest wymagana."])
+        self.objection_filed_on, self.objection_text = today, text.strip()
+        self.objection_decision = self.objection_decided_on = self.objection_decided_by = None
+        self.objection_reason = ""
+        self._move(target, today)
+
+    def decide_objection(self, reviewer_id: str, today: date, upheld: bool, reason: str) -> None:
+        """The reviewer (director general) decides (art. 83 ust. 3–4). Upheld: the evaluation goes back to the
+        evaluator to be changed or drawn up again; not upheld: it stays, and the person may go to court."""
+        self._require_step("decide_objection")
+        if not reason.strip():
+            raise ValidationError(["Uzasadnij rozstrzygnięcie sprzeciwu."])
+        self.objection_decision = "UWZGLEDNIONY" if upheld else "NIEUWZGLEDNIONY"
+        self.objection_decided_on, self.objection_decided_by, self.objection_reason = today, reviewer_id, reason.strip()
+        if upheld:
+            self.acknowledged_on = None
+            self._move(Status.MEETING_HELD, today)  # „ocena do ponownego sporządzenia”: part II editable again
+        else:
+            self._move(Status.ACKNOWLEDGED, today)
 
     # ---- absences (UC3/UC8) ----------------------------------------------------------------------
     def register_absence(self, absence: Absence) -> None:

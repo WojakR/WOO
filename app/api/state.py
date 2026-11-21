@@ -179,7 +179,7 @@ class DemoState:
             evaluator_of={e.id: e.evaluator_id for e in self.directory.all()},
             scope=self.settings.visibility_scope,
             deputies={ev: frozenset(self.active_deputies(ev, today)) for ev in evaluators},
-            admins=frozenset({HR}),
+            admins=frozenset({HR, self.settings.objection_reviewer}),  # the reviewer of objections reads all
         )
 
     def notes_of(self, evaluation_id: int) -> list[NoteRecord]:
@@ -231,6 +231,7 @@ def _empty_state(today: date | None, ai_mode: str | None, scenario: bool, first_
     mode = (ai_mode or config.AI_MODE).lower()
     st = DemoState(clock, directory, evaluations, build_assistant(mode), mode)
     evaluations.deputies = st.active_deputies  # deputies may act on the evaluator's behalf (use_cases)
+    evaluations.objection_reviewer = st.settings.objection_reviewer
     return st
 
 

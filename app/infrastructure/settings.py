@@ -20,6 +20,7 @@ DEFAULT_SCHEDULE = ReminderSchedule(
         Stage.PERIOD: (ReminderRule(RuleKind.PERCENT, 50), ReminderRule(RuleKind.PERCENT, 75),
                        ReminderRule(RuleKind.MONTHS_BEFORE, 2), ReminderRule(RuleKind.WEEKS_BEFORE, 2)),
         Stage.ACKNOWLEDGEMENT: (ReminderRule(RuleKind.EVERY_DAYS, 3),),
+        Stage.OBJECTION_REVIEW: (ReminderRule(RuleKind.DAYS_BEFORE, 7), ReminderRule(RuleKind.DAYS_BEFORE, 2)),
     },
     at=time(11, 0),
 )
@@ -62,6 +63,8 @@ class OfficeSettings:
     visibility_scope: VisibilityScope = VisibilityScope.SUBTREE
     working_hours: WorkingHours = field(default_factory=WorkingHours)
     reminders: ReminderSchedule = DEFAULT_SCHEDULE
+    # who decides objections (art. 83 ust. 1: the director general); "kadry" = the HR/administrator identity
+    objection_reviewer: str = "kadry"
 
     @classmethod
     def from_dict(cls, raw: dict) -> OfficeSettings:
@@ -76,7 +79,8 @@ class OfficeSettings:
         hours = WorkingHours(parse_time(hours_raw.get("od", "08:00"), "Godziny pracy"),
                              parse_time(hours_raw.get("do", "16:00"), "Godziny pracy"))
         schedule = parse_schedule(rem, DEFAULT_SCHEDULE).validated(hours)
-        return cls(visibility_scope=visibility, working_hours=hours, reminders=schedule)
+        reviewer = str((raw.get("sprzeciw") or {}).get("rozpatruje") or "kadry").strip()
+        return cls(visibility_scope=visibility, working_hours=hours, reminders=schedule, objection_reviewer=reviewer)
 
 
 def load_office_settings(path: str | Path | None = None) -> OfficeSettings:

@@ -69,10 +69,23 @@ def deadlines_of(c: EvaluationCycle, rules: RuleBook, cal: WorkingCalendar, toda
 
     # the employee signed -> objection period, next evaluation, criteria for the next period
     objection = c.objection_deadline(rules, cal)
+    filed = c.objection_filed_on if c.objection_filed_on and c.objection_filed_on >= c.acknowledged_on else None
     out.append(DeadlineItem(
         "SPRZECIW", "Sprzeciw do dyrektora generalnego", objection, "art. 83 ust. 1 ustawy",
-        "PO_TERMINIE" if objection and today > objection else "AKTUALNY", None,
-        f"{rules.objection_days} dni od zapoznania się z oceną"))
+        "SPELNIONY" if filed else ("PO_TERMINIE" if objection and today > objection else "AKTUALNY"), filed,
+        "sprzeciw złożony" if filed else f"{rules.objection_days} dni od zapoznania się z oceną"))
+    if filed:
+        review = c.objection_review_deadline(rules, cal)
+        out.append(DeadlineItem(
+            "ROZPATRZENIE_SPRZECIWU", "Rozpatrzenie sprzeciwu", review, "art. 83 ust. 3 ustawy",
+            _state(review, c.objection_decided_on, today), c.objection_decided_on,
+            {"UWZGLEDNIONY": "sprzeciw uwzględniony", "NIEUWZGLEDNIONY": "sprzeciw nieuwzględniony"}.get(
+                c.objection_decision or "", f"{rules.objection_review_days} dni od wniesienia")))
+    court = c.labour_court_deadline(rules, cal)
+    if court is not None:
+        out.append(DeadlineItem("SAD_PRACY", "Odwołanie do sądu pracy", court, "art. 83 ust. 5 ustawy",
+                                "PO_TERMINIE" if today > court else "AKTUALNY", None,
+                                f"{rules.labour_court_days} dni od nieuwzględnienia sprzeciwu"))
 
     if c.status is not Status.ACKNOWLEDGED:
         return out

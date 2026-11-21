@@ -5,16 +5,55 @@
   "przypomnienia": {
     "_opis": "Domyślny harmonogram przypomnień; każdy użytkownik może ustawić własny (PUT /api/me/przypomnienia). Rodzaje: CO_DNI, DNI_PRZED, TYGODNIE_PRZED, MIESIACE_PRZED, PROCENT_OKRESU. Przypomnienia przychodzą tylko w dni robocze i w godzinach pracy.",
     "godzina": "11:00",
-    "godziny_pracy": {"od": "08:00", "do": "16:00"},
+    "godziny_pracy": {
+      "od": "08:00",
+      "do": "16:00"
+    },
     "etapy": {
-      "WYZNACZENIE_KRYTERIOW": [{"rodzaj": "CO_DNI", "wartosc": 7}],
-      "OKRES_OCENY": [
-        {"rodzaj": "PROCENT_OKRESU", "wartosc": 50},
-        {"rodzaj": "PROCENT_OKRESU", "wartosc": 75},
-        {"rodzaj": "MIESIACE_PRZED", "wartosc": 2},
-        {"rodzaj": "TYGODNIE_PRZED", "wartosc": 2}
+      "WYZNACZENIE_KRYTERIOW": [
+        {
+          "rodzaj": "CO_DNI",
+          "wartosc": 7
+        }
       ],
-      "ZAPOZNANIE": [{"rodzaj": "CO_DNI", "wartosc": 3}]
+      "OKRES_OCENY": [
+        {
+          "rodzaj": "PROCENT_OKRESU",
+          "wartosc": 50
+        },
+        {
+          "rodzaj": "PROCENT_OKRESU",
+          "wartosc": 75
+        },
+        {
+          "rodzaj": "MIESIACE_PRZED",
+          "wartosc": 2
+        },
+        {
+          "rodzaj": "TYGODNIE_PRZED",
+          "wartosc": 2
+        }
+      ],
+      "ZAPOZNANIE": [
+        {
+          "rodzaj": "CO_DNI",
+          "wartosc": 3
+        }
+      ],
+      "ROZPATRZENIE_SPRZECIWU": [
+        {
+          "rodzaj": "DNI_PRZED",
+          "wartosc": 7
+        },
+        {
+          "rodzaj": "DNI_PRZED",
+          "wartosc": 2
+        }
+      ]
     }
+  },
+  "sprzeciw": {
+    "_opis": "Kto rozpatruje sprzeciwy (art. 83 ust. 1: dyrektor generalny urzędu). \"kadry\" = konto działu kadr / administratora; można wpisać id osoby z pracownicy.json.",
+    "rozpatruje": "kadry"
   }
 }

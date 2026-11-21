@@ -134,6 +134,18 @@ Przepisy, widoczność i przełączniki AI zmienia administrator w aplikacji; zm
   kryteria, sporządzenie oceny, zapoznanie („niezwłocznie”), a po podpisie ocenianego – sprzeciw, kolejna ocena
   (24 mies. albo ponowna po negatywnej) i kryteria na kolejny okres. Każdy z podstawą prawną.
 
+### Sprzeciw (art. 83)
+
+Akcje `POST /api/evaluations/{id}/actions/{akcja}` (body `ActionIn`):
+
+| Akcja | Kto | Body | Skutek |
+|---|---|---|---|
+| `ZLOZ_SPRZECIW` | oceniany, do 7 dni od zapoznania | `komentarz` (treść, wymagana) | status `SPRZECIW`; termin rozpatrzenia 14 dni (`sprzeciw.termin_rozpatrzenia`) |
+| `ROZPATRZ_SPRZECIW` | rozpatrujący z ustawień urzędu (`sprzeciw.rozpatruje`, domyślnie `kadry`; ustawowo dyrektor generalny) | `uwzglednij` (wymagane), `komentarz` (uzasadnienie, wymagane) | uwzględniony → `ROZMOWA_OCENIAJACA` (ocena do zmiany / ponownego sporządzenia, automatycznie rozpoczęty kolejny cykl usuwany); nieuwzględniony → `ZAKONCZONA` + `sprzeciw.termin_odwolania_do_sadu` (14 dni) |
+
+`EvaluationOut.sprzeciw`: `zlozony`, `tresc`, `termin_rozpatrzenia`, `decyzja`, `rozstrzygnieto`, `uzasadnienie_decyzji`,
+`termin_odwolania_do_sadu`. Od oceny sporządzonej po raz drugi przysługuje kolejny sprzeciw (art. 83 ust. 4).
+
 ### Asystent i HR partner: UC1, UC4, UC5, UC7
 
 | Metoda i ścieżka | Wejście | Wyjście | Uwagi |

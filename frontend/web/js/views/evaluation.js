@@ -3,7 +3,7 @@
 import { api, ApiError, currentUserId } from "../api.js";
 import { h, icon, replace, fmtDate, fmtNumber, avatar, daysBetween, daysLeftText, urgency, toast, loading } from "../ui.js";
 import {
-  STAGES, STATUS_LABEL, LEVEL_LABEL, SCALE_SHORT, ACTION_LABEL, ACTION_DONE, EMPLOYMENT_LABEL, SIGNAL_LABEL, personName,
+  STAGES, stageIndex, STATUS_LABEL, LEVEL_LABEL, SCALE_SHORT, ACTION_LABEL, ACTION_DONE, EMPLOYMENT_LABEL, SIGNAL_LABEL, personName,
 } from "../labels.js";
 
 const BLOCK_HINT = {
@@ -75,7 +75,7 @@ export async function renderEvaluation(view, id, ctx) {
   // ------------------------------------------------------------ header + stepper + person
   function renderHead() {
     const ev = s.ev;
-    const done = ["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"].includes(ev.status);
+    const done = ["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA", "SPRZECIW"].includes(ev.status);
     const criteriaStage = ["KRYTERIA_DO_WYZNACZENIA", "KRYTERIA_DO_POTWIERDZENIA"].includes(ev.status);
     const due = criteriaStage ? ev.czesc_i.termin_wyznaczenia_kryteriow : ev.czesc_i.termin_oceny;
     const days = daysBetween(ctx.meta.dzis, due);
@@ -104,8 +104,7 @@ export async function renderEvaluation(view, id, ctx) {
   }
 
   function currentStep() {
-    if (s.ev.status === "ZAKONCZONA") return STAGES.length;
-    return Math.max(0, STAGES.findIndex((x) => x.status === s.ev.status));
+    return stageIndex(s.ev.status);  // labels.js: ZAKONCZONA and SPRZECIW = after the last stage
   }
 
   function renderStepper() {
@@ -165,7 +164,55 @@ export async function renderEvaluation(view, id, ctx) {
     const st = s.ev.status;
     if (st === "KRYTERIA_DO_WYZNACZENIA") return replace(R.main, criteriaSelection());
     if (st === "KRYTERIA_DO_POTWIERDZENIA" || st === "OKRES_OCENY") return replace(R.main, criteriaOverview());
-    replace(R.main, scoringPanel());
+    replace(R.main, scoringPanel(), objectionPanel());
+  }
+
+  // ------------------------------------------------------------ objection (art. 83): its own panel, not the main button
+  const OBJECTION_ACTIONS = ["ZLOZ_SPRZECIW", "ROZPATRZ_SPRZECIW"];
+
+  async function objectionAction(akcja, body) {
+    try {
+      s.ev = await api.action(id, akcja, body);
+      toast(ACTION_DONE[akcja] || "Zapisano.");
+      renderAll();
+    } catch (e) {
+      const extra = e.walidacje?.length ? ` ${e.walidacje.map((w) => w.komunikat).join(" ")}` : "";
+      toast(`${e.message}${extra}`, "bad");
+    }
+  }
+
+  function objectionPanel() {
+    const ev = s.ev, o = ev.sprzeciw, can = (a) => ev.dozwolone_akcje.includes(a);
+    if (!o && !can("ZLOZ_SPRZECIW")) return null;
+    const parts = [h("h2", {}, "Sprzeciw od oceny")];
+    if (o) {
+      const decided = o.decyzja ? (o.decyzja === "UWZGLEDNIONY" ? "uwzględniony" : "nieuwzględniony") : null;
+      parts.push(h("dl", { class: "small" },
+        h("dt", {}, "Złożony"), h("dd", {}, fmtDate(o.zlozony)),
+        h("dt", {}, "Treść"), h("dd", {}, o.tresc),
+        h("dt", {}, "Termin rozpatrzenia"), h("dd", {}, `${fmtDate(o.termin_rozpatrzenia)} (14 dni, art. 83 ust. 3)`),
+        decided ? [h("dt", {}, "Rozstrzygnięcie"), h("dd", {}, `${decided}, ${fmtDate(o.rozstrzygnieto)}: ${o.uzasadnienie_decyzji}`)] : null,
+        o.termin_odwolania_do_sadu ? [h("dt", {}, "Odwołanie do sądu pracy"),
+          h("dd", {}, `do ${fmtDate(o.termin_odwolania_do_sadu)} (14 dni, art. 83 ust. 5)`)] : null));
+    }
+    if (can("ZLOZ_SPRZECIW")) {
+      const ta = h("textarea", { rows: 3, "aria-label": "Treść sprzeciwu", placeholder: "Z czym się nie zgadzasz i dlaczego?" });
+      parts.push(h("p", { class: "small muted" },
+        "Masz 7 dni od zapoznania się z oceną. Sprzeciw rozpatruje dyrektor generalny urzędu (art. 83 ustawy)."),
+        ta, h("button", { class: "btn btn-primary", type: "button", style: { marginTop: "8px" },
+          onclick: () => objectionAction("ZLOZ_SPRZECIW", { komentarz: ta.value }) }, icon("send"), "Złóż sprzeciw"));
+    }
+    if (can("ROZPATRZ_SPRZECIW")) {
+      const ta = h("textarea", { rows: 3, "aria-label": "Uzasadnienie rozstrzygnięcia", placeholder: "Uzasadnienie rozstrzygnięcia" });
+      parts.push(ta, h("div", { class: "row", style: { gap: "8px", marginTop: "8px" } },
+        h("button", { class: "btn btn-primary", type: "button",
+          onclick: () => objectionAction("ROZPATRZ_SPRZECIW", { uwzglednij: true, komentarz: ta.value }) },
+          "Uwzględnij – ocena wraca do oceniającego"),
+        h("button", { class: "btn", type: "button",
+          onclick: () => objectionAction("ROZPATRZ_SPRZECIW", { uwzglednij: false, komentarz: ta.value }) },
+          "Nie uwzględniaj")));
+    }
+    return h("section", { class: "card card-pad", style: { marginTop: "12px" } }, parts);
   }
 
   function criteriaSelection() {
@@ -482,7 +529,7 @@ export async function renderEvaluation(view, id, ctx) {
     const ev = s.ev;
     const cur = currentStep();
     const stepNo = Math.min(cur + 1, STAGES.length);
-    const done = ev.status === "ZAKONCZONA";
+    const done = ["ZAKONCZONA", "SPRZECIW"].includes(ev.status);
     const days = daysBetween(ctx.meta.dzis, ev.czesc_i.termin_oceny);
     const blocks = blocking();
     const checks = [];
@@ -585,12 +632,13 @@ export async function renderEvaluation(view, id, ctx) {
       ROZMOWA_OCENIAJACA: "Teraz działa oceniający: sporządzenie oceny.",
       OCENA_DO_ZAPOZNANIA: "Teraz działa oceniany: zapoznanie się z oceną.",
       ZAKONCZONA: "Ocena jest zakończona.",
+      SPRZECIW: "Sprzeciw rozpatruje dyrektor generalny urzędu (14 dni).",
     };
     return who[st] || "";
   }
 
   function renderActions() {
-    const actions = s.ev.dozwolone_akcje;
+    const actions = s.ev.dozwolone_akcje.filter((a) => !OBJECTION_ACTIONS.includes(a));
     const primaryAction = actions[0];
     const blocks = primaryAction === "ZATWIERDZ_OCENE" ? blocking() : [];
     const anyText = Object.keys(TEXT_FIELDS).some(editable);
