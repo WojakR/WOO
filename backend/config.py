@@ -43,3 +43,29 @@ AI_LOCAL_MODEL_TEXT = _secret("AI_LOCAL_MODEL_TEXT", _BIELIK)  # drafts, convers
 AI_LOCAL_MODEL_FAST = _secret("AI_LOCAL_MODEL_FAST", AI_LOCAL_MODEL_TEXT)  # note classification; a smaller model is fine
 AI_TIMEOUT_S = float(_secret("AI_TIMEOUT_S", "60"))
 AI_MIN_CONFIDENCE = float(_secret("AI_MIN_CONFIDENCE", "0.6"))
+
+# Identity (app/api/auth.py): demo = X-User-Id from the top-bar switcher, session = login + signed cookie
+AUTH_MODE = _secret("AUTH_MODE", "demo").lower()
+SECRET_KEY = _secret("SECRET_KEY")  # signs the session cookie; empty = random per process (sessions end on restart)
+SESSION_HOURS = float(_secret("SESSION_HOURS", "8"))
+SESSION_COOKIE_SECURE = _secret("SESSION_COOKIE_SECURE", "0") == "1"  # 1 behind HTTPS
+# session mode, empty accounts table: create one account per employee + `kadry` with this password (demo only)
+AUTH_DEMO_PASSWORD = _secret("AUTH_DEMO_PASSWORD")
+
+# demo = the demo scenario, FixedClock with "przewiń czas", /api/demo/*; production = system clock (Warsaw),
+# no /api/demo/*, an empty database stays empty (no demo scenario)
+APP_MODE = _secret("APP_MODE", "demo").lower()
+
+# E-mail reminders (python -m app.application.notify_job); empty SMTP_HOST = no e-mail, in-app only
+SMTP_HOST = _secret("SMTP_HOST", "")
+SMTP_PORT = int(_secret("SMTP_PORT", "587"))
+SMTP_USER = _secret("SMTP_USER", "")
+SMTP_PASSWORD = _secret("SMTP_PASSWORD", "")
+SMTP_FROM = _secret("SMTP_FROM", "")
+SMTP_STARTTLS = _secret("SMTP_STARTTLS", "1") == "1"
+
+# e-Akt export (app/infrastructure/eakt.py): off | katalog | http
+EAKT_MODE = _secret("EAKT_MODE", "katalog").lower()
+EAKT_DIR = ROOT / _secret("EAKT_DIR", "data/eakt")
+EAKT_URL = _secret("EAKT_URL")
+EAKT_TOKEN = _secret("EAKT_TOKEN")

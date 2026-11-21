@@ -1,7 +1,7 @@
 // Screen 1 – one evaluation (evaluator's view; the evaluated person sees the same sheet read-only with their own actions).
 // Every rule (average, level, outcome, locks, allowed actions, validations) comes from the server.
 import { api, ApiError, currentUserId } from "../api.js";
-import { h, icon, replace, fmtDate, fmtNumber, avatar, daysBetween, daysLeftText, urgency, toast, loading } from "../ui.js";
+import { h, icon, replace, fmtDate, fmtNumber, avatar, daysBetween, daysLeftText, urgency, toast, loading, helpLink } from "../ui.js";
 import {
   STAGES, stageIndex, STATUS_LABEL, LEVEL_LABEL, SCALE_SHORT, ACTION_LABEL, ACTION_DONE, EMPLOYMENT_LABEL, SIGNAL_LABEL, personName,
 } from "../labels.js";
@@ -12,12 +12,15 @@ const BLOCK_HINT = {
   BRAK_OCENY: "Oceń wszystkie kryteria",
 };
 const CHECK_LABEL = {
+  UMOTYWOWANIE_WYMAGANE: "Umotywowanie wniosku o stopień",
   UZASADNIENIE_WYMAGANE: "Uzasadnienie oceny",
   IPRZ_WYMAGANE: "Wnioski do indywidualnego programu rozwoju zawodowego",
 };
 const TEXT_FIELDS = {
-  uzasadnienie: { label: "Uzasadnienie oceny", draft: "UZASADNIENIE" },
-  wnioski_iprz: { label: "Wnioski do indywidualnego programu rozwoju zawodowego", draft: "IPRZ" },
+  uzasadnienie: { label: "Uzasadnienie oceny", draft: "UZASADNIENIE",
+    help: ["rozporzadzenie-oceny-okresowe-2016", "Oceniający sporządza uzasadnienie", "§ 11 ust. 3–4 – uzasadnienie oceny"] },
+  wnioski_iprz: { label: "Wnioski do indywidualnego programu rozwoju zawodowego", draft: "IPRZ",
+    help: ["ustawa-sc-wyciag-oceny", "rozwoju zawodowego", "art. 81 ust. 5 – wnioski do IPRZ"] },
 };
 
 export async function renderEvaluation(view, id, ctx) {
@@ -41,7 +44,7 @@ export async function renderEvaluation(view, id, ctx) {
   // Regions re-rendered independently, so a click never lands on a node that was just replaced.
   const R = {
     head: h("div"), stepper: h("div"), person: h("div"), main: h("div", { class: "stack" }),
-    aside: h("div", { class: "aside" }), actions: h("div"),
+    aside: h("div", { class: "aside" }), actions: h("div"), audit: h("div"),
   };
 
   async function loadSide() {
@@ -49,6 +52,10 @@ export async function renderEvaluation(view, id, ctx) {
     if (canSeeWorkNotes()) {  // evaluator, deputy, HR – the evaluated person and managers above get 403 anyway
       tasks.push(api.evidence(id).then((x) => { s.evidence = x; }).catch(() => {}));
       tasks.push(api.notes(id).then((x) => { s.notes = x; }).catch(() => {}));
+    }
+    if (s.ev.status === "ROZMOWA_OCENIAJACA" && isEvaluator()) {
+      tasks.push(Promise.all([api.wellbeingChecklist(), api.wellbeing(id)])
+        .then(([list, answers]) => { s.wb = { list, answers, draft: { ...answers.odpowiedzi } }; }).catch(() => {}));
     }
     if (s.ev.status === "KRYTERIA_DO_WYZNACZENIA" && !s.criteriaDict) {
       tasks.push(api.criteria(s.ev.arkusz).then((x) => { s.criteriaDict = x; }));
@@ -87,7 +94,9 @@ export async function renderEvaluation(view, id, ctx) {
         h("div", { class: "title" },
           h("h1", {}, `Ocena okresowa – ${personName(ev.oceniany)}`),
           h("span", { class: "badge badge-sheet" }, `Arkusz ${ev.arkusz}`),
-          ev.status === "ZAKONCZONA" ? h("span", { class: "badge badge-ok" }, icon("check"), "Zakończona") : null),
+          ev.status === "ZAKONCZONA" ? h("span", { class: "badge badge-ok" }, icon("check"), "Zakończona") : null,
+          ev.zaimportowana ? h("span", { class: "badge badge-idle", title: "Ocena sprzed systemu, zaimportowana z arkusza PDF" },
+            icon("upload"), "Zaimportowana") : null),
         done
           ? h("div", { class: "deadline" }, "Ocena sporządzona",
             h("span", { class: "badge badge-ok" }, icon("circleCheck"), fmtDate(ev.czesc_ii.data_sporzadzenia)))
@@ -152,23 +161,183 @@ export async function renderEvaluation(view, id, ctx) {
             fact("Poprzednia ocena", prevText()),
             fact("Oceniający", personName(ev.oceniajacy))),
           (isEvaluator() || ctx.me.rola === "KADRY") && !["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"].includes(ev.status)
-            ? h("a", { class: "btn btn-sm", href: `#/nieobecnosci/${o.id}`, style: { marginTop: "10px" } },
-              icon("calendar"), "Zgłoś nieobecność") : null,
+            ? h("div", { class: "row", style: { marginTop: "10px", gap: "8px" } },
+              h("a", { class: "btn btn-sm", href: `#/nieobecnosci/${o.id}` }, icon("calendar"), "Zgłoś nieobecność"),
+              ["SPRZECIW"].includes(ev.status) ? null
+                : h("button", { class: "btn btn-sm", type: "button", onclick: positionDialog }, "Zmiana stanowiska"))
+            : null,
           confirmed ? h("p", { class: "locked", style: { marginTop: "10px" } }, icon("lock"),
             `Kryteria i termin zatwierdził(a) ${personName(ev.czesc_i.potw_oceniajacy.osoba)} ${fmtDate(ev.czesc_i.potw_oceniajacy.at)}, ` +
             `oceniany potwierdził(a) ${fmtDate(confirmed)}.`) : null))));
   }
 
+  // ------------------------------------------------------------ change of position (art. 81 ust. 6, § 9)
+  function positionDialog() {
+    const o = s.ev.oceniany;
+    const when = h("input", { type: "date", id: "pc-date", required: true, value: ctx.meta.dzis });
+    const title = h("input", { type: "text", id: "pc-title", required: true, value: o.stanowisko || "" });
+    const sheet = h("select", { id: "pc-sheet" }, h("option", { value: "" }, `bez zmiany (arkusz ${s.ev.arkusz})`),
+      ["A", "B", "C"].filter((a) => a !== s.ev.arkusz).map((a) => h("option", { value: a }, `Arkusz ${a}`)));
+    const out = h("div");
+    const go = h("button", { class: "btn btn-primary", type: "submit" }, icon("check"), "Zapisz zmianę");
+    const dlg = h("dialog", { class: "modal", "aria-labelledby": "pc-h" },
+      h("form", { method: "dialog", class: "stack", onsubmit: async (e) => {
+        e.preventDefault();
+        go.disabled = true;
+        try {
+          const r = await api.positionChange(o.id, { data_zmiany: when.value, nowe_stanowisko: title.value,
+            nowy_arkusz: sheet.value || null });
+          s.ev = r.ocena; syncText();
+          replace(out, h("p", { class: "notice notice-info" }, icon("info"), r.wyjasnienie));
+          replace(go.parentNode, h("button", { class: "btn btn-primary", type: "button", onclick: () => dlg.close() }, "Zamknij"));
+          await loadSide(); renderAll();
+        } catch (err) {
+          const extra = err.walidacje?.length ? ` ${err.walidacje.map((w) => w.komunikat).join(" ")}` : "";
+          replace(out, h("p", { class: "notice notice-bad" }, icon("alert"), `${err.message}${extra}`));
+          go.disabled = false;
+        }
+      } },
+      h("h2", { id: "pc-h" }, `Zmiana stanowiska – ${personName(o)}`),
+      h("p", { class: "small muted" }, "Zmiana stanowiska z istotną zmianą obowiązków. Skutek (ponowne kryteria albo ocena " +
+        "w oknie −7/+30 dni) wyliczy system z daty ostatniej oceny."),
+      h("label", { for: "pc-date" }, "Data zmiany", when),
+      h("label", { for: "pc-title" }, "Nowe stanowisko", title),
+      h("label", { for: "pc-sheet" }, "Arkusz dla nowego stanowiska", sheet),
+      out,
+      h("div", { class: "row", style: { justifyContent: "flex-end" } },
+        h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Anuluj"), go)));
+    dlg.addEventListener("close", () => dlg.remove());
+    document.body.append(dlg);
+    dlg.showModal();
+  }
+
   // ------------------------------------------------------------ main panel (depends on the stage)
   function renderMain() {
     const st = s.ev.status;
-    if (st === "KRYTERIA_DO_WYZNACZENIA") return replace(R.main, criteriaSelection());
+    if (st === "KRYTERIA_DO_WYZNACZENIA") return replace(R.main, sheetPanel(), criteriaSelection());
     if (st === "KRYTERIA_DO_POTWIERDZENIA" || st === "OKRES_OCENY") return replace(R.main, criteriaOverview());
-    replace(R.main, scoringPanel(), objectionPanel());
+    replace(R.main, scoringPanel(), wellbeingPanel(), paperPanel(), objectionPanel());
+  }
+
+  // ------------------------------------------------------------ burnout checklist (working material, never in the PDF)
+  function wellbeingPanel() {
+    if (s.ev.status !== "ROZMOWA_OCENIAJACA" || !isEvaluator() || !s.wb) return null;
+    const { list, answers, draft } = s.wb;
+    const rows = list.objawy.map((o) => {
+      const cur = draft[o.id] || {};
+      const name = `wb-${o.id}`;
+      return h("fieldset", { class: "wb-row" },
+        h("legend", {}, h("strong", {}, o.nazwa), h("span", { class: "small muted" }, ` – ${o.opis}`)),
+        h("div", { class: "row", style: { gap: "14px", flexWrap: "wrap" } },
+          list.odpowiedzi.map((a) => h("label", { class: "row", style: { gap: "4px" } },
+            h("input", { type: "radio", name, value: a.kod, checked: cur.odpowiedz === a.kod,
+              onchange: () => { draft[o.id] = { ...(draft[o.id] || {}), odpowiedz: a.kod }; } }), a.nazwa)),
+          h("input", { type: "text", "aria-label": `Komentarz: ${o.nazwa}`, placeholder: "Komentarz (opcjonalnie)",
+            value: cur.komentarz || "", style: { flex: "1 1 200px" },
+            oninput: (e) => { draft[o.id] = { ...(draft[o.id] || { odpowiedz: "NIE_ZAUWAZAM" }), komentarz: e.target.value }; } })));
+    });
+    const save = async () => {
+      const body = Object.fromEntries(Object.entries(draft).filter(([, v]) => v && v.odpowiedz));
+      try {
+        s.wb.answers = await api.setWellbeing(id, body);
+        toast("Zapisano listę kontrolną dobrostanu.");
+        s.hr = null; renderMain(); loadHr();
+      } catch (e) { toast(e.message, "bad"); }
+    };
+    return h("section", { class: "card card-pad", style: { marginTop: "12px" }, "aria-labelledby": "wb-h" },
+      h("div", { class: "row", style: { justifyContent: "space-between" } },
+        h("h2", { id: "wb-h", class: "row", style: { gap: "8px" } }, icon("lifebuoy"), "Dobrostan"),
+        h("span", { class: "badge badge-idle" }, icon("lock"), "tylko dla Ciebie i HR")),
+      h("p", { class: "small muted" }, list.instrukcja),
+      answers.sygnal_przeciazenia ? h("p", { class: "notice notice-bad" }, icon("alert"),
+        `„Często” w ${answers.liczba_czesto} obszarach – HR partner pokaże sygnał przeciążenia z rekomendacjami.`) : null,
+      h("div", { class: "stack", style: { gap: "10px", marginTop: "10px" } }, rows),
+      h("div", { class: "row", style: { justifyContent: "space-between", marginTop: "10px" } },
+        h("span", { class: "small muted" }, answers.zaktualizowano ? `Zapisano ${fmtDate(answers.zaktualizowano)}` : "Jeszcze nie zapisano"),
+        h("button", { class: "btn", type: "button", onclick: save }, icon("save"), "Zapisz listę")));
+  }
+
+  // ------------------------------------------------------------ sheet suggested from the position (§ 3)
+  function sheetPanel() {
+    const d = s.ev.dobor_arkusza;
+    if (!d) return null;
+    const parts = [
+      h("p", {}, h("strong", {}, `Arkusz ${s.ev.arkusz}. `), d.sugerowany === s.ev.arkusz ? d.powod
+        : `System podpowiadał arkusz ${d.sugerowany} (${d.powod}).`),
+      d.ostrzezenie ? h("p", { class: "notice notice-bad" }, icon("alert"), d.ostrzezenie) : null,
+      d.zmiany.length ? h("ul", { class: "small muted" }, d.zmiany.map((z) =>
+        h("li", {}, `${fmtDate(z.data)}: ${z.kto} zmienił(a) arkusz ${z.z} → ${z.na} – ${z.uzasadnienie}`))) : null,
+    ];
+    if (d.mozna_zmienic) {
+      const sel = h("select", { "aria-label": "Nowy arkusz" }, ["A", "B", "C"].map((x) =>
+        h("option", { value: x, selected: x === s.ev.arkusz }, `Arkusz ${x}`)));
+      const why = h("input", { type: "text", "aria-label": "Uzasadnienie zmiany arkusza", placeholder: "Uzasadnienie zmiany" });
+      parts.push(h("div", { class: "row", style: { gap: "8px", marginTop: "8px", flexWrap: "wrap" } }, sel, why,
+        h("button", { class: "btn btn-sm", type: "button", onclick: async () => {
+          try {
+            s.ev = await api.changeSheet(id, { arkusz: sel.value, uzasadnienie: why.value });
+            s.criteriaDict = await api.criteria(s.ev.arkusz);
+            toast(`Zmieniono arkusz na ${s.ev.arkusz}.`);
+            renderAll();
+          } catch (e) { toast(e.message, "bad"); }
+        } }, "Zmień arkusz")),
+      h("p", { class: "small muted" }, "Arkusz można zmienić tylko przed zatwierdzeniem kryteriów."));
+    }
+    return h("section", { class: "card card-pad" }, h("h2", { class: "row", style: { gap: "8px" } }, "Dobór arkusza",
+      helpLink("rozporzadzenie-oceny-okresowe-2016", "§ 3", "§ 3 – arkusze A, B, C")), parts);
+  }
+
+  // ------------------------------------------------------------ paper flow: print date, signature, refusal to sign
+  function paperPanel() {
+    const ev = s.ev, c = ev.czesc_ii;
+    const canEdit = isEvaluator() && ["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA", "SPRZECIW"].includes(ev.status) && c.data_sporzadzenia;
+    if (!c.data_wydruku && !c.data_podpisu && !c.fikcja_zapoznania && !(canEdit && ev.status === "OCENA_DO_ZAPOZNANIA")) return null;
+    const parts = [h("h2", {}, "Zapoznanie na papierze")];
+    const facts = [];
+    if (c.data_wydruku) facts.push(h("dt", {}, "Wydruk arkusza"), h("dd", {}, fmtDate(c.data_wydruku)));
+    if (c.data_podpisu) facts.push(h("dt", {}, "Podpis ocenianego"), h("dd", {}, fmtDate(c.data_podpisu)));
+    if (c.fikcja_zapoznania) facts.push(h("dt", {}, "Odmowa podpisu"), h("dd", {}, c.adnotacja_odmowy || "tak"));
+    if (c.termin_sprzeciwu) facts.push(h("dt", {}, "Termin sprzeciwu"), h("dd", {}, fmtDate(c.termin_sprzeciwu)));
+    if (facts.length) parts.push(h("dl", { class: "small" }, facts));
+    if (canEdit && ev.status === "OCENA_DO_ZAPOZNANIA") {
+      const printed = h("input", { type: "date", id: "paper-printed", value: c.data_wydruku || "" });
+      const signed = h("input", { type: "date", id: "paper-signed" });
+      const save = async (body, done) => {
+        try {
+          s.ev = await api.paper(id, body);
+          toast(done);
+          await loadSide();
+          renderAll();
+        } catch (e) {
+          const extra = e.walidacje?.length ? ` ${e.walidacje.map((w) => w.komunikat).join(" ")}` : "";
+          toast(`${e.message}${extra}`, "bad");
+        }
+      };
+      parts.push(h("p", { class: "small muted" },
+        "Wydrukuj arkusz (PDF), daj go ocenianemu do podpisu i wpisz daty. Data podpisu jest datą zapoznania – od niej "
+        + "(albo od powrotu do pracy, gdy oceniany był nieobecny) liczy się termin sprzeciwu i przypomnienia."),
+      h("div", { class: "row", style: { gap: "12px", flexWrap: "wrap", alignItems: "flex-end" } },
+        h("label", { for: "paper-printed", class: "stack", style: { gap: "4px" } }, h("span", {}, "Data wydruku"), printed),
+        h("label", { for: "paper-signed", class: "stack", style: { gap: "4px" } }, h("span", {}, "Data podpisu ocenianego"), signed),
+        h("button", { class: "btn btn-primary", type: "button", onclick: () =>
+          save({ data_wydruku: printed.value || null, data_podpisu: signed.value || null },
+            signed.value ? "Zapisano podpis – ocena zapoznana." : "Zapisano datę wydruku.") }, icon("save"), "Zapisz daty")));
+      if (ev.dozwolone_akcje.includes("FIKCJA_ZAPOZNANIA")) {
+        const note = h("textarea", { rows: 2, "aria-label": "Adnotacja o odmowie podpisu",
+          placeholder: "Np. Oceniany odmówił podpisu w obecności …" });
+        const day = h("input", { type: "date", "aria-label": "Data odmowy podpisu" });
+        parts.push(h("details", { style: { marginTop: "12px" } }, h("summary", {}, "Oceniany odmawia podpisu"),
+          h("p", { class: "small muted" }, "Odnotuj odmowę na arkuszu (fikcja zapoznania) – od tego dnia ocena jest uznana za zapoznaną."),
+          note, h("div", { class: "row", style: { gap: "8px", marginTop: "8px" } }, day,
+            h("button", { class: "btn", type: "button", onclick: () => objectionAction("FIKCJA_ZAPOZNANIA",
+              { komentarz: note.value, data: day.value || null }) }, "Odnotuj odmowę podpisu"))));
+      }
+    }
+    return h("section", { class: "card card-pad", style: { marginTop: "12px" } }, parts);
   }
 
   // ------------------------------------------------------------ objection (art. 83): its own panel, not the main button
-  const OBJECTION_ACTIONS = ["ZLOZ_SPRZECIW", "ROZPATRZ_SPRZECIW"];
+  const OBJECTION_ACTIONS = ["ZLOZ_SPRZECIW", "ROZPATRZ_SPRZECIW", "FIKCJA_ZAPOZNANIA"];
 
   async function objectionAction(akcja, body) {
     try {
@@ -184,7 +353,8 @@ export async function renderEvaluation(view, id, ctx) {
   function objectionPanel() {
     const ev = s.ev, o = ev.sprzeciw, can = (a) => ev.dozwolone_akcje.includes(a);
     if (!o && !can("ZLOZ_SPRZECIW")) return null;
-    const parts = [h("h2", {}, "Sprzeciw od oceny")];
+    const parts = [h("h2", { class: "row", style: { gap: "8px" } }, "Sprzeciw od oceny",
+      helpLink("ustawa-sc-wyciag-oceny", "Art. 83", "art. 83 – sprzeciw od oceny"))];
     if (o) {
       const decided = o.decyzja ? (o.decyzja === "UWZGLEDNIONY" ? "uwzględniony" : "nieuwzględniony") : null;
       parts.push(h("dl", { class: "small" },
@@ -198,7 +368,8 @@ export async function renderEvaluation(view, id, ctx) {
     if (can("ZLOZ_SPRZECIW")) {
       const ta = h("textarea", { rows: 3, "aria-label": "Treść sprzeciwu", placeholder: "Z czym się nie zgadzasz i dlaczego?" });
       parts.push(h("p", { class: "small muted" },
-        "Masz 7 dni od zapoznania się z oceną. Sprzeciw rozpatruje dyrektor generalny urzędu (art. 83 ustawy)."),
+        `Termin: ${fmtDate(ev.czesc_ii.termin_sprzeciwu)} (7 dni od zapoznania się z oceną). `
+        + `${ev.rozpatrujacy_sprzeciw ? ev.rozpatrujacy_sprzeciw.podstawa : "Sprzeciw rozpatruje dyrektor generalny urzędu"}.`),
         ta, h("button", { class: "btn btn-primary", type: "button", style: { marginTop: "8px" },
           onclick: () => objectionAction("ZLOZ_SPRZECIW", { komentarz: ta.value }) }, icon("send"), "Złóż sprzeciw"));
     }
@@ -319,8 +490,58 @@ export async function renderEvaluation(view, id, ctx) {
           group("Kryteria dodatkowe wybrane przez oceniającego"),
           add.length ? rows(add) : h("tr", { class: "crit-row" }, h("td", { class: "muted" }, "brak")))),
       resultBar(),
+      warnings(),
       textField("uzasadnienie"),
-      textField("wnioski_iprz"));
+      textField("wnioski_iprz"),
+      partThree());
+  }
+
+  // non-blocking warnings from the server (e.g. the second negative evaluation in a row – art. 71)
+  function warnings() {
+    const w = s.ev.walidacje.filter((x) => x.waga === "OSTRZEZENIE");
+    return w.length ? h("div", { class: "notice notice-info", role: "status", style: { margin: "12px 0" } }, icon("alert"),
+      h("div", {}, w.map((x) => h("div", {}, x.komunikat)))) : null;
+  }
+
+  // part III – request for the next grade (art. 89); shown only when the server sends it (civil servants)
+  function partThree() {
+    const p3 = s.ev.czesc_iii;
+    if (!p3) return null;
+    const can = editable("wniosek_o_stopien");
+    const save = async (body) => {
+      try {
+        s.ev = await api.patch(id, { updated_at: s.ev.updated_at, ...body });
+        syncText(); renderMain(); renderAside(); renderActions();
+      } catch (e) {
+        const extra = e.walidacje?.length ? ` ${e.walidacje.map((w) => w.komunikat).join(" ")}` : "";
+        toast(`${e.message}${extra}`, "bad");
+        renderMain();
+      }
+    };
+    const requested = s.ev.czesc_ii.wniosek_o_stopien === "TAK";
+    const grade = h("select", { id: "f-stopien", disabled: !can, onchange: (e) => save({ posiadany_stopien: Number(e.target.value) }) },
+      h("option", { value: "" }, "–"),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9].map((g) => h("option", { value: g, selected: p3.posiadany_stopien === g }, String(g))));
+    const motivation = h("textarea", { id: "f-umotywowanie", rows: 4, readonly: !can || !requested,
+      class: blocking().some((w) => w.pole === "umotywowanie_wniosku") ? "invalid" : "",
+      placeholder: requested ? "Umotywowanie wniosku przełożonego (art. 89 ust. 1)" : "" });
+    motivation.value = p3.umotywowanie_wniosku || "";
+    motivation.addEventListener("blur", () => {
+      if ((p3.umotywowanie_wniosku || "") !== motivation.value) save({ umotywowanie_wniosku: motivation.value });
+    });
+    return h("section", { class: "field", "aria-labelledby": "p3-h" },
+      h("div", { class: "field-head" }, h("h3", { id: "p3-h" }, "Część III – wniosek o kolejny stopień służbowy")),
+      p3.stopien_obligatoryjny ? h("p", { class: "notice notice-info" }, icon("info"),
+        `Druga z rzędu ocena na jednym z dwóch najwyższych poziomów – urzędnik otrzyma kolejny stopień (${p3.wnioskowany_stopien}) z mocy art. 89 ust. 2, w ciągu 30 dni od zapoznania się z oceną.`) : null,
+      h("div", { class: "row", style: { gap: "16px", marginBottom: "8px" } },
+        h("label", { for: "f-stopien", class: "row", style: { gap: "6px" } }, "Posiadany stopień", grade),
+        h("label", { class: "row", style: { gap: "6px" } },
+          h("input", { type: "checkbox", checked: requested, disabled: !can,
+            onchange: (e) => save({ wniosek_o_stopien: e.target.checked ? "TAK" : "NIE" }) }),
+          "Dołączam wniosek o przyznanie kolejnego stopnia"),
+        p3.wnioskowany_stopien ? h("span", { class: "small muted" }, `Wnioskowany stopień: ${p3.wnioskowany_stopien}`) : null),
+      requested ? h("label", { for: "f-umotywowanie" }, "Umotywowanie wniosku", motivation) : null,
+      !can ? h("p", { class: "small muted" }, "Pola części III wypełnia oceniający w etapie sporządzania oceny.") : null);
   }
 
   function criterionRow(k, e, canScore) {
@@ -479,7 +700,7 @@ export async function renderEvaluation(view, id, ctx) {
     const locked = !can && s.ev.czesc_ii.podpis_oceniajacego?.at;
     return h("div", { class: "field" },
       h("div", { class: "field-head" },
-        h("div", { class: "row", style: { gap: "10px" } }, h("label", { for: fid }, cfg.label), reqBox),
+        h("div", { class: "row", style: { gap: "10px" } }, h("label", { for: fid }, cfg.label), helpLink(...cfg.help), reqBox),
         can && aiOn() && d?.state !== "loading"
           ? h("button", { class: "btn btn-sm btn-ai", type: "button", onclick: () => requestDraft(cfg.draft) },
             icon("sparkles"), "Szkic od asystenta")
@@ -555,12 +776,42 @@ export async function renderEvaluation(view, id, ctx) {
         checks.length ? h("ul", { class: "checklist" }, checks)
           : h("ul", { class: "checklist" }, h("li", {}, h("span", { class: "ok" }, icon("circleCheck")), "Wszystko gotowe do zatwierdzenia."))) : null);
 
-    const parts = [progress, deadlinesCard()];
+    const parts = [progress, deadlinesCard(), eaktCard()];
     if (isEvaluator() && ctx.meta.funkcje_ai?.hr_partner && !["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"].includes(ev.status)) {
       parts.push(hrCard());
     }
     parts.push(h("p", { class: "aside-note" }, icon("info"), "Asystent tylko podpowiada. Ocenę wystawia przełożony."));
     replace(R.aside, parts);
+  }
+
+  // e-Akt export of the sheet (HR only – the server sends `eksport_eakt` to HR alone)
+  function eaktCard() {
+    const x = s.ev.eksport_eakt;
+    if (!x) return null;
+    const ok = x.status === "WYSLANO";
+    const event = x.zdarzenie === "ROZPATRZENIE_SPRZECIWU" ? "po rozpatrzeniu sprzeciwu" : "po zapoznaniu się z oceną";
+    async function retry(e) {
+      e.currentTarget.disabled = true;
+      try {
+        const r = await api.eaktRetry();
+        const mine = r.ponowiono.find((p) => String(p.evaluation_id) === String(id));
+        toast(mine?.status === "WYSLANO" ? "Wysłano do e-Akt." : mine ? `Eksport nieudany: ${mine.blad}` : "Brak eksportu do ponowienia.",
+          mine && mine.status !== "WYSLANO" ? "bad" : "");
+        await refreshEvaluation();
+        renderAside();
+      } catch (err) {
+        toast(err.message, "bad");
+      }
+    }
+    return h("section", { class: "card card-pad", "aria-labelledby": "eakt-h" },
+      h("h2", { id: "eakt-h", class: "row", style: { gap: "8px", marginBottom: "10px" } }, icon("archive"), "e-Akt (akta osobowe)"),
+      h("p", {}, h("span", { class: `badge ${ok ? "badge-ok" : "badge-bad"}` }, icon(ok ? "check" : "alert"), ok ? "wysłano" : "błąd eksportu"),
+        " ", h("span", { class: "small muted" }, event)),
+      h("p", { class: "small muted" }, `Ostatnia próba: ${new Date(x.ostatnia_proba).toLocaleString("pl-PL")} · prób: ${x.proby}`),
+      x.miejsce ? h("p", { class: "small muted", style: { overflowWrap: "anywhere" } }, `Miejsce: ${x.miejsce}`) : null,
+      x.sha256 ? h("p", { class: "small muted" }, "SHA-256: ", h("code", { title: x.sha256 }, `${x.sha256.slice(0, 16)}…`)) : null,
+      ok ? null : h("p", { class: "notice notice-bad small" }, icon("alert"), x.blad || "Nieznany błąd."),
+      ok ? null : h("button", { class: "btn btn-sm", type: "button", onclick: retry }, icon("reset"), "Ponów eksport"));
   }
 
   // every deadline, computed by the server from what has happened (app/domain/timeline.py)
@@ -706,8 +957,44 @@ export async function renderEvaluation(view, id, ctx) {
     }
   }
 
+  // ------------------------------------------------------------ dziennik zmian (HR only – the server decides)
+  function shortValue(v) {
+    if (v === null || v === undefined || v === "") return "–";
+    return v.length > 120 ? `${v.slice(0, 117)}…` : v;
+  }
+
+  function renderAudit() {
+    if (ctx.me.rola !== "KADRY") { replace(R.audit); return; }
+    const body = h("div", { class: "card-pad" }, h("p", { class: "muted small" }, "Rozwiń, aby wczytać historię."));
+    const details = h("details", { class: "card audit" },
+      h("summary", { class: "card-head" }, h("div", {}, h("h2", {}, "Historia zmian"),
+        h("p", {}, "Kto, co i kiedy zmienił w tej ocenie (dziennik tylko do odczytu)."))),
+      body);
+    details.addEventListener("toggle", async () => {
+      if (!details.open) return;
+      replace(body, loading());
+      try {
+        const rows = await api.audit(id);
+        replace(body, rows.length
+          ? h("div", { class: "table-wrap" }, h("table", { class: "data rules" },
+            h("thead", {}, h("tr", {}, ["Kiedy", "Kto", "Zdarzenie", "Pole", "Przed", "Po"].map((c) => h("th", { scope: "col" }, c)))),
+            h("tbody", {}, rows.map((r) => h("tr", {},
+              h("td", { class: "nowrap" }, new Date(r.czas).toLocaleString("pl-PL")),
+              h("td", {}, r.uzytkownik_nazwa),
+              h("td", {}, r.akcja),
+              h("td", {}, r.pole || "–"),
+              h("td", { class: "small" }, shortValue(r.przed)),
+              h("td", { class: "small" }, shortValue(r.po)))))))
+          : h("p", { class: "muted small" }, "Brak wpisów."));
+      } catch (e) {
+        replace(body, h("div", { class: "notice notice-bad" }, icon("alert"), e.message));
+      }
+    });
+    replace(R.audit, details);
+  }
+
   function renderAll() {
-    renderHead(); renderStepper(); renderPerson(); renderMain(); renderAside(); renderActions();
+    renderHead(); renderStepper(); renderPerson(); renderMain(); renderAside(); renderActions(); renderAudit();
   }
 
   // ------------------------------------------------------------ first paint
@@ -715,7 +1002,7 @@ export async function renderEvaluation(view, id, ctx) {
   replace(view,
     R.head, R.stepper,
     h("div", { class: "with-aside" }, h("div", { class: "stack" }, R.person, R.main), R.aside),
-    R.actions);
+    R.actions, R.audit);
   renderAll();
   loadHr();
 

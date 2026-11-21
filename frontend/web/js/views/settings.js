@@ -83,7 +83,22 @@ export async function renderSettings(view, ctx) {
             `Tylko w dni robocze i w godzinach pracy urzędu (${from}–${to}). Termin w sobotę, niedzielę lub święto ` +
             "przesuwa się na poprzedni dzień roboczy.")),
         !isHr ? h("p", { class: "small muted", style: { marginTop: "8px" } },
-          s.data.wlasne ? "Używasz własnego harmonogramu." : "Używasz domyślnego harmonogramu urzędu.") : null),
+          s.data.wlasne ? "Używasz własnego harmonogramu." : "Używasz domyślnego harmonogramu urzędu.") : null,
+        !isHr ? h("div", { class: "row", style: { gap: "8px", marginTop: "8px" } },
+          h("label", { class: "row", style: { gap: "6px" } },
+            h("input", {
+              type: "checkbox", checked: s.data.email, disabled: !s.data.adres_email,
+              onchange: async (e) => {
+                try {
+                  s.data = await api.setMyReminders({ email: e.target.checked });
+                  toast(s.data.email ? "Przypomnienia przyjdą też e-mailem." : "Wyłączono przypomnienia e-mailem.");
+                } catch (err) { toast(err.message, "bad"); }
+              },
+            }),
+            "Przypomnienia także e-mailem"),
+          h("span", { class: "small muted" }, s.data.adres_email
+            ? `na adres ${s.data.adres_email}` : "Brak adresu e-mail w danych kadrowych – tylko powiadomienia w aplikacji."))
+          : null),
       STAGES.map(stageCard),
       h("div", { class: "row", style: { gap: "8px" } },
         h("button", { class: "btn btn-primary", type: "button", onclick: save }, icon("check"), "Zapisz"),

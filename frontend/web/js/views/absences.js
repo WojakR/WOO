@@ -1,5 +1,7 @@
 // UC8 – "Nieobecności": register an absence of the evaluated person. Whether and how far the evaluation
 // deadline moves is decided by the server (art. 81 ust. 7); this screen only shows what it returns.
+// Also: change of the deadline by the evaluator (art. 81 ust. 8, letter to the evaluated person – § 8),
+// the evaluator's own planned absence (who needs a deputy or a new deadline) and HR's inbox of requests.
 import { api } from "../api.js";
 import { h, icon, replace, fmtDate, avatar, toast } from "../ui.js";
 import { ABSENCE_LABEL, STATUS_LABEL, personName } from "../labels.js";
@@ -10,7 +12,17 @@ export async function renderAbsences(view, ctx, employeeId) {
   const s = { id: employeeId || people[0]?.oceniany.id || null, list: [], changes: [], last: null, deadline: null };
   const item = () => people.find((i) => i.oceniany.id === s.id);
 
-  const R = { list: h("div", { class: "card" }), form: h("div", { class: "card" }), result: h("div") };
+  const R = { list: h("div", { class: "card" }), form: h("div", { class: "card" }), result: h("div"),
+    change: h("div"), mine: h("div"), inbox: h("div") };
+  const isHr = ctx.me.rola === "KADRY";
+  const REASONS = {
+    PRZEWIDYWANA_NIEOBECNOSC_OCENIANEGO: "przewidywana dłuższa nieobecność ocenianego (pkt 2)",
+    PRZEWIDYWANA_NIEOBECNOSC_OCENIAJACEGO: "przewidywana dłuższa nieobecność oceniającego (pkt 3)",
+    WNIOSEK_OCENIANEGO: "wniosek ocenianego (pkt 4)",
+    ZMIANA_OCENIAJACEGO: "zmiana na stanowisku oceniającego (pkt 1)",
+  };
+  const STATUS_TXT = { ZLOZONY: "czeka na decyzję kadr", ZAAKCEPTOWANY: "zmieniony", ODRZUCONY: "odrzucony", AUTO: "automatycznie (nieobecność)" };
+  const errText = (err) => `${err.message}${err.walidacje?.length ? ` ${err.walidacje.map((w) => w.komunikat).join(" ")}` : ""}`;
 
   async function load() {
     const it = item();
@@ -97,12 +109,102 @@ export async function renderAbsences(view, ctx, employeeId) {
         h("h3", { style: { marginBottom: "6px" } }, "Historia zmian terminu oceny"),
         h("ul", { class: "plain-list" }, s.changes.map((c) => h("li", {},
           h("span", {}, `${fmtDate(c.stary_termin)} → ${fmtDate(c.nowy_termin)}`),
-          h("span", { class: "small muted" }, c.status === "AUTO" ? "automatycznie (nieobecność)" : c.status))))) : null);
+          h("span", { class: "small muted" }, STATUS_TXT[c.status] || c.status),
+          c.pismo_pdf ? h("a", { class: "btn btn-sm", href: `/api/deadline-changes/${c.id}/pdf`, target: "_blank", rel: "noopener" },
+            "Pismo do ocenianego (PDF)") : null)))) : null);
+  }
+
+  // ---- art. 81 ust. 8: the evaluator changes the deadline
+  function renderChange() {
+    const it = item();
+    if (!it || !ctx.me.czy_oceniajacy || ["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA", "SPRZECIW"].includes(it.status)) {
+      replace(R.change);
+      return;
+    }
+    const reason = h("select", { id: "dc-reason" }, Object.entries(REASONS).map(([v, t]) => h("option", { value: v }, t)));
+    const date = h("input", { type: "date", id: "dc-date", required: true });
+    const text = h("textarea", { id: "dc-text", rows: 3, required: true,
+      placeholder: "Uzasadnienie – trafi do pisma do ocenianego" });
+    const go = h("button", { class: "btn btn-primary", type: "submit" }, icon("calendar"), "Zmień termin");
+    replace(R.change, h("section", { class: "card" },
+      h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Zmiana terminu oceny"),
+        h("p", {}, "Art. 81 ust. 8 ustawy: decyduje oceniający, gdy od ostatniej oceny minęło ponad 6 miesięcy. Oceniany dostaje pismo."))),
+      h("form", { class: "form-grid", onsubmit: async (e) => {
+        e.preventDefault();
+        go.disabled = true;
+        try {
+          const r = await api.requestDeadlineChange(it.evaluation_id, { powod: reason.value, nowy_termin: date.value, uzasadnienie: text.value });
+          toast(r.status === "ZLOZONY" ? "Wniosek przekazano do działu kadr." : `Termin oceny zmieniony na ${fmtDate(r.nowy_termin)}.`);
+          await load(); renderAll();
+        } catch (err) {
+          toast(errText(err), "bad");
+          go.disabled = false;
+        }
+      } },
+      h("label", { for: "dc-reason", class: "wide" }, "Podstawa (art. 81 ust. 8)", reason),
+      h("label", { for: "dc-date" }, "Nowy termin oceny", date),
+      h("label", { for: "dc-text", class: "wide" }, "Uzasadnienie", text),
+      h("div", { class: "wide row", style: { justifyContent: "flex-end" } }, go))));
+  }
+
+  // ---- the evaluator's own planned absence
+  function renderMine() {
+    if (!ctx.me.czy_oceniajacy) { replace(R.mine); return; }
+    const od = h("input", { type: "date", id: "ea-od", required: true });
+    const doo = h("input", { type: "date", id: "ea-do", required: true });
+    const out = h("div");
+    replace(R.mine, h("section", { class: "card" },
+      h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Moja planowana nieobecność"),
+        h("p", {}, "Sprawdź, czyje terminy wypadają w tym czasie – wyznacz zastępcę albo zmień termin oceny."))),
+      h("form", { class: "form-grid", onsubmit: async (e) => {
+        e.preventDefault();
+        try {
+          const r = await api.evaluatorAbsence({ oceniajacy_id: ctx.me.pracownik.id, od: od.value, do: doo.value });
+          replace(out, h("div", { style: { padding: "0 20px 18px" } },
+            h("p", { class: "notice notice-info" }, icon("info"), r.komunikat),
+            r.podpowiedzi.length ? h("ul", { class: "plain-list" }, r.podpowiedzi.map((p) => h("li", {},
+              h("span", {}, `${personName(p.oceniany)} – ${p.rodzaj_terminu === "KRYTERIA" ? "kryteria do" : "ocena do"} ${fmtDate(p.termin)}`),
+              p.zastepca ? h("span", { class: "small muted" }, `zastępca: ${personName(p.zastepca)}`)
+                : p.mozna_zmienic_termin ? h("a", { class: "btn btn-sm", href: `#/nieobecnosci/${p.oceniany.id}` },
+                  `Zmień termin (propozycja: ${fmtDate(p.proponowany_termin)})`)
+                  : h("span", { class: "small muted" }, p.dlaczego_nie.join(" ") || "wyznacz zastępcę")))) : null));
+        } catch (err) { toast(errText(err), "bad"); }
+      } },
+      h("label", { for: "ea-od" }, "Od", od),
+      h("label", { for: "ea-do" }, "Do (włącznie)", doo),
+      h("div", { class: "wide row", style: { justifyContent: "flex-end" } },
+        h("button", { class: "btn", type: "submit" }, "Sprawdź terminy"))),
+      out));
+  }
+
+  // ---- HR: requests waiting for a decision (office setting zmiana_terminu.zatwierdza = KADRY)
+  async function renderInbox() {
+    if (!isHr) { replace(R.inbox); return; }
+    const waiting = await api.allDeadlineChanges("ZLOZONY");
+    if (!waiting.length) { replace(R.inbox); return; }
+    const decide = (c, status) => async () => {
+      try {
+        await api.decideDeadlineChange(c.id, { status });
+        toast(status === "ZAAKCEPTOWANY" ? "Zaakceptowano – termin zmieniony, pismo gotowe." : "Odrzucono wniosek.");
+        await load(); renderAll();
+      } catch (err) { toast(errText(err), "bad"); }
+    };
+    replace(R.inbox, h("section", { class: "card" },
+      h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Wnioski o zmianę terminu"), h("p", {}, `Czeka na decyzję: ${waiting.length}`))),
+      h("ul", { class: "plain-list", style: { padding: "0 20px 18px" } }, waiting.map((c) => h("li", {},
+        h("div", {}, h("strong", {}, personName(c.oceniany)), ` ${fmtDate(c.stary_termin)} → ${fmtDate(c.nowy_termin)}`,
+          h("div", { class: "small muted" }, `${REASONS[c.powod] || c.powod}. ${c.uzasadnienie || ""}`)),
+        h("div", { class: "row" },
+          h("button", { class: "btn btn-sm btn-primary", type: "button", onclick: decide(c, "ZAAKCEPTOWANY") }, "Akceptuj"),
+          h("button", { class: "btn btn-sm", type: "button", onclick: decide(c, "ODRZUCONY") }, "Odrzuć")))))));
   }
 
   function renderAll() {
     renderForm();
     renderList();
+    renderChange();
+    renderMine();
+    renderInbox();
   }
 
   const picker = h("select", {
@@ -121,6 +223,6 @@ export async function renderAbsences(view, ctx, employeeId) {
       h("label", { for: "abs-person", class: "small muted row", style: { gap: "6px" } }, "Oceniany", picker),
       it ? h("span", { class: "row", style: { gap: "8px" } }, avatar(it.oceniany.imie, it.oceniany.nazwisko),
         h("a", { href: `#/ocena/${it.evaluation_id}` }, "Otwórz ocenę", icon("chevronRight"))) : null) : null,
-    h("div", { class: "stack" }, R.form, R.list));
+    h("div", { class: "stack" }, R.inbox, R.form, R.list, R.change, R.mine));
   renderAll();
 }

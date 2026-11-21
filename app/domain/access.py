@@ -75,3 +75,7 @@ class AccessPolicy:
     def can_see_working_material(self, user: str, employee: str, evaluator: str | None) -> bool:
         """Notes, prep, drafts, evidence, HR hints: evaluator, deputy, HR – never the evaluated person."""
         return user != employee and (self.is_admin(user) or self.can_act_as_evaluator(user, employee, evaluator))
+
+    def can_read_audit(self, user: str) -> bool:
+        """Dziennik zmian (who changed what, when): HR / administrator only."""
+        return self.is_admin(user)

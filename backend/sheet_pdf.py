@@ -74,6 +74,11 @@ class SheetPdf:
     justification: str = ""
     iprz: str = ""
     civil_servant: bool = False
+    grade_request: str = "NIE DOTYCZY"  # TAK | NIE | NIE DOTYCZY – "czy dołączono wniosek o kolejny stopień"
+    held_grade: int | None = None
+    requested_grade: int | None = None
+    grade_motivation: str = ""
+    grade_mandatory: bool = False  # art. 89 ust. 2
     previous: tuple[str, str, date | None] | None = None  # (outcome, level, date) – civil servants only
     evaluated_on: date | None = None
     acknowledged_on: date | None = None
@@ -273,13 +278,28 @@ def render_sheet_pdf(s: SheetPdf) -> bytes:
                          + ([] if s.civil_servant else [("SPAN", (0, 1), (-1, 1))]), header=True))
     out.append(Spacer(1, 6))
 
-    grade = "NIE DOTYCZY" if not s.civil_servant else ("NIE" if s.positive is False else "")
+    grade = "NIE DOTYCZY" if not s.civil_servant else s.grade_request
     out.append(doc.table([
         [p("CZY DO OCENY OKRESOWEJ DOŁĄCZONO WNIOSEK O PRZYZNANIE KOLEJNEGO STOPNIA SŁUŻBOWEGO", "head"), "", ""],
         [p(f"[{_mark(grade == 'TAK') or ' '}]  TAK"), p(f"[{_mark(grade == 'NIE') or ' '}]  NIE"),
          p(f"[{_mark(grade == 'NIE DOTYCZY') or ' '}]  NIE DOTYCZY (oceniany jest pracownikiem służby cywilnej)")],
     ], [0.2 * W, 0.2 * W, 0.6 * W], [("SPAN", (0, 0), (-1, 0))], header=True))
     out.append(Spacer(1, 6))
+
+    if s.civil_servant and (s.grade_request == "TAK" or s.grade_mandatory):
+        out.append(p("CZĘŚĆ III – WNIOSEK O PRZYZNANIE KOLEJNEGO STOPNIA SŁUŻBOWEGO", "part"))
+        rows = [[p("DANE URZĘDNIKA SŁUŻBY CYWILNEJ", "head"), ""],
+                [p("Imię i nazwisko", "small"), p(s.employee.full_name)],
+                [p("Posiadany stopień służbowy", "small"), p(str(s.held_grade) if s.held_grade else "–")],
+                [p("Wnioskowany stopień służbowy", "small"), p(str(s.requested_grade) if s.requested_grade else "–")]]
+        if s.grade_mandatory:
+            rows.append([p("Podstawa", "small"),
+                         p("art. 89 ust. 2 ustawy – dwie kolejne oceny na jednym z dwóch najwyższych poziomów "
+                           "(stopień obligatoryjny)")])
+        if s.grade_request == "TAK":
+            rows.append([p("Umotywowanie wniosku (art. 89 ust. 1)", "small"), p(s.grade_motivation.strip() or "–")])
+        out.append(doc.table(rows, [0.3 * W, 0.7 * W], [("SPAN", (0, 0), (-1, 0))], header=True))
+        out.append(Spacer(1, 6))
 
     ev = s.evaluator
     out.append(KeepTogether([

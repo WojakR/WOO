@@ -47,7 +47,7 @@ def _require_open(cycle: EvaluationCycle) -> None:
 
 def _criterion(cycle: EvaluationCycle, st: DemoState, code: str) -> str:
     cid = m.criterion_id(code)
-    allowed = cycle.criteria_ids(st.evaluations.rules)
+    allowed = cycle.criteria_ids(st.rules_for(cycle))
     if cid not in allowed:
         raise ValidationError([f"Kryterium „{code}” nie należy do tej oceny "
                                f"(dozwolone: {', '.join(m.criterion_code(c) for c in allowed)})."])

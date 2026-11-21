@@ -1,10 +1,10 @@
-"""In-memory repository and clocks (tests, demo). A SQLite repository can replace the repo later."""
+"""In-memory repository (tests, demo). Clocks live in clock.py (re-exported here for old imports)."""
 from __future__ import annotations
 
 import copy
-from datetime import date, timedelta
 
 from app.domain.cycle import EvaluationCycle, Status
+from app.infrastructure.clock import FixedClock, SystemClock  # noqa: F401 – old import path
 
 
 class InMemoryCycleRepository:
@@ -33,25 +33,3 @@ class InMemoryCycleRepository:
 
     def delete(self, cycle_id: str) -> None:
         self._items.pop(cycle_id, None)
-
-
-class SystemClock:
-    def today(self) -> date:
-        return date.today()
-
-
-class FixedClock:
-    """Controllable clock for tests and the demo's "przewiń czas" button."""
-
-    def __init__(self, today: date):
-        self._today = today
-
-    def today(self) -> date:
-        return self._today
-
-    def set(self, today: date) -> None:
-        self._today = today
-
-    def advance(self, days: int = 0, weeks: int = 0) -> date:
-        self._today += timedelta(days=days, weeks=weeks)
-        return self._today

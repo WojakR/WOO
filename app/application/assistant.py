@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from string import Template
-from typing import Any, Callable, Iterable, Iterator, Literal, Sequence
+from typing import Any, Callable, Iterable, Iterator, Literal, Mapping, Sequence
 
 from app.domain.calendar import WorkingCalendar
 from app.domain.cycle import EvaluationCycle, PreviousEvaluation
@@ -656,9 +656,34 @@ class AiSuggestionService:
                       for _, cid, hits in scored[:limit])
         return CriteriaSuggestions(items, "REGULY")
 
+    # ---- training needs (reports) -----------------------------------------------------------------
+    def training_recommendation(self, ranking: Sequence[Any], scope: str, fallback: str) -> tuple[str, Source]:
+        """Priorities for training from aggregated low scores (no names reach the model). `ranking` items have
+        .criterion, .area, .low_scores, .evaluated; `fallback` = the template text (used when AI is off/fails)."""
+        if not ranking:
+            return fallback, "SZABLON"
+        lines = "\n".join(f"- {r.criterion} | {r.area} | {r.low_scores}/{r.evaluated}" for r in ranking[:8])
+        prompt = _prompt("training", scope=scope, ranking=lines)
+        schema = {"type": "object", "properties": {"rekomendacja": {"type": "string"}}, "required": ["rekomendacja"]}
+
+        def validate(raw: dict) -> str:
+            text = str(raw.get("rekomendacja") or "").strip()
+            if not 20 <= len(text) <= 1500 or _LEFTOVER_TOKEN.search(text):
+                raise AiInvalidOutput("Rekomendacja pusta, za długa albo z pozostawionymi tokenami.")
+            if any(b in text.casefold() for b in _BANNED_IN_HR):
+                raise AiInvalidOutput("Rekomendacja wykracza poza rolę asystenta kadr.")
+            return text
+
+        text = self._ask_json("training_recommendation", prompt, schema, "text", validate)
+        return (text, "AI") if text else (fallback, "SZABLON")
+
     # ---- 5. virtual HR partner (UC7) ------------------------------------------------------------
     def _detect_signals(self, cycle: EvaluationCycle, employee: Employee, notes: Sequence[Note],
-                        absences: Sequence[Absence], today: date) -> list[HrSignal]:
+                        absences: Sequence[Absence], today: date,
+                        extra: Mapping[str, Sequence[str]] | None = None) -> list[HrSignal]:
+        """`extra`: evidence from other sources per signal kind – the wellbeing checklist, working-time (RCP)
+        indicators. Already aggregated; it raises the signal on its own."""
+        extra = extra or {}
         cfg = self.catalog.hr
         kinds = cfg["sygnaly"]
         window = today - timedelta(days=30 * cfg["okno_notatek_miesiecy"])
@@ -673,8 +698,10 @@ class AiSuggestionService:
             found.append(HrSignal(kind, kinds[kind]["opis"], tuple(evidence), tuple(kinds[kind]["rekomendacje"][:3])))
 
         overload = keyword_notes("PRZECIAZENIE")
-        if len(overload) >= cfg["min_notatek_dla_sygnalu"]:
-            add("PRZECIAZENIE", [f"{n.on:%d.%m.%Y}: {n.text}" for n in overload[:3]])
+        from_notes = [f"{n.on:%d.%m.%Y}: {n.text}" for n in overload[:3]] \
+            if len(overload) >= cfg["min_notatek_dla_sygnalu"] else []
+        if from_notes or extra.get("PRZECIAZENIE"):
+            add("PRZECIAZENIE", [*extra.get("PRZECIAZENIE", []), *from_notes])
 
         year_ago = today - timedelta(days=365)
         days_away = sum(max(0, (min(a.end, today) - max(a.start, year_ago)).days + 1) for a in absences if a.justified)
@@ -702,8 +729,9 @@ class AiSuggestionService:
         return found
 
     def hr_partner(self, cycle: EvaluationCycle, employee: Employee, notes: Sequence[Note],
-                   absences: Sequence[Absence], today: date, use_ai: bool = True) -> HrReport:
-        signals = self._detect_signals(cycle, employee, notes, absences, today)
+                   absences: Sequence[Absence], today: date, use_ai: bool = True,
+                   extra: Mapping[str, Sequence[str]] | None = None) -> HrReport:
+        signals = self._detect_signals(cycle, employee, notes, absences, today, extra)
         if not signals or not use_ai:
             return HrReport(tuple(signals), "REGULY")
         pseudo = self._people(employee)

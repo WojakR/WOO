@@ -5,6 +5,7 @@ UC4 meeting_prep, UC5 record_review_meeting + submit_evaluation, then acknowledg
 """
 from __future__ import annotations
 
+import copy
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -19,6 +20,7 @@ from app.domain.meeting_prep import MeetingPrep, build_meeting_prep
 from app.domain.reminder_schedule import ReminderSchedule, Stage, at_time, reminder_dates
 from app.domain.rulebook import RuleBook
 from app.domain.scoring import EvaluationResult, Outcome
+from app.domain.sheet_choice import SheetSuggestion, suggest_sheet
 
 from .ports import Clock, CycleRepository, EmployeeDirectory
 
@@ -69,6 +71,49 @@ class EvaluationService:
         self._new_id = new_id
         self.deputies = deputies  # evaluator id, day -> ids of people standing in for them that day
         self.objection_reviewer = "kadry"  # who decides objections (office setting, art. 83 ust. 1: DG)
+        # per evaluation (edge cases: head of the office, no DG – app/domain/objection.py); default: the DG
+        self.objection_reviewer_for: Callable[[EvaluationCycle], str] = lambda c: self.objection_reviewer
+        self.sheet_mapping: Mapping | None = None  # arkusze.json["dobor_arkusza"]; None = the HR record's sheet
+        # called when an evaluation becomes final for the personnel file (acknowledged / refusal noted /
+        # objection not upheld) – e.g. the e-Akt export (app/application/personnel_export.py)
+        self.on_final: list[Callable[[EvaluationCycle], None]] = []
+        # versions of the regulation (state wires app/infrastructure/regulations.py; None = one rule book only)
+        self.version_at: Callable[[date], int | None] = lambda day: None
+        self.rulebook_of: Callable[[int | None], RuleBook] | None = None
+
+    def rules_for(self, c: EvaluationCycle) -> RuleBook:
+        """The rule book this cycle follows: the version of the regulation in force on the day its criteria were
+        set (before that: the day it started) – an amendment never changes a running evaluation."""
+        if self.rulebook_of is None:
+            return self.rules
+        version = c.rules_version
+        if version is None:  # cycles stored before versioning: the version in force on their reference day
+            version = self.version_at(c.criteria_set_on or (c.history[0][0] if c.history else self.clock.today()))
+        return self.rulebook_of(version)
+
+    def _pin_rules(self, c: EvaluationCycle, day: date) -> None:
+        if self.rulebook_of is not None:
+            c.rules_version = self.version_at(day)
+
+    def _final(self, cycle_id: str) -> None:
+        c = self._cycle(cycle_id)
+        for hook in self.on_final:
+            hook(c)
+
+    def employee_absences(self, employee_id: str) -> list[Absence]:
+        """Every absence of the person registered in any of their cycles (an absence after the evaluation was
+        drawn up is registered on the next cycle, but still moves the objection period of the previous one)."""
+        out: list[Absence] = []
+        for c in self.cycles.list_all():
+            if c.employee_id == employee_id:
+                out.extend(a for a in c.absences if a not in out)
+        return out
+
+    def suggest_sheet(self, employee_id: str) -> SheetSuggestion:
+        emp = self._employee(employee_id)
+        if self.sheet_mapping is None:
+            return SheetSuggestion(emp.sheet, "Arkusz z danych kadrowych pracownika.")
+        return suggest_sheet(emp, self.sheet_mapping)
 
     def _as_evaluator(self, cycle_id: str, actor_id: str, step: str,
                       action: Callable[[EvaluationCycle, str], Any]) -> Any:
@@ -109,7 +154,24 @@ class EvaluationService:
         return out
 
     def evaluation_deadline(self, cycle_id: str) -> date:
-        return self._cycle(cycle_id).evaluation_deadline(self.rules, self.calendar)
+        c = self._cycle(cycle_id)
+        return c.evaluation_deadline(self.rules_for(c), self.calendar)
+
+    def check_deadline_change(self, cycle_id: str, actor_id: str, reason: str, new_deadline: date | None,
+                              justification: str) -> tuple[date, date]:
+        """Validate a change of the deadline without applying it (a request waiting for HR) -> (old, new)."""
+        c = self._cycle(cycle_id)
+        probe = copy.deepcopy(c)
+        acting = c.evaluator_id if actor_id in self.deputies(c.evaluator_id, self.clock.today()) else actor_id
+        return probe.change_deadline(acting, reason, new_deadline, justification, self.clock.today(), self.rules,
+                                     self.calendar)
+
+    def change_deadline(self, cycle_id: str, actor_id: str, reason: str, new_deadline: date | None,
+                        justification: str) -> tuple[date, date]:
+        """Art. 81 ust. 8 – the evaluator (or their deputy) moves the deadline -> (old, new)."""
+        today = self.clock.today()
+        return self._as_evaluator(cycle_id, actor_id, "change_deadline", lambda c, a: c.change_deadline(
+            a, reason, new_deadline, justification, today, self.rules, self.calendar))
 
     # ---- UC1 -------------------------------------------------------------------------------------
     def start_cycle(
@@ -119,8 +181,12 @@ class EvaluationService:
         after_negative: bool | None = None,
         negative_acknowledged_on: date | None = None,
         previous_evaluation: PreviousEvaluation | None = None,
+        sheet: str | None = None,
+        sheet_reason: str = "",
+        by: str = "kadry",
     ) -> EvaluationCycle:
         """Open a cycle. Defaults: start = day the previous evaluation was drawn up (else today, i.e. hiring);
+        the sheet = the system's suggestion from the position (§ 3); another `sheet` needs `sheet_reason`;
         `after_negative` from the previous outcome (shortens the criteria deadline, § 7 pkt 2);
         `negative_acknowledged_on` from the previous evaluation (starts the re-evaluation, art. 81 ust. 9);
         `previous_evaluation` overrides the directory's data (the cycle that has just ended)."""
@@ -135,12 +201,27 @@ class EvaluationService:
             start_date = prev.date if prev and prev.date else today
         if after_negative is None:
             after_negative = bool(prev and prev.outcome == "negatywna")
+        suggestion = self.suggest_sheet(employee_id)
+        if sheet is not None and sheet != suggestion.sheet and not sheet_reason.strip():
+            raise ValidationError([f"System podpowiada arkusz {suggestion.sheet} ({suggestion.reason}) – "
+                                   f"podaj uzasadnienie wyboru arkusza {sheet}."])
         cycle = EvaluationCycle.start(
-            self._new_id(), emp.id, emp.evaluator_id, emp.sheet, start_date, today,
+            self._new_id(), emp.id, emp.evaluator_id, sheet or suggestion.sheet, start_date, today,
             self.rules, self.calendar, after_negative, prev, negative_acknowledged_on,
         )
+        self._pin_rules(cycle, today)
+        cycle.sheet_suggested, cycle.sheet_reason, cycle.sheet_warning = (suggestion.sheet, suggestion.reason,
+                                                                          suggestion.warning)
+        if sheet is not None and sheet != suggestion.sheet:
+            cycle.sheet_changes.append((today, by, suggestion.sheet, sheet, sheet_reason.strip()))
         self.cycles.save(cycle)
         return cycle
+
+    def change_sheet(self, cycle_id: str, sheet: str, reason: str, by: str) -> EvaluationCycle:
+        """HR changes the sheet (with a reason) – only before the criteria are approved."""
+        today = self.clock.today()
+        self._apply(cycle_id, lambda c: c.change_sheet(sheet, reason, by, today, self.rules_for(c)))
+        return self._cycle(cycle_id)
 
     def set_criteria(
         self,
@@ -151,13 +232,16 @@ class EvaluationService:
         deadline_override: date | None = None,
     ) -> EvaluationCycle:
         today = self.clock.today()
-        self._as_evaluator(cycle_id, actor_id, "set_criteria", lambda c, a: c.set_criteria(
-            a, today, self.rules, additional_criteria, goals, deadline_override))
+        def run(c: EvaluationCycle, a: str) -> None:
+            self._pin_rules(c, today)  # the version in force on the day the criteria are set
+            c.set_criteria(a, today, self.rules_for(c), additional_criteria, goals, deadline_override)
+
+        self._as_evaluator(cycle_id, actor_id, "set_criteria", run)
         return self._cycle(cycle_id)
 
     def edit(self, cycle_id: str, actor_id: str, **changes: Any) -> EvaluationCycle:
         """Draft edits (e.g. scores during the meeting); locked fields raise FieldLocked."""
-        self._as_evaluator(cycle_id, actor_id, "edit", lambda c, a: c.edit(a, self.rules, **changes))
+        self._as_evaluator(cycle_id, actor_id, "edit", lambda c, a: c.edit(a, self.rules_for(c), **changes))
         return self._cycle(cycle_id)
 
     # ---- UC2 -------------------------------------------------------------------------------------
@@ -172,16 +256,68 @@ class EvaluationService:
         self._apply(cycle_id, lambda c: c.register_absence(absence))
         return self.evaluation_deadline(cycle_id)
 
-    def register_position_change(self, cycle_id: str, change: date) -> PositionChange:
+    def evaluator_change_check(self, employee_id: str, change_on: date):
+        """May the leaving evaluator draw up the evaluation before `change_on` (art. 81 ust. 8 pkt 1)?"""
+        from app.domain.evaluator_change import check_evaluator_change
+
+        c = self.cycles.find_open_for(employee_id)
+        if c is None:
+            raise InvalidTransition("Pracownik nie ma otwartego cyklu oceny.")
+        return c, check_evaluator_change(c.start_date, c.evaluator_since(), change_on, self.rules)
+
+    def change_evaluator(self, employee_id: str, new_evaluator_id: str, on: date,
+                         early_evaluation: bool) -> tuple[str, EvaluationCycle | None]:
+        """Move the person to a new evaluator (the directory is updated by the caller).
+        - `early_evaluation`: the leaving evaluator has drawn up the evaluation already (art. 81 ust. 8 pkt 1) – the
+          following cycle (if it runs) goes to the new evaluator, who sets new criteria -> ("NOWY_CYKL", cycle).
+        - otherwise the running cycle goes to the new evaluator, criteria and deadline unchanged (§ 9 ust. 3)
+          -> ("PRZEJECIE", cycle)."""
+        self._employee(new_evaluator_id)
+        leaving = self._employee(employee_id).evaluator_id  # the directory still has the leaving evaluator
+        if early_evaluation:
+            done = [c for c in self.cycles.list_all() if c.employee_id == employee_id
+                    and c.status in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED, Status.OBJECTION)
+                    and c.evaluated_on is not None and c.evaluated_on <= on]
+            last = max(done, key=lambda c: c.evaluated_on, default=None)
+            # the latest evaluation must be the leaving evaluator's, drawn up while they were the evaluator
+            if last is None or last.evaluator_id != leaving or last.evaluated_on < last.evaluator_since():
+                raise InvalidTransition("Odchodzący oceniający nie sporządził oceny – wybierz przejęcie oceny przez "
+                                        "nowego oceniającego (§ 9 ust. 3).")
+            nxt = self.cycles.find_open_for(employee_id)
+            if nxt is None:
+                return "NOWY_CYKL", None  # starts with the new evaluator once the evaluation is acknowledged
+            if nxt.status is not Status.CYCLE_STARTED:  # criteria already set in the following cycle: not "now"
+                raise InvalidTransition("Po ostatniej ocenie trwa już kolejny cykl z wyznaczonymi kryteriami – "
+                                        "wybierz przejęcie oceny przez nowego oceniającego (§ 9 ust. 3).")
+            self._apply(nxt.id, lambda c: c.reassign_evaluator(new_evaluator_id, on))
+            return "NOWY_CYKL", self._cycle(nxt.id)
+        c = self.cycles.find_open_for(employee_id)
+        if c is None:
+            raise InvalidTransition("Pracownik nie ma otwartego cyklu oceny.")
+        self._apply(c.id, lambda x: x.reassign_evaluator(new_evaluator_id, on))
+        return "PRZEJECIE", self._cycle(c.id)
+
+    def register_position_change(self, cycle_id: str, change: date, new_sheet: str | None = None) -> PositionChange:
         """Change of position with a significant change of duties (art. 81 ust. 6, § 9 of the regulation).
-        Returns what it means: new criteria by a date, or an evaluation within a window."""
+        Returns what it means: new criteria by a date, or an evaluation within a window. With new criteria and a
+        position that needs another sheet, the sheet changes before the criteria are set again (an evaluation in
+        the window still covers the old position, so its sheet stays; the next cycle takes the new one)."""
         today = self.clock.today()
-        return self._apply(cycle_id, lambda c: c.register_position_change(change, self.rules, self.calendar, today))
+
+        def run(c: EvaluationCycle) -> PositionChange:
+            out = c.register_position_change(change, self.rules_for(c), self.calendar, today)
+            if out.kind == "NOWE_KRYTERIA" and new_sheet and new_sheet != c.sheet:
+                c.change_sheet(new_sheet, "Zmiana stanowiska – nowe kryteria (§ 9 rozporządzenia).", "kadry", today,
+                               self.rules_for(c))
+            return out
+
+        return self._apply(cycle_id, run)
 
     def objection_deadline(self, cycle_id: str) -> date | None:
         """Last day for an objection (art. 83 ust. 1); None until the evaluation is acknowledged.
         Feeds `CzescII.termin_sprzeciwu` in the API."""
-        return self._cycle(cycle_id).objection_deadline(self.rules, self.calendar)
+        c = self._cycle(cycle_id)
+        return c.objection_deadline(self.rules_for(c), self.calendar, self.employee_absences(c.employee_id))
 
     def reminders(self, lead_days: int = 30) -> list[Reminder]:
         """Reminders due today across all cycles. `lead_days` is an app setting, not a legal term."""
@@ -196,7 +332,7 @@ class EvaluationService:
             elif c.status is Status.CRITERIA_SET:
                 due, kind, who, what = c.criteria_deadline, "criteria", c.employee_id, "potwierdzenie kryteriów oceny"
             elif c.status in (Status.CRITERIA_CONFIRMED, Status.MEETING_HELD):
-                due, kind, who = c.evaluation_deadline(self.rules, self.calendar), "evaluation", c.evaluator_id
+                due, kind, who = c.evaluation_deadline(self.rules_for(c), self.calendar), "evaluation", c.evaluator_id
                 what = "sporządzenie oceny okresowej"
             elif c.status is Status.EVALUATION_DONE:
                 out.append(Reminder(c.id, c.employee_id, c.employee_id, "acknowledgement", today, 0,
@@ -220,12 +356,12 @@ class EvaluationService:
     def _after_acknowledgement(self, c: EvaluationCycle, today: date, lead_days: int) -> list[Reminder]:
         """Objection window for the evaluated person; re-evaluation date for the evaluator after a negative one."""
         out = []
-        objection = c.objection_deadline(self.rules, self.calendar)
+        objection = c.objection_deadline(self.rules_for(c), self.calendar, self.employee_absences(c.employee_id))
         if objection is not None and today <= objection:
             left = (objection - today).days
             out.append(Reminder(c.id, c.employee_id, c.employee_id, "objection", objection, left,
                                 f"Możesz złożyć sprzeciw od oceny do dyrektora generalnego do {objection:%d.%m.%Y}."))
-        due = c.next_evaluation_due(self.rules, self.calendar)
+        due = c.next_evaluation_due(self.rules_for(c), self.calendar)
         if due is not None and (due - today).days <= lead_days:
             left = (due - today).days
             out.append(Reminder(c.id, c.employee_id, c.evaluator_id, "reevaluation", due, left,
@@ -242,9 +378,9 @@ class EvaluationService:
             return Stage.CRITERIA, c.criteria_set_on or c.start_date, c.criteria_deadline, c.employee_id,                 "potwierdź kryteria oceny"
         if c.status in (Status.CRITERIA_CONFIRMED, Status.MEETING_HELD):
             start = c.criteria_confirmed_on or c.criteria_set_on or c.start_date
-            return Stage.PERIOD, start, c.evaluation_deadline(self.rules, self.calendar), c.evaluator_id,                 "przeprowadź rozmowę oceniającą i sporządź ocenę"
+            return Stage.PERIOD, start, c.evaluation_deadline(self.rules_for(c), self.calendar), c.evaluator_id,                 "przeprowadź rozmowę oceniającą i sporządź ocenę"
         if c.status is Status.OBJECTION and c.objection_filed_on:
-            return Stage.OBJECTION_REVIEW, c.objection_filed_on, c.objection_review_deadline(self.rules, self.calendar),                 self.objection_reviewer, "rozpatrz sprzeciw od oceny okresowej"
+            return Stage.OBJECTION_REVIEW, c.objection_filed_on, c.objection_review_deadline(self.rules_for(c), self.calendar),                 self.objection_reviewer_for(c), "rozpatrz sprzeciw od oceny okresowej"
         if c.status is Status.EVALUATION_DONE and c.evaluated_on:
             return Stage.ACKNOWLEDGEMENT, c.evaluated_on,                 c.evaluated_on + timedelta(days=ACKNOWLEDGEMENT_WINDOW_DAYS), c.employee_id, "zapoznaj się z oceną"
         return None
@@ -284,7 +420,7 @@ class EvaluationService:
         cycle = self._cycle(cycle_id)
         employee = self._employee(cycle.employee_id)
         evaluator = self.employees.get(cycle.evaluator_id)
-        return build_meeting_prep(cycle, employee, evaluator, self.rules, self.calendar, self.clock.today())
+        return build_meeting_prep(cycle, employee, evaluator, self.rules_for(cycle), self.calendar, self.clock.today())
 
     # ---- UC5 -------------------------------------------------------------------------------------
     def record_review_meeting(
@@ -297,7 +433,7 @@ class EvaluationService:
     ) -> EvaluationCycle:
         today = self.clock.today()
         self._as_evaluator(cycle_id, actor_id, "record_review_meeting", lambda c, a: c.record_review_meeting(
-            a, today, self.rules, meeting_date or today, period_from, period_to))
+            a, today, self.rules_for(c), meeting_date or today, period_from, period_to))
         return self._cycle(cycle_id)
 
     def submit_evaluation(
@@ -310,7 +446,7 @@ class EvaluationService:
     ) -> EvaluationResult:
         today = self.clock.today()
         return self._as_evaluator(cycle_id, actor_id, "submit_evaluation", lambda c, a: c.submit_evaluation(
-            a, today, self.rules, scores, justification, iprz_conclusions))
+            a, today, self.rules_for(c), scores, justification, iprz_conclusions))
 
     def acknowledge(self, cycle_id: str, actor_id: str) -> EvaluationCycle:
         """The evaluated person acknowledges the evaluation – and the next cycle starts on its own, so its deadline
@@ -318,14 +454,39 @@ class EvaluationService:
         re-evaluation 6 months from acknowledging it (art. 81 ust. 9) with criteria within 7 days (§ 7 pkt 2)."""
         today = self.clock.today()
         self._apply(cycle_id, lambda c: c.acknowledge(actor_id, today))
+        return self._after_acknowledgement_done(cycle_id)
+
+    def _after_acknowledgement_done(self, cycle_id: str) -> EvaluationCycle:
         done = self._cycle(cycle_id)
         self.start_next_cycle(done)
+        self._final(cycle_id)
         return done
+
+    # ---- paper flow ---------------------------------------------------------------------------------
+    def record_paper(self, cycle_id: str, actor_id: str, printed_on: date | None = None,
+                     signed_on: date | None = None) -> EvaluationCycle:
+        """Print date and/or signature date entered by the evaluator; the signature is the acknowledgement."""
+        today = self.clock.today()
+        before = self._cycle(cycle_id).status
+        self._as_evaluator(cycle_id, actor_id, "record_paper",
+                           lambda c, a: c.record_paper(a, today, printed_on, signed_on))
+        if before is Status.EVALUATION_DONE and self._cycle(cycle_id).status is Status.ACKNOWLEDGED:
+            return self._after_acknowledgement_done(cycle_id)
+        return self._cycle(cycle_id)
+
+    def refuse_acknowledgement(self, cycle_id: str, actor_id: str, note: str,
+                               delivered_on: date | None = None) -> EvaluationCycle:
+        """Fikcja zapoznania: the evaluated person refused to sign; counts as acknowledged on that day."""
+        today = self.clock.today()
+        self._as_evaluator(cycle_id, actor_id, "refuse_acknowledgement",
+                           lambda c, a: c.refuse_acknowledgement(a, today, note, delivered_on))
+        return self._after_acknowledgement_done(cycle_id)
 
     # ---- objection (art. 83) ------------------------------------------------------------------------
     def file_objection(self, cycle_id: str, actor_id: str, text: str) -> EvaluationCycle:
         today = self.clock.today()
-        self._apply(cycle_id, lambda c: c.file_objection(actor_id, today, text, self.rules, self.calendar))
+        absences = self.employee_absences(self._cycle(cycle_id).employee_id)
+        self._apply(cycle_id, lambda c: c.file_objection(actor_id, today, text, self.rules_for(c), self.calendar, absences))
         return self._cycle(cycle_id)
 
     def decide_objection(self, cycle_id: str, reviewer_id: str, upheld: bool, reason: str) -> EvaluationCycle:
@@ -340,6 +501,8 @@ class EvaluationService:
                 if (f.id != cycle_id and f.employee_id == before.employee_id and f.status is Status.CYCLE_STARTED
                         and f.previous_evaluation and f.previous_evaluation.acknowledged == before.acknowledged_on):
                     self.cycles.delete(f.id)
+        else:
+            self._final(cycle_id)  # the evaluation stays: export it again with the decision
         return self._cycle(cycle_id)
 
     def start_next_cycle(self, done: EvaluationCycle) -> EvaluationCycle | None:

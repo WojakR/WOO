@@ -1,5 +1,6 @@
-// App shell: navigation, top bar (year, AI mode, demo identity and clock) and a hash router.
-import { api, currentUserId, setCurrentUserId } from "./api.js";
+// App shell: login screen (AUTH_MODE=session), navigation, top bar (year, AI mode; demo identity and clock
+// in AUTH_MODE=demo, log-out in session mode) and a hash router.
+import { api, currentUserId, setCurrentUserId, setAuthMode, isSessionMode } from "./api.js";
 import { h, icon, replace, fmtDate, avatar, toast, loading } from "./ui.js";
 import { renderOverview } from "./views/overview.js";
 import { renderEvaluation } from "./views/evaluation.js";
@@ -7,8 +8,13 @@ import { renderDeadlines } from "./views/deadlines.js";
 import { renderAbsences } from "./views/absences.js";
 import { renderPlaceholder } from "./views/placeholder.js";
 import { renderSettings } from "./views/settings.js";
+import { renderEmployees } from "./views/employees.js";
+import { renderReports } from "./views/reports.js";
+import { renderHelp } from "./views/help.js";
+import { renderImport } from "./views/import.js";
+import { renderArchive } from "./views/archive.js";
 
-export const ctx = { me: null, meta: null, users: [], year: "all" };
+export const ctx = { me: null, meta: null, users: [], year: "all", auth: null };
 
 const NAV = [
   { href: "#/", label: "Moje oceny", icon: "clipboard", match: (p) => p === "/" || p.startsWith("/ocena") },
@@ -16,7 +22,10 @@ const NAV = [
   { href: "#/terminy", label: "Terminy i przypomnienia", icon: "bell", match: (p) => p.startsWith("/terminy") },
   { href: "#/nieobecnosci", label: "Nieobecności", icon: "calendar", match: (p) => p.startsWith("/nieobecnosci") },
   { href: "#/raporty", label: "Raporty", icon: "chart", match: (p) => p.startsWith("/raporty") },
+  { href: "#/import", label: "Import starych ocen", icon: "upload", match: (p) => p.startsWith("/import"), hr: true },
+  { href: "#/archiwum", label: "Archiwum", icon: "archive", match: (p) => p.startsWith("/archiwum"), hr: true },
   { href: "#/ustawienia", label: "Ustawienia", icon: "sliders", match: (p) => p.startsWith("/ustawienia") },
+  { href: "#/pomoc", label: "Pomoc", icon: "help", match: (p) => p.startsWith("/pomoc") },
 ];
 
 function path() {
@@ -27,7 +36,7 @@ function renderNav() {
   const p = path();
   replace(
     document.getElementById("nav"),
-    NAV.map((n) =>
+    NAV.filter((n) => !n.hr || ctx.me?.rola === "KADRY").map((n) =>
       h("a", { href: n.href, "aria-current": n.match(p) ? "page" : false }, icon(n.icon, "icon-lg"), h("span", { class: "nav-label" }, n.label))
     )
   );
@@ -65,6 +74,18 @@ function renderTopbar() {
   const years = ["all", "2026", "2027"];
   const yearSel = h("select", { id: "year", onchange: (e) => { ctx.year = e.target.value; route(); } },
     years.map((y) => h("option", { value: y, selected: ctx.year === y }, y === "all" ? "Wszystkie" : y)));
+  if (isSessionMode()) {
+    replace(
+      document.getElementById("topbar"),
+      h("label", {}, "Rok oceny", yearSel),
+      aiChip(),
+      h("span", { class: "spacer" }),
+      h("span", { class: "small muted", title: "Data z zegara serwera, nie z przeglądarki" },
+        icon("calendar"), " ", ctx.meta ? fmtDate(ctx.meta.dzis) : "–"),
+      h("button", { class: "btn btn-sm", type: "button", onclick: logout }, "Wyloguj się")
+    );
+    return;
+  }
   const userSel = h("select", {
     id: "demo-user",
     onchange: async (e) => {
@@ -90,13 +111,15 @@ function renderTopbar() {
       h("span", { class: "demo-tag" }, "Demo"),
       h("span", { class: "small muted", title: "Data z zegara serwera, nie z przeglądarki" },
         icon("calendar"), " ", ctx.meta ? fmtDate(ctx.meta.dzis) : "–"),
-      h("button", { class: "btn btn-sm", type: "button", onclick: shift(7), title: "Przewiń czas o tydzień" },
-        icon("forward"), "+7 dni"),
-      h("button", { class: "btn btn-sm", type: "button", onclick: shift(30), title: "Przewiń czas o 30 dni" }, "+30 dni"),
-      h("button", {
-        class: "btn btn-sm", type: "button", title: "Przywróć dane przykładowe",
-        onclick: async () => { await api.reset(); await boot(); toast("Przywrócono dane przykładowe."); },
-      }, icon("reset"), h("span", { class: "sr-only" }, "Przywróć dane przykładowe")),
+      // APP_MODE=production: the server clock cannot be moved and there is no demo data to restore
+      ctx.meta?.tryb_aplikacji === "PRODUKCJA" ? null : [
+        h("button", { class: "btn btn-sm", type: "button", onclick: shift(7), title: "Przewiń czas o tydzień" },
+          icon("forward"), "+7 dni"),
+        h("button", { class: "btn btn-sm", type: "button", onclick: shift(30), title: "Przewiń czas o 30 dni" }, "+30 dni"),
+        h("button", {
+          class: "btn btn-sm", type: "button", title: "Przywróć dane przykładowe",
+          onclick: async () => { await api.reset(); await boot(); toast("Przywrócono dane przykładowe."); },
+        }, icon("reset"), h("span", { class: "sr-only" }, "Przywróć dane przykładowe"))],
       h("label", {}, h("span", { class: "sr-only" }, "Zalogowany jako"), userSel))
   );
 }
@@ -111,8 +134,11 @@ async function route() {
     if (m) await renderEvaluation(view, Number(m[1]), ctx);
     else if (p.startsWith("/terminy")) await renderDeadlines(view, ctx);
     else if (p.startsWith("/nieobecnosci")) await renderAbsences(view, ctx, Number(p.split("/")[2]) || null);
-    else if (p.startsWith("/pracownicy")) renderPlaceholder(view, "Pracownicy", "Lista pracowników z danymi kadrowymi i historią ocen.");
-    else if (p.startsWith("/raporty")) renderPlaceholder(view, "Raporty", "Zestawienia dla kadr i dyrektora generalnego.");
+    else if (p.startsWith("/pracownicy")) await renderEmployees(view, ctx, Number(p.split("/")[2]) || null);
+    else if (p.startsWith("/raporty")) await renderReports(view, ctx);
+    else if (p.startsWith("/pomoc")) await renderHelp(view, p);
+    else if (p.startsWith("/import")) await renderImport(view, ctx, Number(p.split("/")[2]) || null);
+    else if (p.startsWith("/archiwum")) await renderArchive(view, ctx);
     else if (p.startsWith("/ustawienia")) await renderSettings(view, ctx);
     else await renderOverview(view, ctx);
   } catch (e) {
@@ -121,19 +147,98 @@ async function route() {
   view.focus({ preventScroll: true });
 }
 
+function showShell(visible) {
+  if (visible) delete document.body.dataset.auth;
+  else document.body.dataset.auth = "login";
+}
+
+// AUTH_MODE=session: the only screen without a session. The server decides who may log in.
+function renderLogin(message) {
+  ctx.me = null;
+  showShell(false);
+  const error = h("div", { class: "notice notice-bad", role: "alert", hidden: !message },
+    icon("alert"), h("span", {}, message || ""));
+  const showError = (text) => {
+    error.lastChild.textContent = text;
+    error.hidden = false;
+  };
+  const login = h("input", {
+    type: "text", name: "username", id: "login-user", autocomplete: "username", required: true,
+    spellcheck: "false", autocapitalize: "none", placeholder: "np. jan.kowalski…",
+  });
+  const password = h("input", {
+    type: "password", name: "password", id: "login-password", autocomplete: "current-password", required: true,
+  });
+  const submit = h("button", { class: "btn btn-primary", type: "submit" }, "Zaloguj się");
+  const form = h("form", {
+    class: "card login-card", "aria-labelledby": "login-title",
+    onsubmit: async (e) => {
+      e.preventDefault();
+      submit.disabled = true;
+      submit.textContent = "Logowanie…";
+      try {
+        await api.login(login.value.trim(), password.value);
+        await boot();
+      } catch (err) {
+        showError(err.message || "Nie udało się zalogować.");
+        password.value = "";
+        password.focus();
+        submit.disabled = false;
+        submit.textContent = "Zaloguj się";
+      }
+    },
+  },
+    h("div", { class: "card-head" }, h("div", {},
+      h("h1", { id: "login-title" }, "Zaloguj się"),
+      h("p", {}, "Asystent Ocen Okresowych – konto nadaje dział kadr."))),
+    h("div", { class: "form-grid" },
+      h("label", { class: "wide", for: "login-user" }, "Login", login),
+      h("label", { class: "wide", for: "login-password" }, "Hasło", password),
+      h("div", { class: "wide" }, error),
+      h("div", { class: "wide" }, submit))
+  );
+  replace(document.getElementById("view"), h("div", { class: "login" }, form));
+  (login.value ? password : login).focus();
+}
+
+async function logout() {
+  try {
+    await api.logout();
+  } catch {
+    /* the cookie is gone or the server is down – show the login screen anyway */
+  }
+  location.hash = "#/";
+  renderLogin();
+}
+
 async function boot() {
-  if (!ctx.users.length) ctx.users = await api.users();
-  // default identity; also replaces an id remembered from an older version that the server no longer knows
-  if (!ctx.users.some((u) => String(u.id) === currentUserId())) {
-    setCurrentUserId(ctx.users.find((u) => u.nazwa === "Henryk Pryncypał")?.id ?? ctx.users[0].id);
+  ctx.auth = await api.authStatus();
+  setAuthMode(ctx.auth.tryb);
+  if (isSessionMode()) {
+    if (!ctx.auth.zalogowany) {
+      renderLogin();
+      return;
+    }
+  } else {
+    if (!ctx.users.length) ctx.users = await api.users();
+    // default identity; also replaces an id remembered from an older version that the server no longer knows
+    if (!ctx.users.some((u) => String(u.id) === currentUserId())) {
+      setCurrentUserId(ctx.users.find((u) => u.nazwa === "Henryk Pryncypał")?.id ?? ctx.users[0].id);
+    }
   }
   [ctx.me, ctx.meta] = await Promise.all([api.me(), api.meta()]);
+  showShell(true);
   renderTopbar();
   await route();
 }
 
 document.getElementById("brand-icon").append(icon("landmark", "icon-lg"));
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", () => {
+  if (ctx.me) route();
+});
+window.addEventListener("auth:required", () => {
+  if (ctx.me) renderLogin("Sesja wygasła. Zaloguj się ponownie.");
+});
 boot().catch((e) => {
   replace(document.getElementById("view"),
     h("div", { class: "card card-pad notice notice-bad" }, icon("alert"), `Nie udało się uruchomić aplikacji: ${e.message}`));

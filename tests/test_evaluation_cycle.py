@@ -35,7 +35,8 @@ def _scores(svc, cycle_id, values):
 def test_statuses_match_kprm_data():
     assert {s.value for s in Status} <= set(R.statuses)
     assert set(TRANSITIONS) == {"set_criteria", "confirm_criteria", "record_review_meeting",
-                                "submit_evaluation", "acknowledge", "file_objection", "decide_objection"}
+                                "submit_evaluation", "acknowledge", "file_objection", "decide_objection",
+                                "record_signature", "refuse_acknowledgement"}
 
 
 def test_full_cycle_happy_path(svc, clock):

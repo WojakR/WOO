@@ -92,6 +92,7 @@ class PowodZmianyTerminu(str, Enum):
     WNIOSEK_OCENIANEGO = "WNIOSEK_OCENIANEGO"
     INNY = "INNY"
     ZMIANA_STANOWISKA = "ZMIANA_STANOWISKA"  # art. 81 ust. 6, § 9 ust. 2 (see PositionChangeOut)
+    ZMIANA_OCENIAJACEGO = "ZMIANA_OCENIAJACEGO"  # art. 81 ust. 8 pkt 1
 
 
 class StatusWniosku(str, Enum):
@@ -175,6 +176,8 @@ class UserContext(_Out):
 class MetaOut(_Out):
     """GET /api/meta – everything the UI needs once at start-up."""
     dzis: date                           # from the (demo) clock, NOT the browser
+    tryb_aplikacji: Literal["DEMO", "PRODUKCJA"] = "DEMO"  # PRODUKCJA: no clock shift, no demo reset
+    tryb_logowania: Literal["DEMO", "SESJA"] = "DEMO"      # SESJA: login screen, no identity switch
     tryb_ai: TrybAI
     funkcje_ai: dict[str, bool]          # e.g. {"szkic_uzasadnienia": true, "klasyfikacja_notatek": false}
     skala_punktow: list[int] = [1, 3, 5, 7, 9]
@@ -285,7 +288,10 @@ class CzescII(_Out):
     podpis_oceniajacego: Podpis = Podpis()
     zapoznanie: Podpis = Podpis()
     fikcja_zapoznania: bool = False
-    termin_sprzeciwu: date | None = None   # data_zapoznania + 7 dni
+    adnotacja_odmowy: str | None = None    # fikcja zapoznania: the evaluator's note
+    data_wydruku: date | None = None       # paper flow
+    data_podpisu: date | None = None       # = data zapoznania when signed on paper
+    termin_sprzeciwu: date | None = None   # data_zapoznania (or return to work) + 7 dni
 
 
 class CzescIII(_Out):
@@ -339,6 +345,10 @@ class EvaluationOut(_Out):
     edytowalne_pola: list[str] = Field(examples=[["kryteria_dodatkowe", "termin_oceny"]])
     walidacje: list[Walidacja] = []             # current problems; BLAD ones block the next action
     terminy: list[TerminOut] = []               # every deadline so far and the ones it starts (server-computed)
+    dobor_arkusza: DoborArkusza | None = None
+    rozpatrujacy_sprzeciw: RozpatrujacySprzeciw | None = None
+    eksport_eakt: EksportEakt | None = None     # only for HR
+    zaimportowana: bool = False                 # legacy evaluation imported from a PDF (history only)
     updated_at: datetime                        # send back as If-Unmodified-Since / `updated_at` to avoid lost updates
 
 
@@ -357,6 +367,8 @@ class EvaluationCreate(BaseModel):
     """POST /api/evaluations – start a cycle. Arkusz, oceniający, terminy are derived by the server."""
     oceniany_id: int
     data_poczatku_cyklu: date | None = None     # default: previous evaluation / employment date
+    arkusz: Arkusz | None = None                # default: the system's suggestion (HR may choose another one)
+    uzasadnienie_arkusza: str = ""              # required when `arkusz` differs from the suggestion
 
 
 class EvaluationPatch(BaseModel):
@@ -398,8 +410,55 @@ class ScoresOut(_Out):
 class ActionIn(BaseModel):
     """POST /api/evaluations/{id}/actions/{akcja}. Response: EvaluationOut (200) or ApiError (409/422)."""
     miejscowosc: str | None = None
-    komentarz: str | None = None                # e.g. objection text, decision reason
+    komentarz: str | None = None                # e.g. objection text, decision reason, refusal note
     uwzglednij: bool | None = None              # ROZPATRZ_SPRZECIW: true = upheld, false = not upheld
+    data: date | None = None                    # FIKCJA_ZAPOZNANIA: day of the refusal (default: today)
+
+
+class PaperIn(BaseModel):
+    """PUT /api/evaluations/{id}/paper – paper flow: print date, signature date (= acknowledgement)."""
+    data_wydruku: date | None = None
+    data_podpisu: date | None = None
+
+
+class SheetChangeIn(BaseModel):
+    """PUT /api/evaluations/{id}/sheet – HR changes the sheet before the criteria are approved."""
+    arkusz: Arkusz
+    uzasadnienie: str
+
+
+class ZmianaArkusza(_Out):
+    data: date
+    kto: str
+    z: Arkusz
+    na: Arkusz
+    uzasadnienie: str
+
+
+class DoborArkusza(_Out):
+    """The system's sheet suggestion from the position (§ 3) and HR's changes."""
+    sugerowany: Arkusz
+    powod: str
+    ostrzezenie: str | None = None
+    zmiany: list[ZmianaArkusza] = []
+    mozna_zmienic: bool = False                 # current user is HR and the criteria are not approved yet
+
+
+class EksportEakt(_Out):
+    """Last export of the sheet to the electronic personnel file (e-Akt)."""
+    status: Literal["WYSLANO", "BLAD"]
+    zdarzenie: str                              # ZAPOZNANIE | ROZPATRZENIE_SPRZECIWU
+    proby: int
+    ostatnia_proba: datetime
+    miejsce: str = ""
+    sha256: str = ""
+    blad: str = ""
+
+
+class RozpatrujacySprzeciw(_Out):
+    id: str
+    nazwa: str
+    podstawa: str
 
 
 # ---------------------------------------------------------------- notes & evidence
@@ -573,11 +632,18 @@ class DeadlineChangeOut(_Out):
     status: StatusWniosku
     uzasadnienie: str | None = None
     decyzja_at: datetime | None = None
+    evaluation_id: int | None = None
+    oceniany: OsobaRef | None = None
+    zlozyl: OsobaRef | None = None
+    komentarz_decyzji: str | None = None
+    pismo_pdf: bool = False                     # GET /api/deadline-changes/{id}/pdf (accepted changes)
 
 
 class PositionChangeIn(BaseModel):
-    """POST /api/evaluations/{id}/position-change – change of position with a significant change of duties."""
+    """POST /api/employees/{id}/position-changes – change of position with a significant change of duties."""
     data_zmiany: date
+    nowe_stanowisko: str = Field(min_length=1)
+    nowy_arkusz: Arkusz | None = None           # the sheet the new position needs (None = keep)
 
 
 class PositionChangeOut(_Out):
@@ -588,6 +654,8 @@ class PositionChangeOut(_Out):
     data_odniesienia: date               # last evaluation, or criteria date for a first evaluation
     termin: date
     najwczesniej: date | None = None
+    wyjasnienie: str = ""                # what it means, in Polish, for the UI
+    arkusz_zmieniony: bool = False
     ocena: "EvaluationOut | None" = None  # the cycle after the change
 
 
@@ -664,6 +732,7 @@ class UstawieniaPrzypomnienIn(BaseModel):
     godzina: str | None = Field(None, examples=["11:00"])
     etapy: dict[Literal["WYZNACZENIE_KRYTERIOW", "OKRES_OCENY", "ZAPOZNANIE", "ROZPATRZENIE_SPRZECIWU"],
                 list[RegulaPrzypomnienia]] = {}
+    email: bool | None = None                   # own settings only: false = no e-mails, in-app notifications only
 
 
 class UstawieniaPrzypomnienOut(_Out):
@@ -671,6 +740,8 @@ class UstawieniaPrzypomnienOut(_Out):
     godziny_pracy: tuple[str, str]              # ("08:00", "16:00") – reminders only inside, only on working days
     etapy: dict[str, list[RegulaPrzypomnienia]]
     wlasne: bool                                # true = the user's own schedule, false = office default
+    email: bool = True                          # reminders also by e-mail (when the person has an address)
+    adres_email: str | None = None              # from the HR data; None = in-app notifications only
 
 
 class PlanowanePrzypomnienie(_Out):
@@ -712,6 +783,36 @@ class ZmianaRegulyOut(_Out):
     kiedy: date
 
 
+class ZmianaKryteriumOut(_Out):
+    kryterium: str
+    nazwa: str
+    pole: Literal["nazwa", "wskazniki", "dostepne"]
+    stara: str | bool | list[str] | None = None
+    nowa: str | bool | list[str] | None = None
+
+
+class WersjaRegulOut(_Out):
+    """One version of the requirements. Each evaluation follows the version in force when its criteria were set."""
+    id: int                                     # 0 = the regulation as published (reguly.json)
+    obowiazuje_od: date | None = None           # None = since forever (version 0)
+    opis: str
+    autor: str = ""
+    utworzono: date | None = None
+    aktualna: bool = False                      # in force today
+    przyszla: bool = False                      # comes into force later
+    oceny: int = 0                              # evaluations computed by this version
+    zmiany: list[ZmianaRegulyOut] = []          # against the previous version
+    zmiany_kryteriow: list[ZmianaKryteriumOut] = []
+
+
+class KryteriumWersjiOut(_Out):
+    id: str
+    nazwa: str
+    wskazniki: list[str]
+    dostepne: bool                              # offered as an additional criterion
+    obowiazkowe_w: list[str]                    # sheets where it is mandatory (cannot be withdrawn)
+
+
 class RegulyOut(_Out):
     """GET /api/ustawienia/reguly – what the system enforces, with the administrator's changes and their log."""
     parametry: list[RegulaOut]
@@ -719,11 +820,17 @@ class RegulyOut(_Out):
     zmiany: list[ZmianaRegulyOut]
     zmienione: bool                             # any value differs from the published regulation
     moze_edytowac: bool
+    wersje: list[WersjaRegulOut] = []
+    aktualna_wersja: int = 0
+    kryteria: list[KryteriumWersjiOut] = []     # criteria list of the latest version (to edit)
 
 
 class RegulyIn(BaseModel):
-    """PUT /api/ustawienia/reguly (administrator). Only the keys sent are changed."""
-    wartosci: dict[str, int]
+    """PUT /api/ustawienia/reguly (administrator): a new version of the requirements. Only the keys sent are
+    changed (against the latest version). In force from `obowiazuje_od` (default: today, never earlier)."""
+    wartosci: dict[str, int] = {}
+    kryteria: dict[str, dict] = {}              # {"negocjowanie": {"nazwa": ..., "wskazniki": [...], "dostepne": false}}
+    obowiazuje_od: date | None = None
     podstawa_zmiany: str = Field(min_length=3, examples=["nowelizacja rozporządzenia, Dz. U. 2027 poz. 123"])
 
 

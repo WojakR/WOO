@@ -165,10 +165,28 @@ Akcje `POST /api/evaluations/{id}/actions/{akcja}` (body `ActionIn`):
 | `GET /api/evaluations/{id}/deadline-changes` | – | `DeadlineChangeOut[]` | |
 | `POST /api/evaluations/{id}/deadline-changes` | `DeadlineChangeIn` | `DeadlineChangeOut` 201 | wniosek ocenianego albo zmiana przez oceniającego |
 | `POST /api/deadline-changes/{id}/decision` | `{status}` | `DeadlineChangeOut` | |
-| `POST /api/evaluations/{id}/position-change` | `PositionChangeIn` | `PositionChangeOut` | zmiana stanowiska: nowe kryteria w 30 dni albo ocena w oknie −7/+30 dni (`EvaluationService.register_position_change`) |
+| `POST /api/employees/{id}/position-changes` | `PositionChangeIn` | `PositionChangeOut` | zmiana stanowiska: nowe kryteria w 30 dni albo ocena w oknie −7/+30 dni (`EvaluationService.register_position_change`) |
 
 Termin sprzeciwu (`CzescII.termin_sprzeciwu`) = `EvaluationService.objection_deadline(id)`; zasady wszystkich
 terminów i ich źródła: [`terminy.md`](terminy.md).
+
+### Kadry: import starych ocen, archiwum, e-Akt
+
+Wszystkie tylko dla `kadry` (inni: 403). Widoki: `#/import`, `#/archiwum`; status e-Akt w widoku oceny.
+
+| Metoda i ścieżka | Wejście | Wyjście | Uwagi |
+|---|---|---|---|
+| `POST /api/legacy-import` | plik (multipart: PDF / tekst arkusza) | szkic 201 | odczyt pól, przeliczenie § 11, `rozbieznosci` (`BLAD` blokuje) |
+| `GET /api/legacy-import`, `GET /api/legacy-import/{id}` | – | szkice | |
+| `PUT /api/legacy-import/{id}` | poprawione pola (`pracownik_id`, daty, `srednia`, `poziom`, `wynik`, `punkty`) | szkic | sprawdzany ponownie |
+| `POST /api/legacy-import/{id}/approve` | `{akceptuje_rozbieznosci}` | szkic `ZATWIERDZONY` | zakończony cykl z `zaimportowana: true`; w historii pracownika `zrodlo: IMPORT`; poza raportem postępu |
+| `GET /api/legacy-import/{id}/file` | – | oryginalny plik | |
+| `POST /api/archive/run` | – | `{zamrozono: [...]}` | zamraża zamknięte oceny (dane + PDF, SHA-256) |
+| `GET /api/archive` | – | rekordy (`pracownik`, `sha256_pdf`, `zgodny`) | |
+| `GET /api/archive/review` | – | pozycje po okresie przechowywania (`AKTA` / `NOTATKI`) | nic nie jest usuwane samo |
+| `GET /api/archive/{id}/pdf` | – | PDF | |
+| `POST /api/archive/{id}/delete`, `POST /api/archive/notes/{evaluation_id}/delete` | `{zatwierdzam: true}` | | tylko po okresie przechowywania (409), bez zgody 422 |
+| `POST /api/admin/eakt/retry` | – | `{ponowiono: [...]}` | ponawia nieudane eksporty; status: `eksport_eakt` w `GET /api/evaluations/{id}` |
 
 ### Tylko demo
 
