@@ -40,6 +40,10 @@ div[data-testid="stToast"] p { font-size: 1.2rem; font-weight: 600; line-height:
 .st-key-scores button[role="radio"][aria-checked="true"]:nth-of-type(4) { background: #34a853 !important; border-color: #34a853 !important; }
 .st-key-scores button[role="radio"][aria-checked="true"]:nth-of-type(5) { background: #137333 !important; border-color: #137333 !important; }
 .st-key-scores button[role="radio"] p { font-size: 1.05rem; }
+/* side menu: items left-aligned, a bit taller, like a classic navigation list */
+section[data-testid="stSidebar"] .stButton button { justify-content: flex-start; min-height: 2.8rem; }
+section[data-testid="stSidebar"] .stButton button div,
+section[data-testid="stSidebar"] .stButton button p { justify-content: flex-start; text-align: left; font-weight: 600; }
 /* link-like buttons (schedule, notifications, names, column headers): left-aligned */
 button[data-testid="stBaseButton-tertiary"] { justify-content: flex-start; text-align: left; }
 button[data-testid="stBaseButton-tertiary"] div, button[data-testid="stBaseButton-tertiary"] p { text-align: left; justify-content: flex-start; }

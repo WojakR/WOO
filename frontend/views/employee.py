@@ -27,13 +27,19 @@ def _can_request(state: DemoState, cycle) -> dict[str, str | None]:
     return out
 
 
-def render(state: DemoState, employee_id: str) -> None:
+def render(state: DemoState, employee_id: str, page: str = "ocena") -> None:
+    """page: "ocena" (status, confirmations, sheet + requests) or "wnioski" (requests only)."""
     emp = state.employee(employee_id)
     cycle = state.cycle_for(employee_id)
     rules = state.service.rules
-    st.subheader(f"Moja ocena okresowa – {emp.full_name}")
+    st.subheader(f"Moje wnioski – {emp.full_name}" if page == "wnioski" else f"Moja ocena okresowa – {emp.full_name}")
     if cycle is None:
         st.info("Nie masz jeszcze rozpoczętego cyklu oceny.")
+        return
+    if page == "wnioski":
+        col, _ = st.columns([1.6, 1])
+        with col:
+            _requests(state, employee_id, cycle)
         return
     evaluator = state.employee(cycle.evaluator_id)
     stage = state.stage(cycle)
@@ -96,31 +102,35 @@ def render(state: DemoState, employee_id: str) -> None:
                                file_name=f"arkusz-{cycle.sheet}-{employee_id}.html", mime="text/html")
 
     with right:
-        with st.container(border=True):
-            st.markdown("**📨 Wnioski**")
-            allowed = _can_request(state, cycle)
-            with st.popover("Złóż wniosek", use_container_width=True):
-                kind = st.selectbox("Rodzaj wniosku", list(REQUEST_KINDS), format_func=REQUEST_KINDS.get)
-                reason = allowed[kind]
-                if reason:
-                    st.warning(f"Tego wniosku nie można teraz złożyć – jest {reason}.")
-                text = st.text_area("Uzasadnienie wniosku", key=f"req_text_{employee_id}",
-                                    placeholder="Napisz krótko, czego dotyczy wniosek i dlaczego go składasz.")
-                if st.button("Wyślij wniosek", type="primary", disabled=bool(reason), use_container_width=True):
-                    if not text.strip():
-                        st.error("Wpisz uzasadnienie wniosku, a potem kliknij „Wyślij wniosek”.")
-                    else:
-                        state.submit_request(employee_id, cycle.id, kind, text)
-                        st.session_state.pop(f"req_text_{employee_id}", None)
-                        st.toast("Wniosek wysłany do oceniającego.")
-                        st.rerun()
-            mine = sorted((r for r in state.requests if r.employee_id == employee_id),
-                          key=lambda r: r.created, reverse=True)
-            st.markdown("**Historia wniosków**")
-            if not mine:
-                st.caption("Nie złożono żadnych wniosków.")
-            for r in mine:
-                ui.html(f'<div class="note"><b>{escape(REQUEST_KINDS[r.kind])}</b> · {ui.fmt(r.created)}<br>'
-                        f'{escape(r.text)}<br><span class="d">{REQUEST_STATUS[r.status]}'
-                        f'{" · " + ui.fmt(r.decided) if r.decided else ""}</span></div>')
-        st.caption("Wniosek o kolejny stopień służbowy składa oceniający (część III arkusza).")
+        _requests(state, employee_id, cycle)
+
+
+def _requests(state: DemoState, employee_id: str, cycle) -> None:
+    with st.container(border=True):
+        st.markdown("**📨 Wnioski**")
+        allowed = _can_request(state, cycle)
+        with st.popover("Złóż wniosek", use_container_width=True):
+            kind = st.selectbox("Rodzaj wniosku", list(REQUEST_KINDS), format_func=REQUEST_KINDS.get)
+            reason = allowed[kind]
+            if reason:
+                st.warning(f"Tego wniosku nie można teraz złożyć – jest {reason}.")
+            text = st.text_area("Uzasadnienie wniosku", key=f"req_text_{employee_id}",
+                                placeholder="Napisz krótko, czego dotyczy wniosek i dlaczego go składasz.")
+            if st.button("Wyślij wniosek", type="primary", disabled=bool(reason), use_container_width=True):
+                if not text.strip():
+                    st.error("Wpisz uzasadnienie wniosku, a potem kliknij „Wyślij wniosek”.")
+                else:
+                    state.submit_request(employee_id, cycle.id, kind, text)
+                    st.session_state.pop(f"req_text_{employee_id}", None)
+                    st.toast("Wniosek wysłany do oceniającego.")
+                    st.rerun()
+        mine = sorted((r for r in state.requests if r.employee_id == employee_id),
+                      key=lambda r: r.created, reverse=True)
+        st.markdown("**Historia wniosków**")
+        if not mine:
+            st.caption("Nie złożono żadnych wniosków.")
+        for r in mine:
+            ui.html(f'<div class="note"><b>{escape(REQUEST_KINDS[r.kind])}</b> · {ui.fmt(r.created)}<br>'
+                    f'{escape(r.text)}<br><span class="d">{REQUEST_STATUS[r.status]}'
+                    f'{" · " + ui.fmt(r.decided) if r.decided else ""}</span></div>')
+    st.caption("Wniosek o kolejny stopień służbowy składa oceniający (część III arkusza).")

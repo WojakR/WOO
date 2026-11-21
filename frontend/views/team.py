@@ -8,7 +8,7 @@ import streamlit as st
 
 from frontend import ui
 from app.domain.deadlines import is_longer_than
-from frontend.demo_state import DONE, REQUEST_KINDS, STAGES, DemoState, ai_on, open_evaluation
+from frontend.demo_state import DONE, REQUEST_KINDS, REQUEST_STATUS, STAGES, DemoState, ai_on, open_evaluation
 
 SIGNAL_ICONS = {"PRZECIAZENIE": "⚠️ przeciążenie", "DLUGA_NIEOBECNOSC": "🏥 nieobecność",
                 "ZMIANA_OBOWIAZKOW": "🔄 nowe obowiązki", "SPADEK_OCEN": "📉 spadek", "DO_DOCENIENIA": "👏 docenić"}
@@ -124,41 +124,85 @@ def render(state: DemoState) -> None:
     with side:
         with st.container(border=True):
             st.markdown("**🗓️ Harmonogram**")
-            st.caption("Kliknij pozycję, aby przejść do oceny.")
-            items = []
-            for r in in_progress:
-                if r["Termin"] is not None:
-                    tag = {"late": "🔴 Po terminie · ", "soon": "🟡 Wkrótce · "}.get(r["Pilność"], "")
-                    items.append((r["Termin"], f'{r["_label"]} – {r["Pracownik"]}', tag, r["id"], None))
-            for (cycle_id, stage), when in state.invites.items():
-                if when.date() >= state.today:
-                    emp = state.employee(state.cycle(cycle_id).employee_id)
-                    kind = "Rozmowa rozpoczynająca" if stage == 1 else "Rozmowa oceniająca"
-                    items.append((when.date(), f"{kind} {when:%H:%M} – {emp.full_name}", "📅 ", emp.id, stage))
-            for i, (due, text, icon, emp_id, stage) in enumerate(sorted(items, key=lambda x: x[0])[:8]):
-                st.button(f"{icon}**{ui.fmt(due)}** · {text}", key=f"sched_{i}_{emp_id}", type="tertiary",
-                          on_click=open_evaluation, args=(emp_id, stage))
-            if not items:
-                st.caption("Brak zaplanowanych terminów.")
-
+            schedule_list(state, in_progress, limit=8, key="side")
+            st.button("Pełny harmonogram →", key="to_schedule", type="tertiary", on_click=go, args=("schedule",))
         with st.container(border=True):
             st.markdown(f"**📥 Wnioski do rozpatrzenia** {'❗' if pending else ''}")
-            if not pending:
-                st.caption("Brak nowych wniosków.")
-            for req in pending:
-                emp = state.employee(req.employee_id)
-                ui.card(f"{REQUEST_KINDS[req.kind]} – {emp.full_name}",
-                        f"<p>{escape(req.text)}</p><p class='lock'>złożony {ui.fmt(req.created)}</p>", "c-amber")
-                a, b = st.columns(2)
-                if a.button("Przyjmij", key=f"acc_{req.id}", use_container_width=True, type="primary"):
-                    state.decide_request(req.id, True)
-                    st.rerun()
-                if b.button("Odrzuć", key=f"rej_{req.id}", use_container_width=True):
-                    state.decide_request(req.id, False)
-                    st.rerun()
-            extended = [r for r in in_progress
-                        if (c := state.cycle_for(r["id"])) and any(is_longer_than(a, state.service.rules.absence_extends_after_months)
-                                                          for a in c.absences)]
-            for r in extended:
-                ui.card(f"Nieobecność > 1 mies. – {r['Pracownik']}",
-                        f"<p>Termin oceny przesunięty o czas nieobecności: {ui.fmt(r['Termin'])}.</p>", "c-blue")
+            requests_list(state, in_progress, key="side")
+
+
+# ---------------------------------------------------------------- shared panels and full pages
+
+def go(view: str) -> None:
+    st.session_state.view = view
+
+
+def schedule_list(state: DemoState, in_progress: list[dict], limit: int | None, key: str) -> None:
+    st.caption("Kliknij pozycję, aby przejść do oceny.")
+    items = []
+    for r in in_progress:
+        if r["Termin"] is not None:
+            tag = {"late": "🔴 Po terminie · ", "soon": "🟡 Wkrótce · "}.get(r["Pilność"], "")
+            items.append((r["Termin"], f'{r["_label"]} – {r["Pracownik"]}', tag, r["id"], None))
+    for (cycle_id, stage), when in state.invites.items():
+        if when.date() >= state.today:
+            emp = state.employee(state.cycle(cycle_id).employee_id)
+            kind = "Rozmowa rozpoczynająca" if stage == 1 else "Rozmowa oceniająca"
+            items.append((when.date(), f"{kind} {when:%H:%M} – {emp.full_name}", "📅 ", emp.id, stage))
+    items = sorted(items, key=lambda x: x[0])
+    for i, (due, text, icon, emp_id, stage) in enumerate(items[:limit] if limit else items):
+        st.button(f"{icon}**{ui.fmt(due)}** · {text}", key=f"sched_{key}_{i}_{emp_id}", type="tertiary",
+                  on_click=open_evaluation, args=(emp_id, stage))
+    if not items:
+        st.caption("Brak zaplanowanych terminów.")
+
+
+def requests_list(state: DemoState, in_progress: list[dict], key: str) -> None:
+    pending = state.pending_requests()
+    if not pending:
+        st.caption("Brak nowych wniosków.")
+    for req in pending:
+        emp = state.employee(req.employee_id)
+        ui.card(f"{REQUEST_KINDS[req.kind]} – {emp.full_name}",
+                f"<p>{escape(req.text)}</p><p class='lock'>złożony {ui.fmt(req.created)}</p>", "c-amber")
+        a, b = st.columns(2)
+        if a.button("Przyjmij", key=f"acc_{key}_{req.id}", use_container_width=True, type="primary"):
+            state.decide_request(req.id, True)
+            st.rerun()
+        if b.button("Odrzuć", key=f"rej_{key}_{req.id}", use_container_width=True):
+            state.decide_request(req.id, False)
+            st.rerun()
+    months = state.service.rules.absence_extends_after_months
+    for r in in_progress:
+        c = state.cycle_for(r["id"])
+        if c and any(is_longer_than(a, months) for a in c.absences):
+            ui.card(f"Nieobecność > 1 mies. – {r['Pracownik']}",
+                    f"<p>Termin oceny przesunięty o czas nieobecności: {ui.fmt(r['Termin'])}.</p>", "c-blue")
+
+
+def render_schedule(state: DemoState) -> None:
+    st.subheader("🗓️ Harmonogram")
+    st.caption("Terminy bieżących etapów i zaplanowane rozmowy, od najbliższego.")
+    in_progress = [r for r in _rows(state) if 0 < r["_stage"] < DONE]
+    with st.container(border=True):
+        schedule_list(state, in_progress, limit=None, key="page")
+
+
+def render_requests(state: DemoState) -> None:
+    st.subheader("📥 Wnioski")
+    in_progress = [r for r in _rows(state) if 0 < r["_stage"] < DONE]
+    left, right = st.columns([1.3, 1], gap="large")
+    with left:
+        with st.container(border=True):
+            st.markdown("**Do rozpatrzenia**")
+            requests_list(state, in_progress, key="page")
+    with right:
+        with st.container(border=True):
+            st.markdown("**Rozpatrzone**")
+            done = sorted((r for r in state.requests if r.status != "ZLOZONY"), key=lambda r: r.decided, reverse=True)
+            if not done:
+                st.caption("Brak rozpatrzonych wniosków.")
+            for r in done:
+                ui.html(f'<div class="note"><b>{escape(REQUEST_KINDS[r.kind])}</b> – '
+                        f'{escape(state.employee(r.employee_id).full_name)}<br>{escape(r.text)}<br>'
+                        f'<span class="d">{REQUEST_STATUS[r.status]} · {ui.fmt(r.decided)}</span></div>')

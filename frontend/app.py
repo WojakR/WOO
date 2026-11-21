@@ -1,9 +1,8 @@
-"""Cyfrowy Asystent Ocen Okresowych – Streamlit demo. Run from projekt/: streamlit run frontend/app.py
+"""Cyfrowy Asystent Ocen Okresowych – Streamlit app. Run from projekt/: streamlit run frontend/app.py
 
-Calls the application layer directly (no HTTP), so it deploys as one app. Views:
-  1. evaluation screen (evaluator) – frontend/views/evaluation.py
-  2. my team summary (evaluator)   – frontend/views/team.py
-  3. evaluated person              – frontend/views/employee.py
+Calls the application layer directly (no HTTP), so it deploys as one app. Pages (side menu):
+  evaluator: Mój zespół (views/team.py), Ocena pracownika (views/evaluation.py), Harmonogram, Wnioski
+  evaluated person: Moja ocena, Moje wnioski (views/employee.py)
 Wireframes: frontend/design/wireframes.drawio
 """
 import sys
@@ -18,23 +17,33 @@ from frontend import ui
 from frontend.demo_state import REQUEST_KINDS, REQUEST_STATUS, ai_on, get_state, open_evaluation, reset_state
 from frontend.views import employee, evaluation, team
 
-st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide")
+st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide",
+                   initial_sidebar_state="expanded")
 st.session_state.setdefault("a11y_font", "Duża")  # larger text by default – easier to read
-ui.inject_css(ui.FONT_SCALES.get(st.session_state.a11y_font, 1.0),
-              st.session_state.get("a11y_contrast", False))
+st.session_state.setdefault("ai_on", True)
+ui.inject_css(ui.FONT_SCALES.get(st.session_state.a11y_font, 1.0), st.session_state.get("a11y_contrast", False))
 state = get_state()
 
 ROLE_EVALUATOR, ROLE_EMPLOYEE = "Oceniający (przełożony)", "Oceniany (pracownik)"
-st.session_state.setdefault("view", "team")
 st.session_state.setdefault("role", ROLE_EVALUATOR)
+st.session_state.setdefault("view", "team")
+st.session_state.setdefault("emp_view", "ocena")
 
 
-def go_team() -> None:
-    st.session_state.view = "team"
+def go(view: str) -> None:
+    st.session_state.view = view
+
+
+def go_employee(view: str) -> None:
+    st.session_state.emp_view = view
+
+
+def open_current_evaluation() -> None:
+    open_evaluation(st.session_state.get("eval_employee") or state.evaluated()[0].id)
 
 
 def notifications(role: str, person: str | None) -> list[tuple[str, str, str | None]]:
-    """(icon, text, employee id to open or None). Newest/most urgent first."""
+    """(icon, text, employee id to open or None). Most urgent first."""
     evaluated = {e.id for e in state.evaluated()}
     items = []
     for r in state.service.reminders(lead_days=30):
@@ -56,60 +65,77 @@ def notifications(role: str, person: str | None) -> list[tuple[str, str, str | N
     return items
 
 
-# ---------------------------------------------------------------- header
-st.session_state.setdefault("ai_on", True)
-bar_text, bar_switch = st.columns([4.2, 1.5], vertical_alignment="center")
-with bar_switch.container(horizontal_alignment="right"):
-    st.toggle("🤖 Asystent AI", key="ai_on",
-              help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: propozycje kryteriów, wskazówki do rozmów, "
-                   "przypisywanie notatek, szkice tekstów i HR partnera. Proces oceny działa dalej bez zmian.")
-if not st.session_state.ai_on:
-    bar_text.info("Asystent AI jest wyłączony – aplikacja działa bez podpowiedzi. Włączysz go przełącznikiem obok.")
-title, role_col, who_col, a11y_col, time_col, bell_col = st.columns([2.2, 1.3, 1.4, 1.0, 1.1, 0.8],
-                                                                    vertical_alignment="center")
-with title:
-    ui.html('<p class="app-title">🏛️ Cyfrowy Asystent Ocen Okresowych</p>'
-            '<p class="app-sub">Ocena okresowa w służbie cywilnej – od kryteriów do arkusza, z wirtualnym HR partnerem</p>')
-role = role_col.selectbox("Widok jako", [ROLE_EVALUATOR, ROLE_EMPLOYEE], key="role", label_visibility="collapsed")
-person = None
-if role == ROLE_EMPLOYEE:
-    ids = [e.id for e in state.evaluated()]
-    person = who_col.selectbox("Pracownik", ids, key="person", format_func=lambda i: state.employee(i).full_name,
-                               label_visibility="collapsed")
-else:
-    who_col.caption("Demo bez logowania – rolę wybierasz z listy obok.")
+def menu_item(label: str, active: bool, on_click, args=()) -> None:
+    st.button(label, use_container_width=True, type="primary" if active else "secondary",
+              on_click=on_click, args=args)
 
-with a11y_col.popover("Aa Dostępność", use_container_width=True, help="Wielkość tekstu i kontrast (WCAG 2.1)"):
-    st.markdown("**Ustawienia dostępności**")
-    st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font", horizontal=True)
-    st.toggle("Wysoki kontrast", key="a11y_contrast",
-              help="Ciemniejszy tekst pomocniczy, grubsze obramowania i podkreślone odnośniki.")
-    st.caption("Zgodnie z WCAG 2.1: powiększenie tekstu bez utraty treści (1.4.4), kontrast (1.4.3), "
-               "widoczny fokus przy obsłudze klawiaturą (2.4.7). Przeglądarka pozwala też powiększać "
-               "stronę skrótem Ctrl i +.")
 
-with time_col.popover(f"📅 {ui.fmt(state.today)}", use_container_width=True, help="Przewiń czas (demo)"):
-    st.markdown("**⏩ Przewiń czas (tylko demo)**")
-    st.caption("Na prezentacji nie poczekamy 24 miesięcy – tu „przesuwasz kalendarz” aplikacji do przodu, żeby "
-               "pokazać przypomnienia, zbliżające się i przekroczone terminy. Zmienia tylko datę w tej sesji; "
-               "w prawdziwym wdrożeniu tej opcji nie ma.")
-    a, b, c = st.columns(3)
-    for col, label, days in ((a, "+1 dzień", 1), (b, "+1 tydz.", 7), (c, "+30 dni", 30)):
-        if col.button(label, use_container_width=True):
-            state.clock.advance(days=days)
-            st.rerun()
-    new = st.date_input("Ustaw datę", state.today, format="DD.MM.YYYY")
-    if new != state.today and st.button("Ustaw", type="primary"):
-        state.clock.set(new)
-        st.rerun()
+# ---------------------------------------------------------------- side menu
+role = st.session_state.role
+person = st.session_state.get("person") if role == ROLE_EMPLOYEE else None
+with st.sidebar:
+    ui.html('<p class="app-title">🏛️ Asystent Ocen Okresowych</p>')
+    st.caption("Ocena okresowa w służbie cywilnej")
+    st.markdown("**Menu**")
+    if role == ROLE_EVALUATOR:
+        view = st.session_state.view
+        pending = len(state.pending_requests())
+        menu_item("👥 Mój zespół", view == "team", go, ("team",))
+        menu_item("📝 Ocena pracownika", view == "eval", open_current_evaluation)
+        menu_item("🗓️ Harmonogram", view == "schedule", go, ("schedule",))
+        menu_item(f"📥 Wnioski ({pending})" if pending else "📥 Wnioski", view == "requests", go, ("requests",))
+    else:
+        menu_item("📄 Moja ocena", st.session_state.emp_view == "ocena", go_employee, ("ocena",))
+        menu_item("📨 Moje wnioski", st.session_state.emp_view == "wnioski", go_employee, ("wnioski",))
+
     st.divider()
-    if st.button("↺ Zacznij demo od nowa", use_container_width=True):
-        reset_state()
-        for k in list(st.session_state):
-            if k not in ("role",):
-                del st.session_state[k]
-        st.rerun()
+    with st.expander("⚙️ Ustawienia", expanded=False):
+        st.toggle("🤖 Asystent AI", key="ai_on",
+                  help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: propozycje kryteriów, wskazówki do "
+                       "rozmów, przypisywanie notatek, szkice tekstów i HR partnera. Proces oceny działa bez zmian.")
+        st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font")
+        st.toggle("Wysoki kontrast", key="a11y_contrast",
+                  help="Ciemniejszy tekst pomocniczy, grubsze obramowania i podkreślone odnośniki.")
+        st.caption("Dostępność zgodnie z WCAG 2.1: powiększenie tekstu (1.4.4), kontrast (1.4.3), widoczny "
+                   "fokus przy obsłudze klawiaturą (2.4.7). Stronę można też powiększyć skrótem Ctrl i +.")
 
+    with st.expander("🎬 Tryb demo", expanded=False):
+        st.caption("Bez logowania: wybierz, kim jesteś w prezentacji.")
+        st.selectbox("Widok jako", [ROLE_EVALUATOR, ROLE_EMPLOYEE], key="role")
+        if st.session_state.role == ROLE_EMPLOYEE:
+            st.selectbox("Pracownik", [e.id for e in state.evaluated()], key="person",
+                         format_func=lambda i: state.employee(i).full_name)
+        st.markdown(f"**⏩ Data w aplikacji: {ui.fmt(state.today)}**")
+        st.caption("Na prezentacji nie poczekamy 24 miesięcy – tu przesuwasz kalendarz aplikacji, żeby pokazać "
+                   "przypomnienia i terminy. W prawdziwym wdrożeniu tej opcji nie ma.")
+        a, b, c = st.columns(3)
+        for col, label, days in ((a, "+1 dz.", 1), (b, "+7 dni", 7), (c, "+30 dni", 30)):
+            if col.button(label, use_container_width=True, key=f"adv_{days}"):
+                state.clock.advance(days=days)
+                st.rerun()
+        new = st.date_input("Ustaw datę", state.today, format="DD.MM.YYYY")
+        if st.button("Ustaw datę", use_container_width=True, disabled=new == state.today):
+            state.clock.set(new)
+            st.rerun()
+        if st.button("↺ Zacznij demo od nowa", use_container_width=True):
+            reset_state()
+            for k in list(st.session_state):
+                if k not in ("role", "a11y_font", "a11y_contrast", "ai_on"):
+                    del st.session_state[k]
+            st.rerun()
+
+    st.caption(f"Data: {ui.fmt(state.today)} · {'Asystent AI włączony' if ai_on() else 'Asystent AI wyłączony'}")
+
+role = st.session_state.role
+person = st.session_state.get("person") if role == ROLE_EMPLOYEE else None
+if role == ROLE_EMPLOYEE and person is None:
+    person = state.evaluated()[0].id
+
+# ---------------------------------------------------------------- header: who + notifications
+who, bell_col = st.columns([5, 1], vertical_alignment="center")
+who.markdown(f"<span class='lock'>Zalogowano jako (demo):</span> **"
+             + (state.employee(person).full_name + " – oceniany" if role == ROLE_EMPLOYEE else "oceniający")
+             + "**", unsafe_allow_html=True)
 notes = notifications(role, person)
 with bell_col.popover(f"🔔 {len(notes)}" if notes else "🔔", use_container_width=True):
     st.markdown("**Powiadomienia**")
@@ -118,19 +144,25 @@ with bell_col.popover(f"🔔 {len(notes)}" if notes else "🔔", use_container_w
     for i, (icon, text, emp_id) in enumerate(notes):
         if role == ROLE_EVALUATOR:
             st.button(f"{icon} {text}", key=f"notif_{i}", type="tertiary",
-                      on_click=open_evaluation if emp_id else go_team, args=(emp_id,) if emp_id else ())
+                      on_click=open_evaluation if emp_id else go, args=(emp_id,) if emp_id else ("requests",))
         else:
             st.markdown(f"{icon} {text}")
-st.divider()
+if not ai_on():
+    st.info("Asystent AI jest wyłączony – aplikacja działa bez podpowiedzi. Włączysz go w menu: ⚙️ Ustawienia.")
 
 # ---------------------------------------------------------------- routing
 if role == ROLE_EMPLOYEE:
-    employee.render(state, person)
+    employee.render(state, person, st.session_state.emp_view)
 elif st.session_state.view == "eval" and st.session_state.get("eval_employee"):
     evaluation.render(state, st.session_state.eval_employee)
+elif st.session_state.view == "schedule":
+    team.render_schedule(state)
+elif st.session_state.view == "requests":
+    team.render_requests(state)
 else:
     team.render(state)
 
+st.divider()
 if ai_on():
     st.caption(f"Tryb asystenta AI: {config.AI_MODE}{' (atrapa – LLM_MOCK)' if config.LLM_MOCK else ''}. "
                "Asystent tylko proponuje – decyzje podejmuje oceniający. Dane osobowe są pseudonimizowane przed "

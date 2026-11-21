@@ -642,7 +642,7 @@ def render(state: DemoState, employee_id: str) -> None:
     people = state.evaluated()
     ids = [e.id for e in people]
     top1, top2, _ = st.columns([1, 1.6, 2.4])
-    if top1.button("← Widok 2: Mój zespół", use_container_width=True):
+    if top1.button("← Mój zespół", use_container_width=True):
         st.session_state.view = "team"
         st.rerun()
     chosen = top2.selectbox("Pracownik", ids, index=ids.index(employee_id) if employee_id in ids else 0,
