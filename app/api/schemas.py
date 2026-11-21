@@ -555,6 +555,22 @@ class DeadlineChangeOut(_Out):
     decyzja_at: datetime | None = None
 
 
+class PositionChangeIn(BaseModel):
+    """POST /api/evaluations/{id}/position-change – change of position with a significant change of duties."""
+    data_zmiany: date
+
+
+class PositionChangeOut(_Out):
+    """NOWE_KRYTERIA (§ 9 ust. 1): criteria + opening conversation again by `termin`, evaluation deadline unchanged.
+    OCENA (art. 81 ust. 6, § 9 ust. 2): evaluation between `najwczesniej` and `termin`."""
+    rodzaj: Literal["NOWE_KRYTERIA", "OCENA"]
+    data_zmiany: date
+    data_odniesienia: date               # last evaluation, or criteria date for a first evaluation
+    termin: date
+    najwczesniej: date | None = None
+    ocena: "EvaluationOut | None" = None  # the cycle after the change
+
+
 class NotificationOut(_Out):
     id: int
     typ: str
@@ -579,3 +595,4 @@ class ClockOut(_Out):
 
 
 ConversationPrepOut.model_rebuild()
+PositionChangeOut.model_rebuild()

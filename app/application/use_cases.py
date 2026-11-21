@@ -12,7 +12,7 @@ from typing import Any, Callable, Mapping
 
 from app.domain.calendar import WorkingCalendar
 from app.domain.cycle import EvaluationCycle, Status
-from app.domain.deadlines import Absence
+from app.domain.deadlines import Absence, PositionChange
 from app.domain.employee import Employee
 from app.domain.errors import InvalidTransition, NotFound, ValidationError
 from app.domain.meeting_prep import MeetingPrep, build_meeting_prep
@@ -27,7 +27,7 @@ class Reminder:
     cycle_id: str
     employee_id: str
     recipient_id: str
-    kind: str  # "criteria" | "evaluation" | "acknowledgement"
+    kind: str  # "criteria" | "evaluation" | "acknowledgement" | "objection" | "reevaluation"
     due: date
     days_left: int  # negative = overdue
     message: str  # Polish, shown to the user
@@ -126,11 +126,25 @@ class EvaluationService:
         self._apply(cycle_id, lambda c: c.register_absence(absence))
         return self.evaluation_deadline(cycle_id)
 
+    def register_position_change(self, cycle_id: str, change: date) -> PositionChange:
+        """Change of position with a significant change of duties (art. 81 ust. 6, § 9 of the regulation).
+        Returns what it means: new criteria by a date, or an evaluation within a window."""
+        today = self.clock.today()
+        return self._apply(cycle_id, lambda c: c.register_position_change(change, self.rules, self.calendar, today))
+
+    def objection_deadline(self, cycle_id: str) -> date | None:
+        """Last day for an objection (art. 83 ust. 1); None until the evaluation is acknowledged.
+        Feeds `CzescII.termin_sprzeciwu` in the API."""
+        return self._cycle(cycle_id).objection_deadline(self.rules, self.calendar)
+
     def reminders(self, lead_days: int = 30) -> list[Reminder]:
         """Reminders due today across all cycles. `lead_days` is an app setting, not a legal term."""
         today = self.clock.today()
         out: list[Reminder] = []
         for c in self.cycles.list_all():
+            if c.status is Status.ACKNOWLEDGED:
+                out.extend(self._after_acknowledgement(c, today, lead_days))
+                continue
             if c.status is Status.CYCLE_STARTED:
                 due, kind, who, what = c.criteria_deadline, "criteria", c.evaluator_id, "wyznaczenie kryteriów oceny"
             elif c.status is Status.CRITERIA_SET:
@@ -156,6 +170,22 @@ class EvaluationService:
                 msg = f"Termin na {what} ({name}) upływa {due:%d.%m.%Y} – zostało {left} dni."
             out.append(Reminder(c.id, c.employee_id, who, kind, due, left, msg))
         return sorted(out, key=lambda r: r.days_left)
+
+    def _after_acknowledgement(self, c: EvaluationCycle, today: date, lead_days: int) -> list[Reminder]:
+        """Objection window for the evaluated person; re-evaluation date for the evaluator after a negative one."""
+        out = []
+        objection = c.objection_deadline(self.rules, self.calendar)
+        if objection is not None and today <= objection:
+            left = (objection - today).days
+            out.append(Reminder(c.id, c.employee_id, c.employee_id, "objection", objection, left,
+                                f"Możesz złożyć sprzeciw od oceny do dyrektora generalnego do {objection:%d.%m.%Y}."))
+        due = c.next_evaluation_due(self.rules)
+        if due is not None and (due - today).days <= lead_days:
+            left = (due - today).days
+            out.append(Reminder(c.id, c.employee_id, c.evaluator_id, "reevaluation", due, left,
+                                f"Po ocenie negatywnej {self._name(c.employee_id)} podlega ponownej ocenie "
+                                f"od {due:%d.%m.%Y} (6 miesięcy od zapoznania się z oceną)."))
+        return out
 
     def _name(self, employee_id: str) -> str:
         emp = self.employees.get(employee_id)

@@ -2,13 +2,15 @@
 
 - evaluation: start + N months (end-of-month clamping), extended by every justified continuous absence
   longer than M months, then moved off a Saturday / Sunday / holiday;
-- criteria: N days counted from the day after the event (shorter after a negative evaluation), moved likewise.
+- criteria: N days counted from the day after the event (shorter after a negative evaluation), moved likewise;
+- re-evaluation after a negative evaluation, objection, change of position (art. 81 ust. 6, 9; art. 83; § 9).
+All values come from reguly.json via RuleBook; the rules and their sources are listed in docs/terminy.md.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Iterable
+from typing import Iterable, Literal
 
 from .calendar import WorkingCalendar, add_months
 from .errors import ValidationError
@@ -96,3 +98,44 @@ def objection_deadline(acknowledged: date, rules: RuleBook, cal: WorkingCalendar
     The acknowledgement day is not counted; an end on Saturday / Sunday / holiday moves to the next working day.
     """
     return cal.next_working_day(acknowledged + timedelta(days=rules.objection_days))
+
+
+@dataclass(frozen=True)
+class PositionChange:
+    """What a change of position with a significant change of duties means for the running cycle.
+
+    NOWE_KRYTERIA (§ 9 ust. 1): the change falls within 6 months of the reference date – criteria and the opening
+        conversation are done again by `deadline`; the evaluation deadline does NOT change.
+    OCENA (art. 81 ust. 6, § 9 ust. 2): more than 6 months have passed – an evaluation is made between
+        `earliest` (7 days before the change) and `deadline` (30 days after it).
+    """
+
+    kind: Literal["NOWE_KRYTERIA", "OCENA"]
+    change: date
+    reference: date
+    deadline: date
+    earliest: date | None = None
+
+
+def position_change(change: date, reference: date, rules: RuleBook, cal: WorkingCalendar) -> PositionChange:
+    """`reference` = date of the last evaluation, or – for someone evaluated for the first time – the date the
+    criteria were set (§ 9 ust. 1; art. 81 ust. 6: "okres podlegający ocenie jest dłuższy niż 6 miesięcy").
+
+    "More than 6 months" uses the same month arithmetic as absences: a period of exactly 6 months ends ON
+    add_months(reference, 6), so only a change after that day counts as later than 6 months.
+    The latest day moves off a Saturday / Sunday / holiday (art. 115 Civil Code, as for every deadline in days);
+    the earliest day is a "not before" bound and is not moved.
+    """
+    if change < reference:
+        raise ValidationError([f"Zmiana stanowiska ({change:%d.%m.%Y}) nie może być wcześniejsza niż "
+                               f"data odniesienia ({reference:%d.%m.%Y})."])
+    if change > add_months(reference, rules.position_change_threshold_months):
+        return PositionChange(
+            "OCENA", change, reference,
+            deadline=cal.next_working_day(change + timedelta(days=rules.position_change_eval_days_after)),
+            earliest=change - timedelta(days=rules.position_change_eval_days_before),
+        )
+    return PositionChange(
+        "NOWE_KRYTERIA", change, reference,
+        deadline=cal.next_working_day(change + timedelta(days=rules.position_change_criteria_days)),
+    )

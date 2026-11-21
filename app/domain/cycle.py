@@ -16,7 +16,15 @@ from enum import Enum
 from typing import Any, Mapping
 
 from .calendar import WorkingCalendar
-from .deadlines import Absence, criteria_deadline, evaluation_deadline
+from .deadlines import (
+    Absence,
+    PositionChange,
+    criteria_deadline,
+    evaluation_deadline,
+    objection_deadline,
+    position_change,
+    reevaluation_date,
+)
 from .errors import FieldLocked, InvalidTransition, NotAuthorized, ValidationError
 from .rulebook import RuleBook
 from .scoring import EvaluationResult, Outcome, validate_additional_criteria, validate_evaluation
@@ -124,6 +132,7 @@ class EvaluationCycle:
     result: EvaluationResult | None = None
     evaluated_on: date | None = None
     acknowledged_on: date | None = None
+    position_changes: list[PositionChange] = field(default_factory=list)
     history: list[tuple[date, Status]] = field(default_factory=list)
 
     # ---- creation -------------------------------------------------------------------------------
@@ -160,9 +169,24 @@ class EvaluationCycle:
         return list(rules.mandatory(self.sheet)) + list(self.additional_criteria)
 
     def evaluation_deadline(self, rules: RuleBook, cal: WorkingCalendar) -> date:
+        """24 months (+ long absences), or – after a negative evaluation – the re-evaluation date
+        (art. 81 ust. 9; `start_date` is then the day the negative evaluation was acknowledged).
+        An explicit change (evaluator's decision or a change of position) wins."""
         if self.deadline_override is not None:
             return cal.next_working_day(self.deadline_override)
+        if self.after_negative:
+            return reevaluation_date(self.start_date, rules)
         return evaluation_deadline(self.start_date, rules, cal, self.absences)
+
+    def objection_deadline(self, rules: RuleBook, cal: WorkingCalendar) -> date | None:
+        """Art. 83 ust. 1: last day to object to the evaluation; None until the evaluation is acknowledged."""
+        return objection_deadline(self.acknowledged_on, rules, cal) if self.acknowledged_on else None
+
+    def next_evaluation_due(self, rules: RuleBook) -> date | None:
+        """After an acknowledged NEGATIVE evaluation: when the re-evaluation is due (art. 81 ust. 9)."""
+        if self.acknowledged_on and self.is_negative:
+            return reevaluation_date(self.acknowledged_on, rules)
+        return None
 
     def can(self, step: str) -> bool:
         return self.status in TRANSITIONS[step][0]
@@ -303,6 +327,28 @@ class EvaluationCycle:
         if self.status in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED):
             raise InvalidTransition("Ocena została już sporządzona – nieobecność nie wpływa na jej termin.")
         self.absences.append(absence)
+
+    # ---- change of position with a significant change of duties (art. 81 ust. 6, § 9) ------------
+    def register_position_change(self, change: date, rules: RuleBook, cal: WorkingCalendar, today: date) -> PositionChange:
+        """Within 6 months of the reference date: criteria and the opening conversation are done again
+        (back to "cykl rozpoczęty", new criteria deadline, evaluation deadline unchanged).
+        Later: an evaluation is due between 7 days before and 30 days after the change (deadline override)."""
+        if self.status in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED):
+            raise InvalidTransition("Ocena została już sporządzona – zmiana stanowiska dotyczy kolejnego cyklu.")
+        first_evaluation = self.previous_evaluation is None
+        reference = (self.criteria_set_on or self.start_date) if first_evaluation else self.start_date
+        outcome = position_change(change, reference, rules, cal)
+        if outcome.kind == "NOWE_KRYTERIA":
+            if self.status is Status.MEETING_HELD:
+                raise InvalidTransition("Rozmowa oceniająca już się odbyła – nie można ponownie wyznaczyć kryteriów.")
+            self.criteria_deadline = outcome.deadline
+            self.criteria_confirmed_on = None
+            if self.status is not Status.CYCLE_STARTED:
+                self._move(Status.CYCLE_STARTED, today)
+        else:
+            self.deadline_override = outcome.deadline
+        self.position_changes.append(outcome)
+        return outcome
 
     @property
     def is_negative(self) -> bool:

@@ -46,6 +46,10 @@ class RuleBook:
     absence_extends_after_months: int
     reevaluation_after_negative_months: int
     objection_days: int
+    position_change_threshold_months: int  # art. 81 ust. 6 / § 9 ust. 1: "6 miesięcy"
+    position_change_criteria_days: int  # § 9 ust. 1: criteria set again within 30 days of the change
+    position_change_eval_days_before: int  # § 9 ust. 2: evaluation not earlier than 7 days before the change
+    position_change_eval_days_after: int  # § 9 ust. 2: … and not later than 30 days after it
     max_additional_criteria: int
     additional_criteria_unique: bool
     sheets: dict[str, tuple[str, ...]]  # sheet -> mandatory criterion ids, in form order
@@ -77,6 +81,10 @@ class RuleBook:
             absence_extends_after_months=terms["nieobecnosc_przedluzajaca_termin_powyzej_miesiecy"],
             reevaluation_after_negative_months=terms["ponowna_ocena_po_negatywnej_miesiecy"],
             objection_days=terms["sprzeciw_dni_od_zapoznania"],
+            position_change_threshold_months=terms["zmiana_stanowiska_prog_miesiecy"],
+            position_change_criteria_days=terms["zmiana_stanowiska_ponowne_kryteria_dni"],
+            position_change_eval_days_before=terms["zmiana_stanowiska_ocena_najwczesniej_dni_przed"],
+            position_change_eval_days_after=terms["zmiana_stanowiska_ocena_najpozniej_dni_po"],
             max_additional_criteria=sheets["max_kryteriow_dodatkowych"],
             additional_criteria_unique=sheets["kryteria_dodatkowe_bez_powtorzen"],
             sheets={k: tuple(v["kryteria_obowiazkowe"]) for k, v in sheets["arkusze"].items()},

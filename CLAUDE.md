@@ -29,6 +29,8 @@ Run all commands below from `projekt/`.
 - `backend/kprm.py` – the ONLY reader of domain data in `../server/data/kprm/` (criteria, sheets A/B/C, rules and
   deadlines, sample employees, knowledge base, sample evaluations). Path: `KPRM_DATA_DIR`. Never hard-code values
   that come from regulations (thresholds, deadlines, criteria lists) – read them from `kprm.rules()` etc.
+- Deadlines (24 months, absences, criteria, re-evaluation, objection, change of position): rules, sources and the
+  "longer than a month" boundary in `docs/terminy.md`; every dated KPRM example is a test.
 
 ## Rules
 - Every new backend function gets a test in `tests/` that passes with `LLM_MOCK=1`.
