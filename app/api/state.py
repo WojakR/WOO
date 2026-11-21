@@ -31,6 +31,7 @@ from app.infrastructure.memory import FixedClock, InMemoryCycleRepository
 from app.infrastructure.json_codec import JsonCodec
 from app.infrastructure.sql_store import SqlStateStore, Snapshot
 from app.infrastructure.settings import OfficeSettings, load_office_settings
+from app.infrastructure import regulations
 from backend import config
 
 DEMO_TODAY = date(2026, 5, 25)  # Grzegorz Wzór's deadline 12.06.2026 is then 18 days away
@@ -99,6 +100,17 @@ HR = "kadry"  # demo identity of the HR department / office administrator
 
 
 @dataclass
+class RuleChangeRecord:
+    """The administrator changed a requirement of the regulation (e.g. after an amendment) – who, when, why."""
+    key: str
+    old: int
+    new: int
+    basis: str  # e.g. "nowelizacja rozporządzenia, Dz. U. 2027 poz. 123"
+    by: str
+    on: date
+
+
+@dataclass
 class DemoState:
     clock: FixedClock  # the server's own clock (contract rule 7: never the browser's date)
     directory: KprmEmployeeDirectory
@@ -117,6 +129,40 @@ class DemoState:
     deputy_records: list[DeputyRecord] = field(default_factory=list)
     reminder_prefs: dict[str, ReminderSchedule] = field(default_factory=dict)  # user id -> own schedule
     read_notifications: set[str] = field(default_factory=set)  # (user, notification key) marked read
+    # requirements of the regulation changed by the administrator (app/infrastructure/regulations.py)
+    rule_overrides: dict[str, int] = field(default_factory=dict)
+    rule_changes: list[RuleChangeRecord] = field(default_factory=list)
+    # "off switch" for the AI assistant and the virtual HR partner: office-wide (admin) and per person
+    ai_office: bool = True
+    hr_partner_office: bool = True
+    ai_off_for: set[str] = field(default_factory=set)
+    hr_partner_off_for: set[str] = field(default_factory=set)
+    _assistant_off: AiSuggestionService | None = None
+
+    def ai_enabled_for(self, user_id: str) -> bool:
+        """The language model is used for this person (else every feature uses its no-AI version)."""
+        return self.ai_mode != "off" and self.ai_office and user_id not in self.ai_off_for
+
+    def hr_partner_enabled_for(self, user_id: str) -> bool:
+        return self.hr_partner_office and user_id not in self.hr_partner_off_for
+
+    def assistant_for(self, user_id: str) -> AiSuggestionService:
+        """The assistant with the model, or – AI switched off for this person – the same service without it."""
+        if self.ai_enabled_for(user_id):
+            return self.assistant
+        if self._assistant_off is None:
+            self._assistant_off = build_assistant("off")
+            self._assistant_off.rules = self.evaluations.rules
+        return self._assistant_off
+
+    def apply_rules(self, overrides: dict[str, int]) -> None:
+        """Use the administrator's values everywhere: deadlines, validations, the assistant's texts."""
+        self.rule_overrides = dict(overrides)
+        rb = regulations.rulebook(self.rule_overrides)
+        self.evaluations.rules = rb
+        self.assistant.rules = rb
+        if self._assistant_off is not None:
+            self._assistant_off.rules = rb
 
     def schedule_for(self, user_id: str) -> ReminderSchedule:
         """The user's own reminder schedule, else the office default (config/ustawienia_urzedu.json)."""
@@ -133,7 +179,7 @@ class DemoState:
             evaluator_of={e.id: e.evaluator_id for e in self.directory.all()},
             scope=self.settings.visibility_scope,
             deputies={ev: frozenset(self.active_deputies(ev, today)) for ev in evaluators},
-            admins=frozenset({HR}),
+            admins=frozenset({HR, self.settings.objection_reviewer}),  # the reviewer of objections reads all
         )
 
     def notes_of(self, evaluation_id: int) -> list[NoteRecord]:
@@ -185,6 +231,7 @@ def _empty_state(today: date | None, ai_mode: str | None, scenario: bool, first_
     mode = (ai_mode or config.AI_MODE).lower()
     st = DemoState(clock, directory, evaluations, build_assistant(mode), mode)
     evaluations.deputies = st.active_deputies  # deputies may act on the evaluator's behalf (use_cases)
+    evaluations.objection_reviewer = st.settings.objection_reviewer
     return st
 
 
@@ -208,9 +255,9 @@ def _codec() -> JsonCodec:
     import sys
 
     from app.application import assistant
-    from app.domain import cycle, deadlines, notes, reminder_schedule, scoring
+    from app.domain import access, cycle, deadlines, notes, reminder_schedule, scoring
 
-    mods = [cycle, deadlines, scoring, notes, reminder_schedule, assistant, sys.modules[__name__]]
+    mods = [cycle, deadlines, scoring, notes, reminder_schedule, access, assistant, sys.modules[__name__]]
     types = [obj for m in mods for _, obj in inspect.getmembers(m, inspect.isclass)
              if obj.__module__ == m.__name__ and (dataclasses.is_dataclass(obj) or issubclass(obj, Enum))]
     return JsonCodec(types)
@@ -235,6 +282,11 @@ def snapshot(st: DemoState) -> Snapshot:
         meta={"dzis": st.clock.today(), "wersje": dict(st.versions), "hr_sygnaly_id": dict(st.hr_signal_ids),
               "hr_decyzje": dict(st.hr_decisions), "przypomnienia_wlasne": dict(st.reminder_prefs),
               "przeczytane": set(st.read_notifications),
+              "reguly_nadpisane": dict(st.rule_overrides), "zmiany_regul": list(st.rule_changes),
+              "ai_urzad": st.ai_office, "hr_partner_urzad": st.hr_partner_office,
+              "ai_wylaczone": set(st.ai_off_for), "hr_partner_wylaczony": set(st.hr_partner_off_for),
+              **({"zakres_widocznosci": st.settings.visibility_scope}
+                 if st.settings.visibility_scope != load_office_settings().visibility_scope else {}),
               # office default changed by HR in the app (else the file config/ustawienia_urzedu.json applies)
               **({"przypomnienia_urzedu": st.settings.reminders}
                  if st.settings.reminders != load_office_settings().reminders else {})},
@@ -258,6 +310,15 @@ def restore(snap: Snapshot, ai_mode: str | None = None) -> DemoState:
     st.read_notifications = set(snap.meta.get("przeczytane", set()))
     if "przypomnienia_urzedu" in snap.meta:
         st.settings = dataclasses.replace(st.settings, reminders=snap.meta["przypomnienia_urzedu"])
+    if "zakres_widocznosci" in snap.meta:
+        st.settings = dataclasses.replace(st.settings, visibility_scope=snap.meta["zakres_widocznosci"])
+    st.rule_changes = list(snap.meta.get("zmiany_regul", []))
+    if snap.meta.get("reguly_nadpisane"):
+        st.apply_rules(snap.meta["reguly_nadpisane"])
+    st.ai_office = snap.meta.get("ai_urzad", True)
+    st.hr_partner_office = snap.meta.get("hr_partner_urzad", True)
+    st.ai_off_for = set(snap.meta.get("ai_wylaczone", set()))
+    st.hr_partner_off_for = set(snap.meta.get("hr_partner_wylaczony", set()))
     return st
 
 

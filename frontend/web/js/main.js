@@ -139,4 +139,4 @@ boot().catch((e) => {
     h("div", { class: "card card-pad notice notice-bad" }, icon("alert"), `Nie udało się uruchomić aplikacji: ${e.message}`));
 });
 
-export { route };
+export { route, renderTopbar };

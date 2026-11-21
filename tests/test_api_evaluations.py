@@ -45,7 +45,12 @@ def test_dashboard_scope_and_seed():
         "ROZMOWA_OCENIAJACA", "2026-06-12", 18, "WKROTCE", "OCENIAJACY")
     everyone = client.get("/api/dashboard", headers=AS_HR).json()["pozycje"]
     statuses = {i["oceniany"]["nazwisko"]: i["status"] for i in everyone}
-    assert len(everyone) == 8 and statuses["Kowal"] is None  # one cycle not started
+    assert statuses["Kowal"] is None  # one cycle not started
+    # one row per evaluation: whoever acknowledged a finished evaluation already has the next cycle running
+    finished = {i["oceniany"]["id"] for i in everyone if i["status"] == "ZAKONCZONA"}
+    assert finished and all(any(j["oceniany"]["id"] == p and j["status"] == "KRYTERIA_DO_WYZNACZENIA" for j in everyone)
+                            for p in finished)
+    assert len(everyone) == 8 + len(finished)
     assert {i["pilnosc"] for i in everyone} >= {"PO_TERMINIE", "WKROTCE"}
     assert {i["wynik"] for i in everyone} >= {"POZYTYWNA", "NEGATYWNA"}
 

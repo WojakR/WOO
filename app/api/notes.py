@@ -82,7 +82,8 @@ def _classify(st: DemoState, note_id: int) -> None:
         return
     people = [p for p in (st.directory.get(cycle.employee_id), st.directory.get(cycle.evaluator_id)) if p]
     try:
-        c = st.assistant.classify_note(r.note, cycle.sheet, cycle.additional_criteria, people)
+        who = r.note.author_id or cycle.evaluator_id  # the author's AI switch decides
+        c = st.assistant_for(who).classify_note(r.note, cycle.sheet, cycle.additional_criteria, people)
     except Exception:  # noqa: BLE001 – the note stays usable; the evaluator tags it by hand
         if r.status == "W_TOKU":
             r.status = "BLAD"

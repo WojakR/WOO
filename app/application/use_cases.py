@@ -11,14 +11,14 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable, Mapping
 
 from app.domain.calendar import WorkingCalendar
-from app.domain.cycle import EvaluationCycle, Status
+from app.domain.cycle import EvaluationCycle, PreviousEvaluation, Status
 from app.domain.deadlines import Absence, PositionChange
 from app.domain.employee import Employee
 from app.domain.errors import InvalidTransition, NotFound, ValidationError
 from app.domain.meeting_prep import MeetingPrep, build_meeting_prep
 from app.domain.reminder_schedule import ReminderSchedule, Stage, at_time, reminder_dates
 from app.domain.rulebook import RuleBook
-from app.domain.scoring import EvaluationResult
+from app.domain.scoring import EvaluationResult, Outcome
 
 from .ports import Clock, CycleRepository, EmployeeDirectory
 
@@ -68,6 +68,7 @@ class EvaluationService:
         self.calendar = calendar or WorkingCalendar()
         self._new_id = new_id
         self.deputies = deputies  # evaluator id, day -> ids of people standing in for them that day
+        self.objection_reviewer = "kadry"  # who decides objections (office setting, art. 83 ust. 1: DG)
 
     def _as_evaluator(self, cycle_id: str, actor_id: str, step: str,
                       action: Callable[[EvaluationCycle, str], Any]) -> Any:
@@ -117,16 +118,18 @@ class EvaluationService:
         start_date: date | None = None,
         after_negative: bool | None = None,
         negative_acknowledged_on: date | None = None,
+        previous_evaluation: PreviousEvaluation | None = None,
     ) -> EvaluationCycle:
         """Open a cycle. Defaults: start = day the previous evaluation was drawn up (else today, i.e. hiring);
         `after_negative` from the previous outcome (shortens the criteria deadline, § 7 pkt 2);
-        `negative_acknowledged_on` from the previous evaluation (starts the re-evaluation, art. 81 ust. 9)."""
+        `negative_acknowledged_on` from the previous evaluation (starts the re-evaluation, art. 81 ust. 9);
+        `previous_evaluation` overrides the directory's data (the cycle that has just ended)."""
         emp = self._employee(employee_id)
         if not emp.evaluator_id:
             raise ValidationError([f"Pracownik {emp.full_name} nie ma przypisanego oceniającego."])
         if self.cycles.find_open_for(employee_id) is not None:
             raise InvalidTransition(f"{emp.full_name} ma już otwarty cykl oceny.")
-        prev = emp.previous_evaluation
+        prev = previous_evaluation or emp.previous_evaluation
         today = self.clock.today()
         if start_date is None:
             start_date = prev.date if prev and prev.date else today
@@ -240,6 +243,8 @@ class EvaluationService:
         if c.status in (Status.CRITERIA_CONFIRMED, Status.MEETING_HELD):
             start = c.criteria_confirmed_on or c.criteria_set_on or c.start_date
             return Stage.PERIOD, start, c.evaluation_deadline(self.rules, self.calendar), c.evaluator_id,                 "przeprowadź rozmowę oceniającą i sporządź ocenę"
+        if c.status is Status.OBJECTION and c.objection_filed_on:
+            return Stage.OBJECTION_REVIEW, c.objection_filed_on, c.objection_review_deadline(self.rules, self.calendar),                 self.objection_reviewer, "rozpatrz sprzeciw od oceny okresowej"
         if c.status is Status.EVALUATION_DONE and c.evaluated_on:
             return Stage.ACKNOWLEDGEMENT, c.evaluated_on,                 c.evaluated_on + timedelta(days=ACKNOWLEDGEMENT_WINDOW_DAYS), c.employee_id, "zapoznaj się z oceną"
         return None
@@ -308,6 +313,44 @@ class EvaluationService:
             a, today, self.rules, scores, justification, iprz_conclusions))
 
     def acknowledge(self, cycle_id: str, actor_id: str) -> EvaluationCycle:
+        """The evaluated person acknowledges the evaluation – and the next cycle starts on its own, so its deadline
+        runs automatically: 24 months (reguly.json) from drawing up the evaluation, or – after a negative one – the
+        re-evaluation 6 months from acknowledging it (art. 81 ust. 9) with criteria within 7 days (§ 7 pkt 2)."""
         today = self.clock.today()
         self._apply(cycle_id, lambda c: c.acknowledge(actor_id, today))
+        done = self._cycle(cycle_id)
+        self.start_next_cycle(done)
+        return done
+
+    # ---- objection (art. 83) ------------------------------------------------------------------------
+    def file_objection(self, cycle_id: str, actor_id: str, text: str) -> EvaluationCycle:
+        today = self.clock.today()
+        self._apply(cycle_id, lambda c: c.file_objection(actor_id, today, text, self.rules, self.calendar))
         return self._cycle(cycle_id)
+
+    def decide_objection(self, cycle_id: str, reviewer_id: str, upheld: bool, reason: str) -> EvaluationCycle:
+        """Upheld: the evaluation returns to the evaluator; the follow-up cycle started automatically at the
+        acknowledgement is removed if nobody has worked on it yet (it was computed from the old result) – it
+        starts again when the evaluation, changed or drawn up again, is acknowledged."""
+        today = self.clock.today()
+        before = self._cycle(cycle_id)
+        self._apply(cycle_id, lambda c: c.decide_objection(reviewer_id, today, upheld, reason))
+        if upheld:  # the reopened evaluation is open again too, so look for the follow-up explicitly
+            for f in self.cycles.list_all():
+                if (f.id != cycle_id and f.employee_id == before.employee_id and f.status is Status.CYCLE_STARTED
+                        and f.previous_evaluation and f.previous_evaluation.acknowledged == before.acknowledged_on):
+                    self.cycles.delete(f.id)
+        return self._cycle(cycle_id)
+
+    def start_next_cycle(self, done: EvaluationCycle) -> EvaluationCycle | None:
+        """Open the cycle that follows an acknowledged evaluation (None if one is open or there is no evaluator)."""
+        emp = self.employees.get(done.employee_id)
+        if emp is None or not emp.evaluator_id or self.cycles.find_open_for(done.employee_id) is not None:
+            return None
+        result = done.result
+        negative = result is not None and result.outcome is Outcome.NEGATIVE
+        previous = PreviousEvaluation(result.outcome.value if result else None, result.level if result else None,
+                                      done.evaluated_on, acknowledged=done.acknowledged_on)
+        return self.start_cycle(
+            done.employee_id, start_date=done.evaluated_on or done.acknowledged_on, after_negative=negative,
+            negative_acknowledged_on=done.acknowledged_on if negative else None, previous_evaluation=previous)

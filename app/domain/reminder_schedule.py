@@ -24,6 +24,7 @@ class Stage(str, Enum):
     CRITERIA = "WYZNACZENIE_KRYTERIOW"  # cycle started -> criteria set and confirmed (30 / 7 days)
     PERIOD = "OKRES_OCENY"  # criteria confirmed -> evaluation drawn up (24 months or 6 after a negative one)
     ACKNOWLEDGEMENT = "ZAPOZNANIE"  # evaluation drawn up -> employee acknowledged it
+    OBJECTION_REVIEW = "ROZPATRZENIE_SPRZECIWU"  # objection filed -> decided (14 days, art. 83 ust. 3)
 
 
 class RuleKind(str, Enum):

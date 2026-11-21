@@ -409,3 +409,10 @@ dialog.modal { border: 1px solid var(--border); border-radius: var(--radius); pa
 dialog.modal::backdrop { background: rgba(15, 34, 64, .45); }
 dialog.modal h2 { margin-bottom: 6px; }
 dialog.modal input[type="date"] { width: 100%; }
+
+/* settings: requirements of the regulation, deadlines card */
+table.data.rules { min-width: 0; }
+table.data.rules td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.deadlines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.deadlines li { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; font-size: 13px; }
+.deadlines .when { white-space: nowrap; text-align: right; }

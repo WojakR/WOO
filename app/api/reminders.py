@@ -82,6 +82,8 @@ def set_office_schedule(body: s.UstawieniaPrzypomnienIn, x_user_id: str | None =
 
 def _person(st: DemoState, emp_id: str) -> s.OsobaRef:
     e = st.directory.get(emp_id)
+    if e is None:  # e.g. "kadry" deciding objections (office setting) – not a person in the directory
+        return s.OsobaRef(id=0, imie="Dział", nazwisko="kadr")
     return s.OsobaRef(id=st.employee_number(e.id), imie=e.first_name, nazwisko=e.last_name, stanowisko=e.position)
 
 

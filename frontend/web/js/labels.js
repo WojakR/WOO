@@ -20,7 +20,7 @@ export const STATUS_LABEL = {
 };
 
 export function stageIndex(status) {
-  if (status === "ZAKONCZONA") return STAGES.length; // all done
+  if (status === "ZAKONCZONA" || status === "SPRZECIW") return STAGES.length; // all done (objection comes after)
   const i = STAGES.findIndex((s) => s.status === status);
   return i < 0 ? 0 : i;
 }
@@ -42,6 +42,8 @@ export const ACTION_LABEL = {
   ZATWIERDZ_OCENE: "Zatwierdź ocenę i przekaż do zapoznania",
   POTWIERDZ_ZAPOZNANIE: "Potwierdzam zapoznanie się z oceną",
   FIKCJA_ZAPOZNANIA: "Stwierdź fikcję zapoznania",
+  ZLOZ_SPRZECIW: "Złóż sprzeciw",
+  ROZPATRZ_SPRZECIW: "Rozpatrz sprzeciw",
 };
 
 export const ACTION_DONE = {
@@ -50,6 +52,8 @@ export const ACTION_DONE = {
   ROZPOCZNIJ_ROZMOWE: "Rozpoczęto etap rozmowy oceniającej.",
   ZATWIERDZ_OCENE: "Ocena zatwierdzona i przekazana do zapoznania.",
   POTWIERDZ_ZAPOZNANIE: "Potwierdzono zapoznanie się z oceną.",
+  ZLOZ_SPRZECIW: "Sprzeciw złożony. Rozpatruje go dyrektor generalny w ciągu 14 dni.",
+  ROZPATRZ_SPRZECIW: "Sprzeciw rozpatrzony.",
 };
 
 export const WHO_LABEL = { OCENIAJACY: "oceniający", OCENIANY: "oceniany", KADRY: "kadry", NIKT: "–" };
