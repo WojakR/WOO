@@ -68,6 +68,7 @@ class EvaluationService:
         self.calendar = calendar or WorkingCalendar()
         self._new_id = new_id
         self.deputies = deputies  # evaluator id, day -> ids of people standing in for them that day
+        self.objection_reviewer = "kadry"  # who decides objections (office setting, art. 83 ust. 1: DG)
 
     def _as_evaluator(self, cycle_id: str, actor_id: str, step: str,
                       action: Callable[[EvaluationCycle, str], Any]) -> Any:
@@ -242,6 +243,8 @@ class EvaluationService:
         if c.status in (Status.CRITERIA_CONFIRMED, Status.MEETING_HELD):
             start = c.criteria_confirmed_on or c.criteria_set_on or c.start_date
             return Stage.PERIOD, start, c.evaluation_deadline(self.rules, self.calendar), c.evaluator_id,                 "przeprowadź rozmowę oceniającą i sporządź ocenę"
+        if c.status is Status.OBJECTION and c.objection_filed_on:
+            return Stage.OBJECTION_REVIEW, c.objection_filed_on, c.objection_review_deadline(self.rules, self.calendar),                 self.objection_reviewer, "rozpatrz sprzeciw od oceny okresowej"
         if c.status is Status.EVALUATION_DONE and c.evaluated_on:
             return Stage.ACKNOWLEDGEMENT, c.evaluated_on,                 c.evaluated_on + timedelta(days=ACKNOWLEDGEMENT_WINDOW_DAYS), c.employee_id, "zapoznaj się z oceną"
         return None
@@ -318,6 +321,26 @@ class EvaluationService:
         done = self._cycle(cycle_id)
         self.start_next_cycle(done)
         return done
+
+    # ---- objection (art. 83) ------------------------------------------------------------------------
+    def file_objection(self, cycle_id: str, actor_id: str, text: str) -> EvaluationCycle:
+        today = self.clock.today()
+        self._apply(cycle_id, lambda c: c.file_objection(actor_id, today, text, self.rules, self.calendar))
+        return self._cycle(cycle_id)
+
+    def decide_objection(self, cycle_id: str, reviewer_id: str, upheld: bool, reason: str) -> EvaluationCycle:
+        """Upheld: the evaluation returns to the evaluator; the follow-up cycle started automatically at the
+        acknowledgement is removed if nobody has worked on it yet (it was computed from the old result) – it
+        starts again when the evaluation, changed or drawn up again, is acknowledged."""
+        today = self.clock.today()
+        before = self._cycle(cycle_id)
+        self._apply(cycle_id, lambda c: c.decide_objection(reviewer_id, today, upheld, reason))
+        if upheld:  # the reopened evaluation is open again too, so look for the follow-up explicitly
+            for f in self.cycles.list_all():
+                if (f.id != cycle_id and f.employee_id == before.employee_id and f.status is Status.CYCLE_STARTED
+                        and f.previous_evaluation and f.previous_evaluation.acknowledged == before.acknowledged_on):
+                    self.cycles.delete(f.id)
+        return self._cycle(cycle_id)
 
     def start_next_cycle(self, done: EvaluationCycle) -> EvaluationCycle | None:
         """Open the cycle that follows an acknowledged evaluation (None if one is open or there is no evaluator)."""

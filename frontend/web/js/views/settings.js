@@ -7,6 +7,7 @@ const STAGES = [
   ["WYZNACZENIE_KRYTERIOW", "Wyznaczenie kryteriów (do 30 dni)", "np. co 7 dni: „wyznacz kryteria”"],
   ["OKRES_OCENY", "Okres oceny (12–24 miesiące)", "np. po 50 % i 75 % okresu, 2 miesiące i 2 tygodnie przed terminem"],
   ["ZAPOZNANIE", "Zapoznanie się z oceną", "np. co 3 dni, dopóki oceniany nie potwierdzi"],
+  ["ROZPATRZENIE_SPRZECIWU", "Rozpatrzenie sprzeciwu (14 dni)", "dla rozpatrującego sprzeciw, np. 7 i 2 dni przed terminem"],
 ];
 const KINDS = [
   ["CO_DNI", "co … dni"], ["DNI_PRZED", "… dni przed terminem"], ["TYGODNIE_PRZED", "… tygodni przed terminem"],

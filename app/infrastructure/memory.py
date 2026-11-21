@@ -24,10 +24,15 @@ class InMemoryCycleRepository:
         return [copy.deepcopy(c) for c in self._items.values()]
 
     def find_open_for(self, employee_id: str) -> EvaluationCycle | None:
+        """The running cycle. An acknowledged evaluation – also one under objection – is not "open": the next
+        cycle already runs next to it."""
         for c in self._items.values():
-            if c.employee_id == employee_id and c.status is not Status.ACKNOWLEDGED:
+            if c.employee_id == employee_id and c.status not in (Status.ACKNOWLEDGED, Status.OBJECTION):
                 return copy.deepcopy(c)
         return None
+
+    def delete(self, cycle_id: str) -> None:
+        self._items.pop(cycle_id, None)
 
 
 class SystemClock:

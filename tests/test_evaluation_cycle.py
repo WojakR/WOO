@@ -35,7 +35,7 @@ def _scores(svc, cycle_id, values):
 def test_statuses_match_kprm_data():
     assert {s.value for s in Status} <= set(R.statuses)
     assert set(TRANSITIONS) == {"set_criteria", "confirm_criteria", "record_review_meeting",
-                                "submit_evaluation", "acknowledge"}
+                                "submit_evaluation", "acknowledge", "file_objection", "decide_objection"}
 
 
 def test_full_cycle_happy_path(svc, clock):
@@ -67,7 +67,7 @@ def test_full_cycle_happy_path(svc, clock):
 
     c = svc.acknowledge(c.id, EMP)
     assert c.status is Status.ACKNOWLEDGED
-    assert [s for _, s in c.history] == list(Status)
+    assert [s for _, s in c.history] == [s for s in Status if s is not Status.OBJECTION]  # no objection here
 
 
 def test_disallowed_transitions_rejected(svc):

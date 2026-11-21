@@ -37,6 +37,7 @@ STATUS_MAP = {
     Status.MEETING_HELD: s.StatusOceny.ROZMOWA_OCENIAJACA,
     Status.EVALUATION_DONE: s.StatusOceny.OCENA_DO_ZAPOZNANIA,
     Status.ACKNOWLEDGED: s.StatusOceny.ZAKONCZONA,
+    Status.OBJECTION: s.StatusOceny.SPRZECIW,
 }
 
 # API action -> (domain step, who performs it)
@@ -46,6 +47,8 @@ ACTIONS = {
     s.Akcja.ROZPOCZNIJ_ROZMOWE: ("record_review_meeting", "evaluator"),
     s.Akcja.ZATWIERDZ_OCENE: ("submit_evaluation", "evaluator"),
     s.Akcja.POTWIERDZ_ZAPOZNANIE: ("acknowledge", "employee"),
+    s.Akcja.ZLOZ_SPRZECIW: ("file_objection", "employee"),
+    s.Akcja.ROZPATRZ_SPRZECIW: ("decide_objection", "reviewer"),  # director general (office setting)
 }
 
 # API field (EvaluationOut / EvaluationPatch) <-> domain field
@@ -69,6 +72,7 @@ NEXT_STEP = {
     Status.MEETING_HELD: ("Sporządź ocenę", "OCENIAJACY"),
     Status.EVALUATION_DONE: ("Zapoznanie się z oceną", "OCENIANY"),
     Status.ACKNOWLEDGED: (None, "NIKT"),
+    Status.OBJECTION: ("Rozpatrz sprzeciw", "KADRY"),
 }
 
 
@@ -162,11 +166,12 @@ def _validations(st: DemoState, c: EvaluationCycle) -> list[s.Walidacja]:
     return out
 
 
-def _allowed_actions(c: EvaluationCycle, actor: str, as_evaluator: bool) -> list[s.Akcja]:
-    """`as_evaluator`: the evaluator or their active deputy (access policy); managers above only read."""
+def _allowed_actions(c: EvaluationCycle, actor: str, as_evaluator: bool, reviewer: str) -> list[s.Akcja]:
+    """`as_evaluator`: the evaluator or their active deputy (access policy); managers above only read.
+    `reviewer`: who decides objections (office setting)."""
     out = []
     for akcja, (step, who) in ACTIONS.items():
-        allowed = as_evaluator if who == "evaluator" else actor == c.employee_id
+        allowed = {"evaluator": as_evaluator, "employee": actor == c.employee_id, "reviewer": actor == reviewer}[who]
         # set_criteria may repeat while not confirmed, but "approve criteria" is offered only once
         repeat = step == "set_criteria" and c.status is Status.CRITERIA_SET
         if allowed and c.status in TRANSITIONS[step][0] and not repeat:
@@ -178,6 +183,16 @@ def _editable(c: EvaluationCycle, as_evaluator: bool) -> list[str]:
     if not as_evaluator:
         return []
     return [FIELDS_BACK[f] for f, statuses in EDITABLE_IN.items() if c.status in statuses and f in FIELDS_BACK]
+
+
+def _objection_out(st: DemoState, c: EvaluationCycle) -> s.SprzeciwOut | None:
+    if c.objection_filed_on is None:
+        return None
+    rules, cal = st.evaluations.rules, st.evaluations.calendar
+    return s.SprzeciwOut(zlozony=c.objection_filed_on, tresc=c.objection_text,
+                         termin_rozpatrzenia=c.objection_review_deadline(rules, cal), decyzja=c.objection_decision,
+                         rozstrzygnieto=c.objection_decided_on, uzasadnienie_decyzji=c.objection_reason,
+                         termin_odwolania_do_sadu=c.labour_court_deadline(rules, cal))
 
 
 def _podpis(st: DemoState, day: date | None, who: Employee | None) -> s.Podpis:
@@ -214,7 +229,8 @@ def _evaluation_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.Evaluati
             termin_sprzeciwu=c.objection_deadline(svc.rules, svc.calendar),
         ),
         jako_oceniajacy=as_evaluator,
-        dozwolone_akcje=_allowed_actions(c, actor, as_evaluator), edytowalne_pola=_editable(c, as_evaluator),
+        sprzeciw=_objection_out(st, c),
+        dozwolone_akcje=_allowed_actions(c, actor, as_evaluator, st.settings.objection_reviewer), edytowalne_pola=_editable(c, as_evaluator),
         walidacje=_validations(st, c), updated_at=ver.updated_at,
     )
 
@@ -303,10 +319,12 @@ def _dashboard_item(st: DemoState, e: Employee, c: EvaluationCycle, today: date)
         due = c.criteria_deadline
     elif c.status in (Status.CRITERIA_CONFIRMED, Status.MEETING_HELD):
         due = deadline
+    elif c.status is Status.OBJECTION:
+        due = c.objection_review_deadline(svc.rules, svc.calendar)
     else:
         due = None
     days = (due - today).days if due else None
-    done = c.status in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED)
+    done = c.status in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED, Status.OBJECTION)
     return s.DashboardItem(
         evaluation_id=int(c.id), oceniany=_osoba(st, e), arkusz=s.Arkusz(c.sheet), status=STATUS_MAP[c.status],
         nastepny_krok=step, kto_dziala=who, termin=due or deadline, dni_do_terminu=days, pilnosc=_urgency(days),
@@ -418,6 +436,15 @@ def action(evaluation_id: int, akcja: s.Akcja, body: s.ActionIn | None = None,
         svc.submit_evaluation(c.id, actor)
     elif akcja is s.Akcja.POTWIERDZ_ZAPOZNANIE:
         svc.acknowledge(c.id, actor)
+    elif akcja is s.Akcja.ZLOZ_SPRZECIW:
+        svc.file_objection(c.id, actor, (body.komentarz if body else None) or "")
+    elif akcja is s.Akcja.ROZPATRZ_SPRZECIW:
+        if actor != st.settings.objection_reviewer:
+            raise NotAuthorized("Sprzeciw rozpatruje dyrektor generalny urzędu (art. 83 ust. 1) – w ustawieniach "
+                                "urzędu wskazana osoba.")
+        if body is None or body.uwzglednij is None:
+            raise ValidationError(["Wybierz rozstrzygnięcie: sprzeciw uwzględniony albo nieuwzględniony."])
+        svc.decide_objection(c.id, actor, body.uwzglednij, body.komentarz or "")
     st.touch(c.id)
     return _evaluation_out(st, svc.cycles.get(c.id), actor)
 
