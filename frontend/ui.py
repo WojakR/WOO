@@ -44,6 +44,20 @@ div[data-testid="stToast"] p { font-size: 1.2rem; font-weight: 600; line-height:
 section[data-testid="stSidebar"] .stButton button { justify-content: flex-start; min-height: 2.8rem; }
 section[data-testid="stSidebar"] .stButton button div,
 section[data-testid="stSidebar"] .stButton button p { justify-content: flex-start; text-align: left; font-weight: 600; }
+/* loading: a spinner in the middle of the screen while the page works (shown after a short delay) */
+.stApp[data-test-script-state="running"]::after {
+  content: ""; position: fixed; top: 50%; left: 50%; width: 64px; height: 64px; margin: -32px 0 0 -32px;
+  border: 7px solid rgba(127,127,127,.25); border-top-color: var(--blue); border-radius: 50%; z-index: 100000;
+  opacity: 0; animation: aoo-spin .8s linear infinite, aoo-show .01s linear .35s forwards; pointer-events: none; }
+@keyframes aoo-spin { to { transform: rotate(360deg); } }
+@keyframes aoo-show { to { opacity: 1; } }
+/* team list: the whole row opens the evaluation (an invisible full-size button over the row) */
+[class*="st-key-row_"] { position: relative; }
+[class*="st-key-row_"]:hover { background: var(--grey-bg); cursor: pointer; }
+[class*="st-key-rowbtn_"] { position: absolute !important; inset: 0; z-index: 3; margin: 0 !important; width: auto !important; }
+[class*="st-key-rowbtn_"] .stButton, [class*="st-key-rowbtn_"] button { width: 100%; height: 100%; }
+[class*="st-key-rowbtn_"] button { background: transparent !important; border: none !important; color: transparent !important;
+                                   cursor: pointer; }
 /* overview: stat cards */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 8px 0 12px; }
 .stat .v { font-size: 2rem; font-weight: 700; line-height: 1.2; }
@@ -74,7 +88,8 @@ button[data-testid="stBaseButton-tertiary"] div, button[data-testid="stBaseButto
 .step .n { font-size: .7rem; color: var(--muted); font-weight: 600; letter-spacing: .02em; }
 .step .t { font-weight: 650; font-size: .9rem; line-height: 1.2; }
 .step { position: relative; }
-.step .d { font-size: .72rem; color: var(--ink); font-weight: 600; margin-top: 2px; }
+.step .d { display: inline-block; font-size: .8rem; color: var(--ink); font-weight: 700; margin-top: 4px;
+           padding: 1px 6px; border-radius: 6px; background: var(--grey-bg); }
 /* the line between steps: the process is one sequence */
 .step:not(.last)::after { content: ""; position: absolute; top: 50%; right: calc(-1rem - 1px); width: calc(1rem + 1px);
                           height: 3px; background: var(--line); z-index: 0; }
@@ -114,7 +129,7 @@ SOURCE_TEXT = {
     "SZABLON": "przygotowane z gotowego szablonu i danych oceny – bez udziału AI",
     "REGULY": "wyliczone z reguł (słowa kluczowe, terminy, notatki) – bez udziału AI",
 }
-FONT_SCALES = {"Standardowa": 1.0, "Duża": 1.2, "Bardzo duża": 1.4}
+FONT_SCALES = {"Standardowa": 1.2, "Duża": 1.4, "Bardzo duża": 1.6}
 URGENCY = {"late": ("Po terminie", "b-red"), "soon": ("Wkrótce", "b-amber"),
            "ok": ("W terminie", "b-green"), "none": ("Zakończona", "b-grey")}
 

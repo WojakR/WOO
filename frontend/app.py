@@ -21,7 +21,7 @@ from frontend.views import employee, evaluation, team
 
 st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide",
                    initial_sidebar_state="expanded")
-st.session_state.setdefault("a11y_font", "Duża")  # larger text by default – easier to read
+st.session_state.setdefault("a11y_font", "Standardowa")  # 120 % of the browser default – easier to read
 st.session_state.setdefault("ai_on", True)
 st.session_state.setdefault("user_id", "henryk.pryncypal")
 st.session_state.setdefault("view", "team")
@@ -94,9 +94,6 @@ with st.sidebar:
 
     st.divider()
     with st.expander("⚙️ Ustawienia", expanded=False):
-        st.toggle("🤖 Asystent AI", key="ai_on",
-                  help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: wskazówki do rozmów, propozycje "
-                       "przypisania notatek, sugerowane oceny, szkice tekstów i HR partnera. Proces oceny działa bez zmian.")
         st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font")
         st.toggle("Wysoki kontrast", key="a11y_contrast",
                   help="Ciemniejszy tekst pomocniczy, grubsze obramowania i podkreślone odnośniki.")
@@ -143,7 +140,11 @@ with st.sidebar:
     st.caption(f"Data: {ui.fmt(meta['dzis'])} · Asystent AI: {chip}")
 
 # ---------------------------------------------------------------- header: who + notifications
-who, bell_col = st.columns([5, 1], vertical_alignment="center")
+who, ai_col, bell_col = st.columns([4.2, 1.3, 0.9], vertical_alignment="center")
+with ai_col.container(horizontal_alignment="right"):
+    st.toggle("🤖 Asystent AI", key="ai_on",
+              help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: wskazówki do rozmów, propozycje przypisania "
+                   "notatek, sugerowane oceny, szkice tekstów i HR partnera. Proces oceny działa bez zmian.")
 role = "kadry" if me["rola"] == "KADRY" else "oceniający" if me["czy_oceniajacy"] else "oceniany"
 who.markdown(f"<span class='lock'>Zalogowano jako (demo):</span> **{name(me['pracownik'])}** · {role} · "
              f"<span class='lock'>{me['urzad']}</span>", unsafe_allow_html=True)
@@ -163,7 +164,7 @@ with bell_col.popover(f"🔔 {len(unread)}" if unread else "🔔", use_container
                   args=(n["id"], n.get("evaluation_id")),
                   help="Kliknij, aby oznaczyć jako przeczytane" + (" i otworzyć ocenę" if evaluator_ui else ""))
 if not ai:
-    st.info("Asystent AI jest wyłączony – aplikacja działa bez podpowiedzi. Włączysz go w menu: ⚙️ Ustawienia.")
+    st.info("Asystent AI jest wyłączony – aplikacja działa bez podpowiedzi. Włączysz go przełącznikiem w prawym górnym rogu.")
 
 # ---------------------------------------------------------------- routing
 if not evaluator_ui:

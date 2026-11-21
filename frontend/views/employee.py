@@ -95,11 +95,6 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
             st.markdown("**Moje kryteria**")
             ui.html(ui.ul(k["nazwa"] for k in ev["kryteria"]))
         if ev["status"] in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"):
-            if st.button("🖨️ Przygotuj PDF arkusza", key=f"emp_pdf_{eid}"):
-                try:
-                    st.session_state[f"emp_pdf_{eid}_data"] = api.pdf(eid)
-                except ApiError as e:
-                    st.error(e.komunikat)
-            data = st.session_state.get(f"emp_pdf_{eid}_data")
-            if data:
-                st.download_button("⬇️ Pobierz arkusz oceny (PDF)", data[0], file_name=data[1], mime="application/pdf")
+            from frontend.views.evaluation import pdf_button
+
+            pdf_button(api, ev, key="emp_pdf")

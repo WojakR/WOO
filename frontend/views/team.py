@@ -180,14 +180,14 @@ def render(api: Api, me: dict) -> None:
                        help=("Po terminie / Wkrótce (do 30 dni) / W terminie – termin bieżącego etapu. "
                              if key == "pilnosc" else "") + "Kliknij, aby posortować; ponownie – odwrotnie.")
         for i in view:
-            with st.container(border=True):
+            eid = i["evaluation_id"]
+            with st.container(border=True, key=f"row_{eid}" if eid else None):
+                if eid:  # the whole row is one button (CSS stretches it over the row)
+                    st.button(f"Otwórz ocenę: {name(i['oceniany'])}", key=f"rowbtn_{eid}", on_click=open_evaluation,
+                              args=(eid,), help="Otwórz ocenę pracownika")
                 c = st.columns(widths, vertical_alignment="center")
                 c[0].markdown(ui.urgency_badge(_urgency(i)), unsafe_allow_html=True)
-                if i["evaluation_id"]:
-                    c[1].button(f"**{name(i['oceniany'])}** →", key=f"open_{i['evaluation_id']}", type="tertiary",
-                                on_click=open_evaluation, args=(i["evaluation_id"],), help="Otwórz ocenę")
-                else:
-                    c[1].markdown(f"**{name(i['oceniany'])}**")
+                c[1].markdown(f"**{name(i['oceniany'])}**" + (" →" if eid else ""))
                 c[1].caption(i["oceniany"].get("stanowisko") or "")
                 c[2].markdown(i.get("komorka") or "—")
                 c[3].markdown(i["arkusz"])

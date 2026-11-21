@@ -294,13 +294,25 @@ def _note_row(api: Api, ev: dict, n: dict, crit: dict, can_edit: bool, ai: bool)
     sug = n.get("sugestie_ai") or []
     if ai and not n.get("criterion_kod") and sug:
         s0 = sug[0]
-        cols = st.columns([3, 1], vertical_alignment="center")
-        cols[0].caption(f"Propozycja ({'AI' if n.get('zrodlo_sugestii') == 'AI' else 'reguły'}): "
-                        f"{s0.get('nazwa') or s0['criterion_kod']} {SENTIMENTS.get(s0.get('wydzwiek'), '')} "
-                        f"({int(s0['pewnosc'] * 100)}%)")
-        if cols[1].button("Przyjmij", key=f"acc_{n['id']}", use_container_width=True):
-            _call(api.patch_note, n["id"], zaakceptuj_sugestie=True, ok="Przypisano notatkę.")
-            st.rerun()
+        crit_name = s0.get("nazwa") or crit.get(s0["criterion_kod"], {}).get("nazwa", s0["criterion_kod"])
+        source = ("model AI" if n.get("zrodlo_sugestii") == "AI"
+                  else "dopasowanie słów kluczowych, bez AI")
+        if s0.get("wydzwiek"):
+            cols = st.columns([3, 1], vertical_alignment="center")
+            cols[0].caption(f"✨ Propozycja ({source}): **{crit_name}**, {SENTIMENTS[s0['wydzwiek']]} "
+                            f"({int(s0['pewnosc'] * 100)}%)")
+            if cols[1].button("Przyjmij", key=f"acc_{n['id']}", use_container_width=True):
+                _call(api.patch_note, n["id"], zaakceptuj_sugestie=True, ok="Przypisano notatkę.")
+                st.rerun()
+        else:
+            # rule-based proposals name the criterion only – the evaluator picks the sentiment with one click
+            st.caption(f"✨ Propozycja ({source}): **{crit_name}**. Wybierz wydźwięk, aby przyjąć:")
+            cols = st.columns(3)
+            for col, (val, label) in zip(cols, (("POZYTYWNY", "👍 pozytywna"), ("NEUTRALNY", "neutralna"),
+                                               ("NEGATYWNY", "👎 negatywna"))):
+                if col.button(f"Przyjmij – {label}", key=f"acc_{n['id']}_{val}", use_container_width=True):
+                    _call(api.patch_note, n["id"], zaakceptuj_sugestie=True, wydzwiek=val, ok="Przypisano notatkę.")
+                    st.rerun()
     with st.popover("Przypisz / zmień"):
         codes = [k["criterion_kod"] for k in ev["kryteria"]]
         c = st.selectbox("Kryterium", codes, key=f"mc_{n['id']}",
@@ -434,15 +446,19 @@ def _result_box(c2: dict, scored: int, total: int) -> None:
             f'</b> · ocena <b>{c2["wynik"]}</b></div>')
 
 
-def _pdf_button(api: Api, ev: dict) -> None:
-    if st.button("🖨️ Przygotuj PDF arkusza", key=f"pdf_{ev['id']}"):
-        out = _call(api.pdf, ev["id"])
-        if out:
-            st.session_state[f"pdf_{ev['id']}_data"] = out
-    data = st.session_state.get(f"pdf_{ev['id']}_data")
-    if data:
-        st.download_button("⬇️ Pobierz PDF arkusza (wzór z rozporządzenia)", data[0], file_name=data[1],
-                           mime="application/pdf", key=f"pdfdl_{ev['id']}")
+def pdf_button(api: Api, ev: dict, key: str = "pdf") -> None:
+    """One button: the server's PDF of the sheet (fetched once per version of the evaluation)."""
+    ckey = (key, ev["id"], ev["updated_at"])
+    cache = st.session_state.setdefault("pdf_cache", {})
+    if ckey not in cache:
+        try:
+            cache[ckey] = api.pdf(ev["id"])
+        except ApiError as e:
+            st.caption(f"PDF niedostępny: {e.komunikat}")
+            return
+    data, filename = cache[ckey]
+    st.download_button("⬇️ Pobierz PDF arkusza", data, file_name=filename, mime="application/pdf",
+                       key=f"{key}dl_{ev['id']}", help="Arkusz zgodny ze wzorem z rozporządzenia, z serwera")
 
 
 def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
@@ -590,7 +606,7 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
                 st.rerun()
     with b:
         _action(api, ev, "ZATWIERDZ_OCENE", before=save_texts)
-    _pdf_button(api, ev)
+    pdf_button(api, ev)
 
 
 # ---------------------------------------------------------------- stage 5
@@ -609,7 +625,7 @@ def _stage_ack(api: Api, ev: dict) -> None:
             st.markdown(f"Termin na sprzeciw do dyrektora generalnego: **{ui.fmt(c2['termin_sprzeciwu'])}**.")
     for akcja in ("FIKCJA_ZAPOZNANIA", "POTWIERDZ_ZAPOZNANIE"):
         _action(api, ev, akcja)
-    _pdf_button(api, ev)
+    pdf_button(api, ev)
 
 
 # ---------------------------------------------------------------- side panel
