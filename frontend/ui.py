@@ -98,7 +98,7 @@ section[data-testid="stSidebar"] .stButton button p { justify-content: flex-star
 .st-key-hrfab button > div { justify-content: center !important; width: 100%; padding: 0 !important; margin: 0 !important; }
 .st-key-hrfab button > div > div:has([data-testid="stIconMaterial"]) { display: none !important; }
 .st-key-hrfab button > div > div:first-child { width: 100% !important; justify-content: center !important; }
-.st-key-hrfab button p { font-size: 1.9rem !important; line-height: 1 !important; margin: 0 !important; text-align: center; }
+.st-key-hrfab button p { font-size: 2.6rem !important; line-height: 1 !important; margin: 0 !important; text-align: center; }
 /* side menu: while the menu is rebuilt, the previous "current page" item is not highlighted any more
    (otherwise two items look selected for a moment) */
 section[data-testid="stSidebar"] [data-stale="true"] button[data-testid="stBaseButton-primary"] {
