@@ -43,3 +43,20 @@ AI_LOCAL_MODEL_TEXT = _secret("AI_LOCAL_MODEL_TEXT", _BIELIK)  # drafts, convers
 AI_LOCAL_MODEL_FAST = _secret("AI_LOCAL_MODEL_FAST", AI_LOCAL_MODEL_TEXT)  # note classification; a smaller model is fine
 AI_TIMEOUT_S = float(_secret("AI_TIMEOUT_S", "60"))
 AI_MIN_CONFIDENCE = float(_secret("AI_MIN_CONFIDENCE", "0.6"))
+
+# demo = the demo scenario, FixedClock with "przewiń czas", /api/demo/*; production = system clock (Warsaw),
+# no /api/demo/*, an empty database stays empty (no demo scenario)
+APP_MODE = _secret("APP_MODE", "demo").lower()
+# demo = identity switch in the top bar (X-User-Id); session = login + signed HttpOnly cookie, X-User-Id ignored
+AUTH_MODE = _secret("AUTH_MODE", "demo").lower()
+SECRET_KEY = _secret("SECRET_KEY", "")
+SESSION_HOURS = float(_secret("SESSION_HOURS", "10"))
+COOKIE_SECURE = _secret("COOKIE_SECURE", "0") == "1"  # 1 behind HTTPS
+
+# E-mail reminders (python -m app.application.notify_job); empty SMTP_HOST = no e-mail, in-app only
+SMTP_HOST = _secret("SMTP_HOST", "")
+SMTP_PORT = int(_secret("SMTP_PORT", "587"))
+SMTP_USER = _secret("SMTP_USER", "")
+SMTP_PASSWORD = _secret("SMTP_PASSWORD", "")
+SMTP_FROM = _secret("SMTP_FROM", "")
+SMTP_STARTTLS = _secret("SMTP_STARTTLS", "1") == "1"

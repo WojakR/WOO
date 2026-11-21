@@ -1,14 +1,19 @@
 // App shell: navigation, top bar (year, AI mode, demo identity and clock) and a hash router.
-import { api, currentUserId, setCurrentUserId } from "./api.js";
+import { api, currentUserId, setCurrentUserId, setSessionMode } from "./api.js";
 import { h, icon, replace, fmtDate, avatar, toast, loading } from "./ui.js";
 import { renderOverview } from "./views/overview.js";
 import { renderEvaluation } from "./views/evaluation.js";
 import { renderDeadlines } from "./views/deadlines.js";
 import { renderAbsences } from "./views/absences.js";
 import { renderPlaceholder } from "./views/placeholder.js";
+import { renderEmployees } from "./views/employees.js";
 import { renderSettings } from "./views/settings.js";
+import { renderLogin } from "./views/login.js";
 
-export const ctx = { me: null, meta: null, users: [], year: "all" };
+export const ctx = { me: null, meta: null, users: [], year: "all", auth: null };
+
+const isSession = () => ctx.auth?.tryb_logowania === "SESJA";
+const isDemoApp = () => ctx.meta?.tryb_aplikacji !== "PRODUKCJA";
 
 const NAV = [
   { href: "#/", label: "Moje oceny", icon: "clipboard", match: (p) => p === "/" || p.startsWith("/ocena") },
@@ -81,12 +86,19 @@ function renderTopbar() {
     renderTopbar();
     route();
   };
+  const logout = h("button", {
+    class: "btn btn-sm", type: "button", title: "Wyloguj",
+    onclick: async () => { await api.logout(); ctx.me = null; await boot(); },
+  }, icon("logOut"), "Wyloguj");
   replace(
     document.getElementById("topbar"),
     h("label", {}, "Rok oceny", yearSel),
     aiChip(),
     h("span", { class: "spacer" }),
-    h("div", { class: "demo-tools", "aria-label": "Narzędzia demonstracyjne" },
+    !isDemoApp() && h("span", { class: "small muted", title: "Data z zegara serwera" },
+      icon("calendar"), " ", ctx.meta ? fmtDate(ctx.meta.dzis) : "–"),
+    isSession() && logout,
+    isDemoApp() && h("div", { class: "demo-tools", "aria-label": "Narzędzia demonstracyjne" },
       h("span", { class: "demo-tag" }, "Demo"),
       h("span", { class: "small muted", title: "Data z zegara serwera, nie z przeglądarki" },
         icon("calendar"), " ", ctx.meta ? fmtDate(ctx.meta.dzis) : "–"),
@@ -97,7 +109,7 @@ function renderTopbar() {
         class: "btn btn-sm", type: "button", title: "Przywróć dane przykładowe",
         onclick: async () => { await api.reset(); await boot(); toast("Przywrócono dane przykładowe."); },
       }, icon("reset"), h("span", { class: "sr-only" }, "Przywróć dane przykładowe")),
-      h("label", {}, h("span", { class: "sr-only" }, "Zalogowany jako"), userSel))
+      !isSession() && h("label", {}, h("span", { class: "sr-only" }, "Zalogowany jako"), userSel))
   );
 }
 
@@ -111,7 +123,7 @@ async function route() {
     if (m) await renderEvaluation(view, Number(m[1]), ctx);
     else if (p.startsWith("/terminy")) await renderDeadlines(view, ctx);
     else if (p.startsWith("/nieobecnosci")) await renderAbsences(view, ctx, Number(p.split("/")[2]) || null);
-    else if (p.startsWith("/pracownicy")) renderPlaceholder(view, "Pracownicy", "Lista pracowników z danymi kadrowymi i historią ocen.");
+    else if (p.startsWith("/pracownicy")) await renderEmployees(view, ctx, Number(p.split("/")[2]) || null);
     else if (p.startsWith("/raporty")) renderPlaceholder(view, "Raporty", "Zestawienia dla kadr i dyrektora generalnego.");
     else if (p.startsWith("/ustawienia")) await renderSettings(view, ctx);
     else await renderOverview(view, ctx);
@@ -122,10 +134,22 @@ async function route() {
 }
 
 async function boot() {
-  if (!ctx.users.length) ctx.users = await api.users();
-  // default identity; also replaces an id remembered from an older version that the server no longer knows
-  if (!ctx.users.some((u) => String(u.id) === currentUserId())) {
-    setCurrentUserId(ctx.users.find((u) => u.nazwa === "Henryk Pryncypał")?.id ?? ctx.users[0].id);
+  ctx.auth = await api.authStatus();
+  setSessionMode(isSession());
+  if (isSession()) {
+    if (!ctx.auth.zalogowany) {
+      replace(document.getElementById("topbar"));
+      replace(document.getElementById("nav"));
+      replace(document.getElementById("nav-user"));
+      renderLogin(document.getElementById("view"), boot);
+      return;
+    }
+  } else {
+    if (!ctx.users.length) ctx.users = await api.users();
+    // default identity; also replaces an id remembered from an older version that the server no longer knows
+    if (!ctx.users.some((u) => String(u.id) === currentUserId())) {
+      setCurrentUserId(ctx.users.find((u) => u.nazwa === "Henryk Pryncypał")?.id ?? ctx.users[0].id);
+    }
   }
   [ctx.me, ctx.meta] = await Promise.all([api.me(), api.meta()]);
   renderTopbar();
@@ -133,7 +157,8 @@ async function boot() {
 }
 
 document.getElementById("brand-icon").append(icon("landmark", "icon-lg"));
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", () => { if (!isSession() || ctx.auth?.zalogowany) route(); });
+window.addEventListener("session-expired", () => { if (ctx.auth?.zalogowany) boot(); });
 boot().catch((e) => {
   replace(document.getElementById("view"),
     h("div", { class: "card card-pad notice notice-bad" }, icon("alert"), `Nie udało się uruchomić aplikacji: ${e.message}`));

@@ -30,6 +30,12 @@ class Clock(Protocol):
     def today(self) -> date: ...
 
 
+class Notifier(Protocol):
+    """Sends a message outside the application (e-mail). Adapters: app/infrastructure/notifier.py."""
+
+    def send(self, to: str, subject: str, body: str) -> None: ...
+
+
 # ---------------------------------------------------------------- AI model
 
 AiTask = Literal["classify", "text"]  # classify = short JSON (may use a smaller model), text = drafts

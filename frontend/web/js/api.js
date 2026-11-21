@@ -1,5 +1,11 @@
-// API client (contract: docs/api.md). Identity on the demo = X-User-Id header, chosen in the top bar.
+// API client (contract: docs/api.md). Identity: demo = X-User-Id header chosen in the top bar;
+// session mode (AUTH_MODE=session) = the HttpOnly session cookie, the header is not sent.
 const USER_KEY = "asystent.userId";
+let sessionMode = false;
+
+export function setSessionMode(on) {
+  sessionMode = Boolean(on);
+}
 
 export function currentUserId() {
   try {
@@ -28,22 +34,29 @@ export class ApiError extends Error {
 
 async function request(method, path, body) {
   const headers = { Accept: "application/json" };
-  const uid = currentUserId();
+  const uid = sessionMode ? null : currentUserId();
   if (uid) headers["X-User-Id"] = uid;
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const isForm = body instanceof FormData;  // file upload: the browser sets the multipart header
+  if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
   let res;
   try {
-    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : isForm ? body : JSON.stringify(body) });
   } catch {
     throw new ApiError(0, { komunikat: "Brak połączenia z serwerem." });
   }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => null);
+  if (res.status === 401 && sessionMode && !path.startsWith("/auth/")) {
+    window.dispatchEvent(new CustomEvent("session-expired"));
+  }
   if (!res.ok) throw new ApiError(res.status, data);
   return data;
 }
 
 export const api = {
+  authStatus: () => request("GET", "/auth/status"),
+  login: (login, haslo) => request("POST", "/auth/login", { login, haslo }),
+  logout: () => request("POST", "/auth/logout"),
   me: () => request("GET", "/me"),
   users: () => request("GET", "/users"),
   meta: () => request("GET", "/meta"),
@@ -52,6 +65,21 @@ export const api = {
   startEvaluation: (body) => request("POST", "/evaluations", body),
   absences: (employeeId) => request("GET", `/employees/${employeeId}/absences`),
   addAbsence: (employeeId, body) => request("POST", `/employees/${employeeId}/absences`, body),
+  employees: (query = "") => request("GET", `/employees${query ? `?${query}` : ""}`),
+  employee: (id) => request("GET", `/employees/${id}`),
+  employeeHistory: (id) => request("GET", `/employees/${id}/evaluations`),
+  importEmployees: (file, { podglad = false, uruchom_cykle = false } = {}) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request("POST", `/admin/employees/import?podglad=${podglad}&uruchom_cykle=${uruchom_cykle}`, form);
+  },
+  positionChange: (employeeId, body) => request("POST", `/employees/${employeeId}/position-changes`, body),
+  hrTasks: () => request("GET", "/kadry/zadania"),
+  audit: (id) => request("GET", `/evaluations/${id}/audit`),
+  requestDeadlineChange: (id, body) => request("POST", `/evaluations/${id}/deadline-changes`, body),
+  allDeadlineChanges: (status = "") => request("GET", `/deadline-changes${status ? `?status=${status}` : ""}`),
+  decideDeadlineChange: (id, body) => request("POST", `/deadline-changes/${id}/decision`, body),
+  evaluatorAbsence: (body) => request("POST", "/evaluator-absences", body),
   deadlineChanges: (id) => request("GET", `/evaluations/${id}/deadline-changes`),
   patch: (id, body) => request("PATCH", `/evaluations/${id}`, body),
   scores: (id, punkty) => request("PUT", `/evaluations/${id}/scores`, { punkty }),

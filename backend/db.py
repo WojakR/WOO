@@ -28,6 +28,32 @@ class Document(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class Account(SQLModel, table=True):
+    """A login (AUTH_MODE=session). `employee_id` = id from the employee directory, or `kadry` (HR)."""
+    __tablename__ = "konto"
+
+    login: str = Field(primary_key=True)
+    password_hash: str
+    employee_id: str
+    admin: bool = False
+    active: bool = True
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class AuditEntry(SQLModel, table=True):
+    """Dziennik zmian – append-only (app/infrastructure/audit_log.py never updates or deletes a row)."""
+    __tablename__ = "dziennik_zmian"
+
+    id: int | None = Field(default=None, primary_key=True)
+    at: datetime = Field(default_factory=_utcnow, index=True)  # UTC
+    user_id: str = Field(index=True)
+    evaluation_id: int | None = Field(default=None, index=True)
+    action: str  # e.g. AKCJA_ZATWIERDZ_OCENE, EDYCJA_POLA, NOTATKA_DODANA, POBRANIE_PDF
+    field: str | None = None
+    before: str | None = Field(default=None, sa_column=Column(Text))
+    after: str | None = Field(default=None, sa_column=Column(Text))
+
+
 @contextmanager
 def session():
     with Session(engine, expire_on_commit=False) as s:

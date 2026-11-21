@@ -57,6 +57,17 @@ class RuleBook:
     sheets: dict[str, tuple[str, ...]]  # sheet -> mandatory criterion ids, in form order
     criteria: dict[str, Criterion]
     statuses: tuple[str, ...]
+    deadline_change_after_months: int = 6  # art. 81 ust. 8: "więcej niż 6 miesięcy" since the last evaluation
+    # consequences of consecutive evaluations (reguly.json "skutki_ocen")
+    termination_after_negatives: int = 2  # art. 71 ust. 1 pkt 1 (civil servants only)
+    termination_notice_months: int = 3
+    termination_basis: str = "art. 71 ust. 1 pkt 1 ustawy o służbie cywilnej"
+    max_grade: int = 9
+    promotion_basis: str = "art. 89 ust. 1 ustawy o służbie cywilnej"
+    mandatory_grade_after: int = 2  # art. 89 ust. 2: two consecutive evaluations on one of the two top levels
+    mandatory_grade_levels: frozenset[str] = frozenset({"powyżej oczekiwań", "znacznie powyżej oczekiwań"})
+    mandatory_grade_basis: str = "art. 89 ust. 2 ustawy o służbie cywilnej"
+    mandatory_grade_days: int = 30  # … the next grade within 30 days of acknowledging the evaluation
 
     @classmethod
     def from_kprm(cls, rules: dict, sheets: dict, criteria: dict[str, dict]) -> RuleBook:
@@ -97,6 +108,8 @@ class RuleBook:
                 for cid, c in criteria.items()
             },
             statuses=tuple(rules["statusy_procesu"]),
+            deadline_change_after_months=terms["zmiana_terminu_mozliwa_po_miesiacach_od_ostatniej_oceny"],
+            **_consequences(rules.get("skutki_ocen") or {}, terms),
         )
 
     def mandatory(self, sheet: str) -> tuple[str, ...]:
@@ -108,3 +121,29 @@ class RuleBook:
     def criterion_name(self, cid: str) -> str:
         c = self.criteria.get(cid)
         return c.name if c else cid
+
+
+def _consequences(raw: dict, terms: dict) -> dict:
+    """reguly.json "skutki_ocen" -> RuleBook fields (missing keys keep the defaults above)."""
+    out: dict = {}
+    term = raw.get("rozwiazanie_stosunku_pracy") or {}
+    if "negatywnych_ocen_z_rzedu" in term:
+        out["termination_after_negatives"] = int(term["negatywnych_ocen_z_rzedu"])
+    if "okres_wypowiedzenia_miesiecy" in term:
+        out["termination_notice_months"] = int(term["okres_wypowiedzenia_miesiecy"])
+    if term.get("podstawa"):
+        out["termination_basis"] = term["podstawa"]
+    grade = raw.get("stopien_sluzbowy") or {}
+    if "najwyzszy_stopien" in grade:
+        out["max_grade"] = int(grade["najwyzszy_stopien"])
+    if grade.get("podstawa_wniosku"):
+        out["promotion_basis"] = grade["podstawa_wniosku"]
+    if "obligatoryjny_po_ocenach_z_rzedu" in grade:
+        out["mandatory_grade_after"] = int(grade["obligatoryjny_po_ocenach_z_rzedu"])
+    if grade.get("obligatoryjny_poziomy"):
+        out["mandatory_grade_levels"] = frozenset(grade["obligatoryjny_poziomy"])
+    if grade.get("podstawa_obligatoryjnego"):
+        out["mandatory_grade_basis"] = grade["podstawa_obligatoryjnego"]
+    if "obligatoryjny_stopien_dni_od_zapoznania" in terms:
+        out["mandatory_grade_days"] = int(terms["obligatoryjny_stopien_dni_od_zapoznania"])
+    return out

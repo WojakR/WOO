@@ -7,7 +7,7 @@ Identity on the demo: `X-User-Id` = employee id from pracownicy.json (e.g. `henr
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Response
@@ -26,7 +26,8 @@ from . import schemas as s
 from .errors import ApiProblem
 from .access import actor as _actor
 from .access import require_read, require_working_material
-from .state import HR, AbsenceRecord, DeadlineChangeRecord, DemoState, get_state, reset_state
+from . import auth
+from .state import HR, AbsenceRecord, DeadlineChangeRecord, DemoState, get_state, is_production, reset_state
 
 router = APIRouter(prefix="/api")
 
@@ -63,7 +64,11 @@ FIELDS = {
     "uzasadnienie": "justification",
     "wnioski_iprz": "iprz_conclusions",
     "poprzednia_ocena": "previous_evaluation",
+    "wniosek_o_stopien": "promotion_request",  # part III (art. 89 ust. 1) – civil servants only
+    "umotywowanie_wniosku": "promotion_motivation",
+    "posiadany_stopien": "held_grade",
 }
+PROMOTION_FIELDS = {"promotion_request", "promotion_motivation", "held_grade"}
 FIELDS_BACK = {v: k for k, v in FIELDS.items()}
 
 NEXT_STEP = {
@@ -92,10 +97,10 @@ def _osoba(st: DemoState, e: Employee | None) -> s.OsobaRef:
 def _employee_out(st: DemoState, e: Employee) -> s.EmployeeOut:
     boss = st.directory.get(e.evaluator_id) if e.evaluator_id else None
     return s.EmployeeOut(
-        id=st.employee_number(e.id), imie=e.first_name, nazwisko=e.last_name, email=f"{e.id}@urzad.example",
+        id=st.employee_number(e.id), imie=e.first_name, nazwisko=e.last_name, email=e.email or f"{e.id}@urzad.example",
         stanowisko=e.position, komorka=e.unit, arkusz=s.Arkusz(e.sheet),
-        # pracownicy.json has no civil-servant status (its "zalozenia_demo"): the demo assumes PRACOWNIK
-        typ_zatrudnienia=s.TypZatrudnienia.PRACOWNIK,
+        # from the HR data (import); the sample pracownicy.json has none -> PRACOWNIK
+        typ_zatrudnienia=s.TypZatrudnienia.URZEDNIK if e.civil_servant else s.TypZatrudnienia.PRACOWNIK,
         przelozony=_osoba(st, boss) if boss else None, rola=s.Rola.PRACOWNIK, aktywny=True,
     )
 
@@ -146,10 +151,38 @@ def _criteria_out(st: DemoState, c: EvaluationCycle) -> list[s.EvaluationCriteri
     return out
 
 
+def _promotion(st: DemoState, c: EvaluationCycle):
+    """Part III (art. 89): what the sheet says about the request for the next grade, and whether it is obligatory."""
+    from app.domain.consequences import mandatory_grade, would_be_mandatory
+    from app.domain.promotion import promotion_view
+
+    from .history import history_of
+
+    emp = st.directory.get(c.employee_id)
+    rules = st.evaluations.rules
+    result = _live_result(st, c)
+    positive = None if result is None else result.outcome is Outcome.POSITIVE
+    held = c.held_grade if c.held_grade is not None else (emp.grade if emp else None)
+    if c.status in (Status.ACKNOWLEDGED, Status.OBJECTION):
+        hist = history_of(st, c.employee_id)
+        sig = mandatory_grade(hist, emp.civil_servant, held, emp.grade_since, rules) if emp else None
+        mandatory = sig is not None and sig.evaluation_id == c.id
+    else:
+        hist = history_of(st, c.employee_id, exclude_cycle=c.id)
+        mandatory = bool(emp) and would_be_mandatory(hist, result.level if result else None, bool(positive),
+                                                     emp.civil_servant, held, emp.grade_since,
+                                                     c.evaluated_on or st.clock.today(), rules)
+    return promotion_view(bool(emp and emp.civil_servant), held, positive, c.promotion_request, mandatory, rules)
+
+
 def _validations(st: DemoState, c: EvaluationCycle) -> list[s.Walidacja]:
-    """Current blocking problems for submitting the evaluation (rules from the domain's rule book)."""
+    """Problems before submitting the evaluation: BLAD blocks, OSTRZEZENIE only informs."""
     if c.status is not Status.MEETING_HELD:
         return []
+    from app.domain.consequences import warning_before_submit
+
+    from .history import history_of
+
     rules = st.evaluations.rules
     out: list[s.Walidacja] = []
     for cid in c.criteria_ids(rules):
@@ -164,6 +197,20 @@ def _validations(st: DemoState, c: EvaluationCycle) -> list[s.Walidacja]:
     if rules.iprz_required and not c.iprz_conclusions.strip():
         out.append(s.Walidacja(kod="IPRZ_WYMAGANE", pole="wnioski_iprz", waga=s.Waga.BLAD,
                                komunikat="Wnioski dotyczące indywidualnego programu rozwoju zawodowego są obowiązkowe."))
+    if c.promotion_request:
+        view = _promotion(st, c)
+        if not view.can_request:
+            out.append(s.Walidacja(kod="STOPIEN_NIEDOZWOLONY", pole="wniosek_o_stopien", waga=s.Waga.BLAD,
+                                   komunikat=view.blocked_reason or "Wniosek o stopień nie jest możliwy."))
+        elif not c.promotion_motivation.strip():
+            out.append(s.Walidacja(kod="UMOTYWOWANIE_WYMAGANE", pole="umotywowanie_wniosku", waga=s.Waga.BLAD,
+                                   komunikat=f"Wniosek o kolejny stopień musi być umotywowany ({rules.promotion_basis})."))
+    emp = st.directory.get(c.employee_id)
+    warn = warning_before_submit(history_of(st, c.employee_id, exclude_cycle=c.id),
+                                 result is not None and result.outcome is Outcome.NEGATIVE,
+                                 bool(emp and emp.civil_servant), rules)
+    if warn:
+        out.append(s.Walidacja(kod="KOLEJNA_NEGATYWNA", pole=None, waga=s.Waga.OSTRZEZENIE, komunikat=warn))
     return out
 
 
@@ -180,10 +227,11 @@ def _allowed_actions(c: EvaluationCycle, actor: str, as_evaluator: bool, reviewe
     return out
 
 
-def _editable(c: EvaluationCycle, as_evaluator: bool) -> list[str]:
+def _editable(c: EvaluationCycle, as_evaluator: bool, civil_servant: bool = False) -> list[str]:
     if not as_evaluator:
         return []
-    return [FIELDS_BACK[f] for f, statuses in EDITABLE_IN.items() if c.status in statuses and f in FIELDS_BACK]
+    return [FIELDS_BACK[f] for f, statuses in EDITABLE_IN.items() if c.status in statuses and f in FIELDS_BACK
+            and (civil_servant or f not in PROMOTION_FIELDS)]
 
 
 def _objection_out(st: DemoState, c: EvaluationCycle) -> s.SprzeciwOut | None:
@@ -207,6 +255,7 @@ def _evaluation_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.Evaluati
     result = _live_result(st, c)
     ver = st.version_of(c.id)
     svc = st.evaluations
+    promo = _promotion(st, c)
     return s.EvaluationOut(
         id=int(c.id), wersja=ver.version, status=STATUS_MAP[c.status], arkusz=s.Arkusz(c.sheet),
         urzad=emp.office, oceniany=_employee_out(st, emp), oceniajacy=_osoba(st, boss),
@@ -224,14 +273,17 @@ def _evaluation_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.Evaluati
             poziom=m.level(result.level) if result else None, wynik=_wynik(result),
             uzasadnienie=c.justification or None, wnioski_iprz=c.iprz_conclusions or None,
             poprzednia_ocena=m.previous(c.previous_evaluation or emp.previous_evaluation),
-            wniosek_o_stopien=s.WniosekOStopien.NIE_DOTYCZY,
+            wniosek_o_stopien=s.WniosekOStopien(promo.applies),
             data_sporzadzenia=_dt(c.evaluated_on), podpis_oceniajacego=_podpis(st, c.evaluated_on, boss),
             zapoznanie=_podpis(st, c.acknowledged_on, emp),
             termin_sprzeciwu=c.objection_deadline(svc.rules, svc.calendar),
         ),
+        czesc_iii=s.CzescIII(posiadany_stopien=promo.held_grade, wnioskowany_stopien=promo.requested_grade,
+                             umotywowanie_wniosku=c.promotion_motivation or None,
+                             stopien_obligatoryjny=promo.mandatory) if emp.civil_servant else None,
         jako_oceniajacy=as_evaluator,
         sprzeciw=_objection_out(st, c),
-        dozwolone_akcje=_allowed_actions(c, actor, as_evaluator, st.settings.objection_reviewer), edytowalne_pola=_editable(c, as_evaluator),
+        dozwolone_akcje=_allowed_actions(c, actor, as_evaluator, st.settings.objection_reviewer), edytowalne_pola=_editable(c, as_evaluator, emp.civil_servant),
         walidacje=_validations(st, c), updated_at=ver.updated_at,
         terminy=[s.TerminOut(rodzaj=d.kind, nazwa=d.label, data=d.due, podstawa=d.basis, stan=d.state,
                              spelniony_at=d.done_on, opis=d.note)
@@ -253,9 +305,17 @@ def _urgency(days: int | None) -> str:
 
 # ---------------------------------------------------------------- session & dictionaries
 
+def _demo_only() -> None:
+    """APP_MODE=production: the demo clock and the demo reset do not exist."""
+    if is_production():
+        raise ApiProblem(404, "NIE_ZNALEZIONO", "Funkcje demonstracyjne są wyłączone w trybie produkcyjnym.")
+
+
 @router.get("/users", tags=["demo"])
 def users(st: DemoState = Depends(get_state)) -> list[dict]:
     """Demo only: identities to switch between (no real login). `id` goes into X-User-Id."""
+    if auth.session_mode():
+        raise ApiProblem(404, "NIE_ZNALEZIONO", "Przełącznik tożsamości działa tylko w trybie demo.")
     people = st.directory.all()
     out = [{"id": HR, "nazwa": "Dział kadr", "opis": "Kadry – cały urząd"}]
     for e in people:
@@ -381,9 +441,22 @@ def patch_evaluation(evaluation_id: int, body: s.EvaluationPatch, x_user_id: str
     for name, value in body.model_dump(exclude_unset=True, exclude={"updated_at"}).items():
         if name not in FIELDS:
             raise ApiProblem(409, "POLE_ZABLOKOWANE", f"Pola „{name}” nie można jeszcze zmieniać w tej wersji.")
-        if name in ("uzasadnienie", "wnioski_iprz"):
+        if name in ("uzasadnienie", "wnioski_iprz", "umotywowanie_wniosku"):
             value = value or ""
+        if name == "wniosek_o_stopien":
+            value = value == s.WniosekOStopien.TAK.value
         changes[FIELDS[name]] = value
+    emp = st.directory.get(c.employee_id)
+    if PROMOTION_FIELDS & set(changes) and not emp.civil_servant:
+        raise ApiProblem(409, "POLE_ZABLOKOWANE", "Część III (wniosek o stopień) dotyczy tylko urzędnika służby cywilnej.")
+    if changes.get("promotion_request"):
+        from app.domain.promotion import check_request
+
+        result = _live_result(st, c)
+        held = changes.get("held_grade", c.held_grade if c.held_grade is not None else emp.grade)
+        if problems := check_request(True, held, None if result is None else result.outcome is Outcome.POSITIVE,
+                                     True, st.evaluations.rules):
+            raise ValidationError(problems)
     st.evaluations.edit(c.id, actor, **changes)
     st.touch(c.id)
     return _evaluation_out(st, st.evaluations.cycles.get(c.id), actor)
@@ -427,8 +500,10 @@ def action(evaluation_id: int, akcja: s.Akcja, body: s.ActionIn | None = None,
     c = _cycle(st, evaluation_id, actor)
     if akcja not in ACTIONS:
         raise ApiProblem(409, "PRZEJSCIE_NIEDOZWOLONE", "Ta akcja nie jest jeszcze dostępna.")
-    if akcja is s.Akcja.ZATWIERDZ_OCENE and (checks := _validations(st, c)):
-        raise ApiProblem(422, "WALIDACJA", "Uzupełnij wymagane pola przed zatwierdzeniem oceny.", checks)
+    if akcja is s.Akcja.ZATWIERDZ_OCENE:
+        blocking = [w for w in _validations(st, c) if w.waga is s.Waga.BLAD]  # warnings never block
+        if blocking:
+            raise ApiProblem(422, "WALIDACJA", "Uzupełnij wymagane pola przed zatwierdzeniem oceny.", blocking)
     svc = st.evaluations
     if akcja is s.Akcja.ZATWIERDZ_KRYTERIA:
         svc.set_criteria(c.id, actor, c.additional_criteria, c.goals, c.deadline_override)
@@ -461,6 +536,15 @@ def _range_text(band, low: int) -> str:
     return f"powyżej {n(band.lower_exclusive)} do {n(band.upper_inclusive)} pkt"
 
 
+def _pdf_promotion(st: DemoState, c: EvaluationCycle, emp: Employee) -> dict:
+    if not emp.civil_servant:
+        return {}
+    v = _promotion(st, c)
+    return {"grade_request": v.applies.replace("_", " "), "held_grade": v.held_grade,
+            "requested_grade": v.requested_grade, "grade_motivation": c.promotion_motivation,
+            "grade_mandatory": v.mandatory}
+
+
 def _sheet_pdf_data(st: DemoState, c: EvaluationCycle):
     from backend.sheet_pdf import Person, SheetPdf
 
@@ -487,7 +571,10 @@ def _sheet_pdf_data(st: DemoState, c: EvaluationCycle):
         average=result.average_display if result else None, level=result.level if result else None,
         positive=(result.outcome is Outcome.POSITIVE) if result else None,
         justification=c.justification, iprz=c.iprz_conclusions,
-        civil_servant=False,  # pracownicy.json has no civil-servant status (demo assumes PRACOWNIK)
+        civil_servant=emp.civil_servant,
+        **_pdf_promotion(st, c, emp),
+        previous=((c.previous_evaluation.outcome or "brak", c.previous_evaluation.level or "",
+                   c.previous_evaluation.date) if emp.civil_servant and c.previous_evaluation else None),
         evaluated_on=c.evaluated_on, acknowledged_on=c.acknowledged_on,
         objection_days=rules.objection_days,
         draft=c.status not in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED),
@@ -638,20 +725,70 @@ def add_absence(employee_id: int, body: s.AbsenceIn, x_user_id: str | None = Hea
     return _absence_out(st, r)
 
 
+def _position_text(out, sheet_changed: bool) -> str:
+    if out.kind == "NOWE_KRYTERIA":
+        text = (f"Zmiana stanowiska w ciągu 6 miesięcy od daty odniesienia ({out.reference:%d.%m.%Y}): kryteria i "
+                f"rozmowę rozpoczynającą trzeba przeprowadzić ponownie do {out.deadline:%d.%m.%Y} (§ 9 ust. 1). "
+                "Termin sporządzenia oceny się nie zmienia.")
+        return text + (" Arkusz oceny zmieniono na właściwy dla nowego stanowiska." if sheet_changed else "")
+    return (f"Od daty odniesienia ({out.reference:%d.%m.%Y}) minęło ponad 6 miesięcy: ocenę za dotychczasowe "
+            f"stanowisko sporządza się nie wcześniej niż {out.earliest:%d.%m.%Y} i nie później niż "
+            f"{out.deadline:%d.%m.%Y} (art. 81 ust. 6, § 9 ust. 2).")
+
+
+@router.post("/employees/{employee_id}/position-changes", response_model=s.PositionChangeOut, status_code=201,
+             tags=["ocena"])
+def position_change(employee_id: int, body: s.PositionChangeIn, x_user_id: str | None = Header(default=None),
+                    st: DemoState = Depends(get_state)) -> s.PositionChangeOut:
+    """Change of position with a significant change of duties (art. 81 ust. 6, § 9) – HR or the evaluator.
+    The rule (new criteria vs. an evaluation in a window) is the domain's (`position_change`)."""
+    import dataclasses
+
+    actor = _actor(st, x_user_id)
+    e = _employee(st, employee_id)
+    if not (st.policy().is_admin(actor) or st.policy().can_act_as_evaluator(actor, e.id, e.evaluator_id)):
+        raise NotAuthorized("Zmianę stanowiska wprowadza dział kadr albo oceniający pracownika (lub jego zastępca).")
+    if body.data_zmiany > st.clock.today() + timedelta(days=366):
+        raise ValidationError(["Data zmiany stanowiska jest zbyt odległa."])
+    c = st.evaluations.cycles.find_open_for(e.id)
+    if c is None:
+        raise ApiProblem(409, "BRAK_CYKLU", f"{e.full_name} nie ma otwartego cyklu oceny.")
+    before = st.evaluations.evaluation_deadline(c.id)
+    sheet_before = c.sheet
+    new_sheet = body.nowy_arkusz.value if body.nowy_arkusz else None
+    out = st.evaluations.register_position_change(c.id, body.data_zmiany, new_sheet)
+    st.import_employees([dataclasses.replace(e, position=body.nowe_stanowisko.strip(), sheet=new_sheet or e.sheet)])
+    st.touch(c.id)
+    after = st.evaluations.cycles.get(c.id)
+    if out.kind == "OCENA":  # the evaluation deadline moved (docs/model-danych.md: NOWE_KRYTERIA keeps it)
+        st.deadline_changes.append(DeadlineChangeRecord(
+            id=max((x.id for x in st.deadline_changes), default=0) + 1, cycle_id=c.id,
+            reason=s.PowodZmianyTerminu.ZMIANA_STANOWISKA.value, old=before, new=out.deadline,
+            status=s.StatusWniosku.AUTO.value,
+            justification=f"Zmiana stanowiska {body.data_zmiany:%d.%m.%Y} (art. 81 ust. 6, § 9 ust. 2).",
+            decided_at=datetime.now(timezone.utc), requested_by=actor))
+    changed = after.sheet != sheet_before
+    return s.PositionChangeOut(rodzaj=out.kind, data_zmiany=out.change, data_odniesienia=out.reference,
+                               termin=out.deadline, najwczesniej=out.earliest, wyjasnienie=_position_text(out, changed),
+                               arkusz_zmieniony=changed, ocena=_evaluation_out(st, after, actor))
+
+
 @router.get("/evaluations/{evaluation_id}/deadline-changes", response_model=list[s.DeadlineChangeOut],
             tags=["nieobecności"])
 def deadline_changes(evaluation_id: int, x_user_id: str | None = Header(default=None),
                      st: DemoState = Depends(get_state)) -> list[s.DeadlineChangeOut]:
+    from .deadline_requests import change_out
+
     c = _cycle(st, evaluation_id, _actor(st, x_user_id))
-    return [_change_out(r) for r in st.deadline_changes if r.cycle_id == c.id]
+    return [change_out(st, r) for r in st.deadline_changes if r.cycle_id == c.id]
 
 
-@router.get("/demo/clock", response_model=s.ClockOut, tags=["demo"])
+@router.get("/demo/clock", response_model=s.ClockOut, tags=["demo"], dependencies=[Depends(_demo_only)])
 def get_clock(st: DemoState = Depends(get_state)) -> s.ClockOut:
     return s.ClockOut(dzis=st.clock.today(), nowe_powiadomienia=0)
 
 
-@router.post("/demo/clock", response_model=s.ClockOut, tags=["demo"])
+@router.post("/demo/clock", response_model=s.ClockOut, tags=["demo"], dependencies=[Depends(_demo_only)])
 def set_clock(body: s.ClockIn, st: DemoState = Depends(get_state)) -> s.ClockOut:
     """„Przewiń czas”: moves the server clock; the response counts the reminders (configurable schedule)
     that went out on the days skipped."""
@@ -664,8 +801,16 @@ def set_clock(body: s.ClockIn, st: DemoState = Depends(get_state)) -> s.ClockOut
     return s.ClockOut(dzis=st.clock.today(), nowe_powiadomienia=len(sent))
 
 
-@router.post("/demo/reset", status_code=204, tags=["demo"])
+@router.post("/demo/reset", status_code=204, tags=["demo"], dependencies=[Depends(_demo_only)])
 def demo_reset(st: DemoState = Depends(get_state)) -> Response:
-    """Fresh demo scenario (same AI mode)."""
+    """Fresh demo scenario (same AI mode). Demo only (404 in production): the demo's dziennik zmian is cleared
+    too, because the new scenario reuses evaluation ids."""
+    from sqlmodel import delete
+
+    from backend import db
+
+    with db.session() as s:
+        s.exec(delete(db.AuditEntry))
+        s.commit()
     reset_state(ai_mode=st.ai_mode, scenario=True)
     return Response(status_code=204)

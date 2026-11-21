@@ -8,9 +8,18 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.api.errors import install_error_handlers
+from app.api.admin import router as admin_router
+from app.api.auth import router as auth_router
+from app.api.auth import session_middleware
+from app.api.audit import audit_middleware
+from app.api.audit import router as audit_router
+from app.api.employees import router as employees_router
 from app.api.evaluations import router as evaluations_router
+from app.api.evaluator_changes import router as evaluator_changes_router
+from app.api.history import router as hr_tasks_router
 from app.api.routes import router as api_router
 from app.api.notes import router as notes_router
+from app.api.deadline_requests import router as deadline_requests_router
 from app.api.deputies import router as deputies_router
 from app.api.office import router as office_router
 from app.api.reminders import router as reminders_router
@@ -21,11 +30,18 @@ from backend.parsers import parse_file, to_llm_text
 
 app = FastAPI(title="HackNation 2026 – API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(auth_router)  # login / logout (AUTH_MODE=session)
 app.include_router(api_router)  # contract endpoints /api/... (docs/api.md)
 app.include_router(notes_router)
 app.include_router(deputies_router)  # zastępstwa
+app.include_router(deadline_requests_router)  # zmiana terminu (art. 81 ust. 8)
 app.include_router(reminders_router)  # przypomnienia
+app.include_router(employees_router)  # widok Pracownicy
+app.include_router(evaluator_changes_router)  # zmiana oceniającego
 app.include_router(evaluations_router)  # sheet, dashboard, HR partner, demo – used by the web UI
+app.include_router(admin_router)  # HR import
+app.include_router(hr_tasks_router)  # consequences of evaluations (HR tasks)
+app.include_router(audit_router)  # dziennik zmian (HR)
 app.include_router(office_router)  # regulation requirements, visibility, AI switches (admin)
 install_error_handlers(app)
 
@@ -37,9 +53,17 @@ _CHANGES = {"POST", "PUT", "PATCH", "DELETE"}
 async def persist_after_changes(request, call_next):
     """Every successful change to /api/... is written to the database (app/infrastructure/sql_store.py)."""
     response = await call_next(request)
-    if request.method in _CHANGES and request.url.path.startswith("/api/") and response.status_code < 400:
+    path = request.url.path
+    if (request.method in _CHANGES and path.startswith("/api/") and not path.startswith("/api/auth/")
+            and response.status_code < 400):
         save_state()
     return response
+
+
+# dziennik zmian – inside the session middleware (needs the user), around the state change itself
+app.middleware("http")(audit_middleware)
+# registered after persist_after_changes = runs first (outermost): the session is known before anything else
+app.middleware("http")(session_middleware)
 
 
 class AskIn(BaseModel):

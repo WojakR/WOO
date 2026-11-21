@@ -13,7 +13,8 @@ from . import assistant_mapping as m
 from . import schemas as s
 from .access import actor as _actor
 from .access import require_working_material
-from .state import DemoState, get_state
+from .auth import session_mode
+from .state import DemoState, get_state, is_production
 
 router = APIRouter(prefix="/api")
 
@@ -57,6 +58,8 @@ def meta(x_user_id: str | None = Header(default=None), st: DemoState = Depends(g
                                 float(b.upper_inclusive)) for b in rules.level_bands}
     return s.MetaOut(
         dzis=st.clock.today(),
+        tryb_aplikacji="PRODUKCJA" if is_production() else "DEMO",
+        tryb_logowania="SESJA" if session_mode() else "DEMO",
         tryb_ai=s.TrybAI(st.ai_mode.upper()) if ai_on else s.TrybAI.OFF,
         # model_dostepny: is the model answering right now (else every feature uses its template version)
         funkcje_ai={**AI_FEATURES, "hr_partner": AI_FEATURES["hr_partner"] and st.hr_partner_enabled_for(who),

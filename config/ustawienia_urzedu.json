@@ -55,5 +55,10 @@
   "sprzeciw": {
     "_opis": "Kto rozpatruje sprzeciwy (art. 83 ust. 1: dyrektor generalny urzędu). \"kadry\" = konto działu kadr / administratora; można wpisać id osoby z pracownicy.json.",
     "rozpatruje": "kadry"
+  },
+  "zmiana_terminu": {
+    "_opis": "Zmiana terminu oceny (art. 81 ust. 8). Decyzję podejmuje oceniający: OCENIAJACY = zmiana działa od razu; KADRY = urząd wymaga dodatkowo zatwierdzenia przez dział kadr (procedura wewnętrzna). propozycja_dni_po_powrocie = podpowiadany nowy termin po zakończeniu nieobecności.",
+    "zatwierdza": "OCENIAJACY",
+    "propozycja_dni_po_powrocie": 14
   }
 }

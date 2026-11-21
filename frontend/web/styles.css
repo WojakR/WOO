@@ -145,7 +145,7 @@ main.content { padding: 24px 28px 40px; max-width: 1480px; width: 100%; }
 .btn-ai:hover { background: var(--ai-bg); border-color: var(--ai); }
 .btn[disabled], .btn[aria-disabled="true"] { opacity: 1; cursor: not-allowed; background: var(--idle-bg); border-color: var(--idle-border); color: var(--text-3); }
 
-select, input[type="search"], input[type="text"], input[type="date"] {
+select, input[type="search"], input[type="text"], input[type="date"], input[type="password"] {
   min-height: 36px; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface);
 }
 textarea {
@@ -416,3 +416,19 @@ table.data.rules td { padding: 9px 12px; border-bottom: 1px solid var(--border);
 .deadlines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .deadlines li { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; font-size: 13px; }
 .deadlines .when { white-space: nowrap; text-align: right; }
+
+/* Login screen (AUTH_MODE=session) */
+.login-wrap { min-height: 70vh; display: grid; place-items: center; padding: 16px; }
+.login-card { width: min(380px, 100%); }
+.login-card form { display: flex; flex-direction: column; gap: 12px; }
+.login-card label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 550; color: var(--text-2); }
+.login-card input { width: 100%; }
+
+/* Historia zmian (HR) */
+details.audit { margin-top: 16px; }
+details.audit > summary { cursor: pointer; list-style: none; }
+details.audit > summary::-webkit-details-marker { display: none; }
+details.audit:not([open]) > summary { border-bottom: 0; }
+
+/* Karta pracownika */
+.grid-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 20px; margin-top: 10px; }

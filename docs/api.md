@@ -165,7 +165,7 @@ Akcje `POST /api/evaluations/{id}/actions/{akcja}` (body `ActionIn`):
 | `GET /api/evaluations/{id}/deadline-changes` | – | `DeadlineChangeOut[]` | |
 | `POST /api/evaluations/{id}/deadline-changes` | `DeadlineChangeIn` | `DeadlineChangeOut` 201 | wniosek ocenianego albo zmiana przez oceniającego |
 | `POST /api/deadline-changes/{id}/decision` | `{status}` | `DeadlineChangeOut` | |
-| `POST /api/evaluations/{id}/position-change` | `PositionChangeIn` | `PositionChangeOut` | zmiana stanowiska: nowe kryteria w 30 dni albo ocena w oknie −7/+30 dni (`EvaluationService.register_position_change`) |
+| `POST /api/employees/{id}/position-changes` | `PositionChangeIn` | `PositionChangeOut` | zmiana stanowiska: nowe kryteria w 30 dni albo ocena w oknie −7/+30 dni (`EvaluationService.register_position_change`) |
 
 Termin sprzeciwu (`CzescII.termin_sprzeciwu`) = `EvaluationService.objection_deadline(id)`; zasady wszystkich
 terminów i ich źródła: [`terminy.md`](terminy.md).

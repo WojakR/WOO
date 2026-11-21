@@ -22,13 +22,14 @@ from .state import HR, DemoState, get_state
 router = APIRouter(prefix="/api", tags=["przypomnienia"])
 
 
-def _out(st: DemoState, sched: ReminderSchedule, own: bool) -> s.UstawieniaPrzypomnienOut:
+def _out(st: DemoState, sched: ReminderSchedule, own: bool, who: str | None = None) -> s.UstawieniaPrzypomnienOut:
     hours = st.settings.working_hours
+    person = st.directory.get(who) if who else None
     return s.UstawieniaPrzypomnienOut(
         godzina=f"{sched.at:%H:%M}", godziny_pracy=(f"{hours.start:%H:%M}", f"{hours.end:%H:%M}"),
         etapy={stage.value: [s.RegulaPrzypomnienia(rodzaj=r.kind.value, wartosc=r.value, opis=r.label())
                              for r in rules] for stage, rules in sched.rules.items()},
-        wlasne=own)
+        wlasne=own, email=who not in st.email_off_for if who else True, adres_email=person.email if person else None)
 
 
 def _parse(st: DemoState, body: s.UstawieniaPrzypomnienIn, base: ReminderSchedule) -> ReminderSchedule:
@@ -42,7 +43,7 @@ def _parse(st: DemoState, body: s.UstawieniaPrzypomnienIn, base: ReminderSchedul
 @router.get("/me/przypomnienia", response_model=s.UstawieniaPrzypomnienOut)
 def my_schedule(x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)):
     who = _actor(st, x_user_id)
-    return _out(st, st.schedule_for(who), who in st.reminder_prefs)
+    return _out(st, st.schedule_for(who), who in st.reminder_prefs, who)
 
 
 @router.put("/me/przypomnienia", response_model=s.UstawieniaPrzypomnienOut)
@@ -52,8 +53,11 @@ def set_my_schedule(body: s.UstawieniaPrzypomnienIn, x_user_id: str | None = Hea
     who = _actor(st, x_user_id)
     if who == HR:
         raise NotAuthorized("Dział kadr ustawia domyślny harmonogram urzędu: PUT /api/ustawienia/przypomnienia.")
-    st.reminder_prefs[who] = _parse(st, body, st.schedule_for(who))
-    return _out(st, st.reminder_prefs[who], True)
+    if body.email is not None:
+        (st.email_off_for.discard if body.email else st.email_off_for.add)(who)
+    if body.email is None or body.godzina is not None or body.etapy:  # e-mail switch alone keeps the schedule
+        st.reminder_prefs[who] = _parse(st, body, st.schedule_for(who))
+    return _out(st, st.schedule_for(who), who in st.reminder_prefs, who)
 
 
 @router.delete("/me/przypomnienia", status_code=204)
@@ -111,21 +115,32 @@ def _my_sent(st: DemoState, who: str) -> list[PlannedReminder]:
                    if r.recipient_id == who and r.when.date() <= today), key=lambda r: r.when, reverse=True)
 
 
+def _my_items(st: DemoState, who: str) -> list[tuple[str, str, str, int, object]]:
+    """(key, type, text, evaluation id, when): reminders sent so far + notices of changed deadlines, newest first."""
+    from . import deadline_requests, evaluator_changes, history
+
+    items = [(r.key, f"PRZYPOMNIENIE_{r.stage.value}", r.message, int(r.cycle_id), r.when) for r in _my_sent(st, who)]
+    items += [(k, "ZMIANA_TERMINU", text, ev, when.replace(tzinfo=None))
+              for k, text, ev, when in deadline_requests.notifications_for(st, who)]
+    items += [(k, "ZMIANA_OCENIAJACEGO", text, ev, when) for k, text, ev, when in evaluator_changes.notifications_for(st, who)]
+    items += [(k, typ, text, ev, when) for k, text, ev, when, typ in history.notifications_for(st, who)]
+    return sorted(items, key=lambda i: i[4], reverse=True)
+
+
 @router.get("/notifications", response_model=list[s.NotificationOut], tags=["sesja"])
 def notifications(x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)):
-    """My reminders that have gone out (server clock), newest first."""
+    """My reminders that have gone out (server clock) and notices of changed deadlines, newest first."""
     who = _actor(st, x_user_id)
-    return [s.NotificationOut(id=notification_id(r.key), typ=f"PRZYPOMNIENIE_{r.stage.value}", tresc=r.message,
-                              evaluation_id=int(r.cycle_id), zaplanowane_na=r.when, wyslane_at=r.when,
-                              przeczytane=f"{who}:{r.key}" in st.read_notifications)
-            for r in _my_sent(st, who)]
+    return [s.NotificationOut(id=notification_id(key), typ=typ, tresc=text, evaluation_id=ev, zaplanowane_na=when,
+                              wyslane_at=when, przeczytane=f"{who}:{key}" in st.read_notifications)
+            for key, typ, text, ev, when in _my_items(st, who)]
 
 
 @router.post("/notifications/{notification}/read", status_code=204, tags=["sesja"])
 def mark_read(notification: int, x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)):
     who = _actor(st, x_user_id)
-    r = next((r for r in _my_sent(st, who) if notification_id(r.key) == notification), None)
-    if r is None:
+    key = next((i[0] for i in _my_items(st, who) if notification_id(i[0]) == notification), None)
+    if key is None:
         raise NotFound(f"Nie ma powiadomienia o identyfikatorze {notification}.")
-    st.read_notifications.add(f"{who}:{r.key}")
+    st.read_notifications.add(f"{who}:{key}")
     return Response(status_code=204)

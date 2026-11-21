@@ -12,6 +12,7 @@ const BLOCK_HINT = {
   BRAK_OCENY: "Oceń wszystkie kryteria",
 };
 const CHECK_LABEL = {
+  UMOTYWOWANIE_WYMAGANE: "Umotywowanie wniosku o stopień",
   UZASADNIENIE_WYMAGANE: "Uzasadnienie oceny",
   IPRZ_WYMAGANE: "Wnioski do indywidualnego programu rozwoju zawodowego",
 };
@@ -41,7 +42,7 @@ export async function renderEvaluation(view, id, ctx) {
   // Regions re-rendered independently, so a click never lands on a node that was just replaced.
   const R = {
     head: h("div"), stepper: h("div"), person: h("div"), main: h("div", { class: "stack" }),
-    aside: h("div", { class: "aside" }), actions: h("div"),
+    aside: h("div", { class: "aside" }), actions: h("div"), audit: h("div"),
   };
 
   async function loadSide() {
@@ -152,11 +153,54 @@ export async function renderEvaluation(view, id, ctx) {
             fact("Poprzednia ocena", prevText()),
             fact("Oceniający", personName(ev.oceniajacy))),
           (isEvaluator() || ctx.me.rola === "KADRY") && !["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"].includes(ev.status)
-            ? h("a", { class: "btn btn-sm", href: `#/nieobecnosci/${o.id}`, style: { marginTop: "10px" } },
-              icon("calendar"), "Zgłoś nieobecność") : null,
+            ? h("div", { class: "row", style: { marginTop: "10px", gap: "8px" } },
+              h("a", { class: "btn btn-sm", href: `#/nieobecnosci/${o.id}` }, icon("calendar"), "Zgłoś nieobecność"),
+              ["SPRZECIW"].includes(ev.status) ? null
+                : h("button", { class: "btn btn-sm", type: "button", onclick: positionDialog }, "Zmiana stanowiska"))
+            : null,
           confirmed ? h("p", { class: "locked", style: { marginTop: "10px" } }, icon("lock"),
             `Kryteria i termin zatwierdził(a) ${personName(ev.czesc_i.potw_oceniajacy.osoba)} ${fmtDate(ev.czesc_i.potw_oceniajacy.at)}, ` +
             `oceniany potwierdził(a) ${fmtDate(confirmed)}.`) : null))));
+  }
+
+  // ------------------------------------------------------------ change of position (art. 81 ust. 6, § 9)
+  function positionDialog() {
+    const o = s.ev.oceniany;
+    const when = h("input", { type: "date", id: "pc-date", required: true, value: ctx.meta.dzis });
+    const title = h("input", { type: "text", id: "pc-title", required: true, value: o.stanowisko || "" });
+    const sheet = h("select", { id: "pc-sheet" }, h("option", { value: "" }, `bez zmiany (arkusz ${s.ev.arkusz})`),
+      ["A", "B", "C"].filter((a) => a !== s.ev.arkusz).map((a) => h("option", { value: a }, `Arkusz ${a}`)));
+    const out = h("div");
+    const go = h("button", { class: "btn btn-primary", type: "submit" }, icon("check"), "Zapisz zmianę");
+    const dlg = h("dialog", { class: "modal", "aria-labelledby": "pc-h" },
+      h("form", { method: "dialog", class: "stack", onsubmit: async (e) => {
+        e.preventDefault();
+        go.disabled = true;
+        try {
+          const r = await api.positionChange(o.id, { data_zmiany: when.value, nowe_stanowisko: title.value,
+            nowy_arkusz: sheet.value || null });
+          s.ev = r.ocena; syncText();
+          replace(out, h("p", { class: "notice notice-info" }, icon("info"), r.wyjasnienie));
+          replace(go.parentNode, h("button", { class: "btn btn-primary", type: "button", onclick: () => dlg.close() }, "Zamknij"));
+          await loadSide(); renderAll();
+        } catch (err) {
+          const extra = err.walidacje?.length ? ` ${err.walidacje.map((w) => w.komunikat).join(" ")}` : "";
+          replace(out, h("p", { class: "notice notice-bad" }, icon("alert"), `${err.message}${extra}`));
+          go.disabled = false;
+        }
+      } },
+      h("h2", { id: "pc-h" }, `Zmiana stanowiska – ${personName(o)}`),
+      h("p", { class: "small muted" }, "Zmiana stanowiska z istotną zmianą obowiązków. Skutek (ponowne kryteria albo ocena " +
+        "w oknie −7/+30 dni) wyliczy system z daty ostatniej oceny."),
+      h("label", { for: "pc-date" }, "Data zmiany", when),
+      h("label", { for: "pc-title" }, "Nowe stanowisko", title),
+      h("label", { for: "pc-sheet" }, "Arkusz dla nowego stanowiska", sheet),
+      out,
+      h("div", { class: "row", style: { justifyContent: "flex-end" } },
+        h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Anuluj"), go)));
+    dlg.addEventListener("close", () => dlg.remove());
+    document.body.append(dlg);
+    dlg.showModal();
   }
 
   // ------------------------------------------------------------ main panel (depends on the stage)
@@ -319,8 +363,58 @@ export async function renderEvaluation(view, id, ctx) {
           group("Kryteria dodatkowe wybrane przez oceniającego"),
           add.length ? rows(add) : h("tr", { class: "crit-row" }, h("td", { class: "muted" }, "brak")))),
       resultBar(),
+      warnings(),
       textField("uzasadnienie"),
-      textField("wnioski_iprz"));
+      textField("wnioski_iprz"),
+      partThree());
+  }
+
+  // non-blocking warnings from the server (e.g. the second negative evaluation in a row – art. 71)
+  function warnings() {
+    const w = s.ev.walidacje.filter((x) => x.waga === "OSTRZEZENIE");
+    return w.length ? h("div", { class: "notice notice-info", role: "status", style: { margin: "12px 0" } }, icon("alert"),
+      h("div", {}, w.map((x) => h("div", {}, x.komunikat)))) : null;
+  }
+
+  // part III – request for the next grade (art. 89); shown only when the server sends it (civil servants)
+  function partThree() {
+    const p3 = s.ev.czesc_iii;
+    if (!p3) return null;
+    const can = editable("wniosek_o_stopien");
+    const save = async (body) => {
+      try {
+        s.ev = await api.patch(id, { updated_at: s.ev.updated_at, ...body });
+        syncText(); renderMain(); renderAside(); renderActions();
+      } catch (e) {
+        const extra = e.walidacje?.length ? ` ${e.walidacje.map((w) => w.komunikat).join(" ")}` : "";
+        toast(`${e.message}${extra}`, "bad");
+        renderMain();
+      }
+    };
+    const requested = s.ev.czesc_ii.wniosek_o_stopien === "TAK";
+    const grade = h("select", { id: "f-stopien", disabled: !can, onchange: (e) => save({ posiadany_stopien: Number(e.target.value) }) },
+      h("option", { value: "" }, "–"),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9].map((g) => h("option", { value: g, selected: p3.posiadany_stopien === g }, String(g))));
+    const motivation = h("textarea", { id: "f-umotywowanie", rows: 4, readonly: !can || !requested,
+      class: blocking().some((w) => w.pole === "umotywowanie_wniosku") ? "invalid" : "",
+      placeholder: requested ? "Umotywowanie wniosku przełożonego (art. 89 ust. 1)" : "" });
+    motivation.value = p3.umotywowanie_wniosku || "";
+    motivation.addEventListener("blur", () => {
+      if ((p3.umotywowanie_wniosku || "") !== motivation.value) save({ umotywowanie_wniosku: motivation.value });
+    });
+    return h("section", { class: "field", "aria-labelledby": "p3-h" },
+      h("div", { class: "field-head" }, h("h3", { id: "p3-h" }, "Część III – wniosek o kolejny stopień służbowy")),
+      p3.stopien_obligatoryjny ? h("p", { class: "notice notice-info" }, icon("info"),
+        `Druga z rzędu ocena na jednym z dwóch najwyższych poziomów – urzędnik otrzyma kolejny stopień (${p3.wnioskowany_stopien}) z mocy art. 89 ust. 2, w ciągu 30 dni od zapoznania się z oceną.`) : null,
+      h("div", { class: "row", style: { gap: "16px", marginBottom: "8px" } },
+        h("label", { for: "f-stopien", class: "row", style: { gap: "6px" } }, "Posiadany stopień", grade),
+        h("label", { class: "row", style: { gap: "6px" } },
+          h("input", { type: "checkbox", checked: requested, disabled: !can,
+            onchange: (e) => save({ wniosek_o_stopien: e.target.checked ? "TAK" : "NIE" }) }),
+          "Dołączam wniosek o przyznanie kolejnego stopnia"),
+        p3.wnioskowany_stopien ? h("span", { class: "small muted" }, `Wnioskowany stopień: ${p3.wnioskowany_stopien}`) : null),
+      requested ? h("label", { for: "f-umotywowanie" }, "Umotywowanie wniosku", motivation) : null,
+      !can ? h("p", { class: "small muted" }, "Pola części III wypełnia oceniający w etapie sporządzania oceny.") : null);
   }
 
   function criterionRow(k, e, canScore) {
@@ -706,8 +800,44 @@ export async function renderEvaluation(view, id, ctx) {
     }
   }
 
+  // ------------------------------------------------------------ dziennik zmian (HR only – the server decides)
+  function shortValue(v) {
+    if (v === null || v === undefined || v === "") return "–";
+    return v.length > 120 ? `${v.slice(0, 117)}…` : v;
+  }
+
+  function renderAudit() {
+    if (ctx.me.rola !== "KADRY") { replace(R.audit); return; }
+    const body = h("div", { class: "card-pad" }, h("p", { class: "muted small" }, "Rozwiń, aby wczytać historię."));
+    const details = h("details", { class: "card audit" },
+      h("summary", { class: "card-head" }, h("div", {}, h("h2", {}, "Historia zmian"),
+        h("p", {}, "Kto, co i kiedy zmienił w tej ocenie (dziennik tylko do odczytu)."))),
+      body);
+    details.addEventListener("toggle", async () => {
+      if (!details.open) return;
+      replace(body, loading());
+      try {
+        const rows = await api.audit(id);
+        replace(body, rows.length
+          ? h("div", { class: "table-wrap" }, h("table", { class: "data rules" },
+            h("thead", {}, h("tr", {}, ["Kiedy", "Kto", "Zdarzenie", "Pole", "Przed", "Po"].map((c) => h("th", { scope: "col" }, c)))),
+            h("tbody", {}, rows.map((r) => h("tr", {},
+              h("td", { class: "nowrap" }, new Date(r.czas).toLocaleString("pl-PL")),
+              h("td", {}, r.uzytkownik_nazwa),
+              h("td", {}, r.akcja),
+              h("td", {}, r.pole || "–"),
+              h("td", { class: "small" }, shortValue(r.przed)),
+              h("td", { class: "small" }, shortValue(r.po)))))))
+          : h("p", { class: "muted small" }, "Brak wpisów."));
+      } catch (e) {
+        replace(body, h("div", { class: "notice notice-bad" }, icon("alert"), e.message));
+      }
+    });
+    replace(R.audit, details);
+  }
+
   function renderAll() {
-    renderHead(); renderStepper(); renderPerson(); renderMain(); renderAside(); renderActions();
+    renderHead(); renderStepper(); renderPerson(); renderMain(); renderAside(); renderActions(); renderAudit();
   }
 
   // ------------------------------------------------------------ first paint
@@ -715,7 +845,7 @@ export async function renderEvaluation(view, id, ctx) {
   replace(view,
     R.head, R.stepper,
     h("div", { class: "with-aside" }, h("div", { class: "stack" }, R.person, R.main), R.aside),
-    R.actions);
+    R.actions, R.audit);
   renderAll();
   loadHr();
 

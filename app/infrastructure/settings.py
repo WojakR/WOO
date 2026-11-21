@@ -65,6 +65,9 @@ class OfficeSettings:
     reminders: ReminderSchedule = DEFAULT_SCHEDULE
     # who decides objections (art. 83 ust. 1: the director general); "kadry" = the HR/administrator identity
     objection_reviewer: str = "kadry"
+    # art. 81 ust. 8: OCENIAJACY = the evaluator's decision applies at once; KADRY = HR approves it first
+    deadline_change_approver: str = "OCENIAJACY"
+    deadline_days_after_return: int = 14  # proposed new deadline after an absence
 
     @classmethod
     def from_dict(cls, raw: dict) -> OfficeSettings:
@@ -80,7 +83,13 @@ class OfficeSettings:
                              parse_time(hours_raw.get("do", "16:00"), "Godziny pracy"))
         schedule = parse_schedule(rem, DEFAULT_SCHEDULE).validated(hours)
         reviewer = str((raw.get("sprzeciw") or {}).get("rozpatruje") or "kadry").strip()
-        return cls(visibility_scope=visibility, working_hours=hours, reminders=schedule, objection_reviewer=reviewer)
+        dc = raw.get("zmiana_terminu") or {}
+        approver = str(dc.get("zatwierdza") or "OCENIAJACY").upper()
+        if approver not in ("OCENIAJACY", "KADRY"):
+            raise ValidationError([f"Ustawienia urzędu: zmiana_terminu.zatwierdza „{approver}” – dozwolone OCENIAJACY, KADRY."])
+        return cls(visibility_scope=visibility, working_hours=hours, reminders=schedule, objection_reviewer=reviewer,
+                   deadline_change_approver=approver,
+                   deadline_days_after_return=int(dc.get("propozycja_dni_po_powrocie", 14)))
 
 
 def load_office_settings(path: str | Path | None = None) -> OfficeSettings:

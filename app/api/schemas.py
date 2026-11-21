@@ -92,6 +92,7 @@ class PowodZmianyTerminu(str, Enum):
     WNIOSEK_OCENIANEGO = "WNIOSEK_OCENIANEGO"
     INNY = "INNY"
     ZMIANA_STANOWISKA = "ZMIANA_STANOWISKA"  # art. 81 ust. 6, § 9 ust. 2 (see PositionChangeOut)
+    ZMIANA_OCENIAJACEGO = "ZMIANA_OCENIAJACEGO"  # art. 81 ust. 8 pkt 1
 
 
 class StatusWniosku(str, Enum):
@@ -175,6 +176,8 @@ class UserContext(_Out):
 class MetaOut(_Out):
     """GET /api/meta – everything the UI needs once at start-up."""
     dzis: date                           # from the (demo) clock, NOT the browser
+    tryb_aplikacji: Literal["DEMO", "PRODUKCJA"] = "DEMO"  # PRODUKCJA: no clock shift, no demo reset
+    tryb_logowania: Literal["DEMO", "SESJA"] = "DEMO"      # SESJA: login screen, no identity switch
     tryb_ai: TrybAI
     funkcje_ai: dict[str, bool]          # e.g. {"szkic_uzasadnienia": true, "klasyfikacja_notatek": false}
     skala_punktow: list[int] = [1, 3, 5, 7, 9]
@@ -573,11 +576,18 @@ class DeadlineChangeOut(_Out):
     status: StatusWniosku
     uzasadnienie: str | None = None
     decyzja_at: datetime | None = None
+    evaluation_id: int | None = None
+    oceniany: OsobaRef | None = None
+    zlozyl: OsobaRef | None = None
+    komentarz_decyzji: str | None = None
+    pismo_pdf: bool = False                     # GET /api/deadline-changes/{id}/pdf (accepted changes)
 
 
 class PositionChangeIn(BaseModel):
-    """POST /api/evaluations/{id}/position-change – change of position with a significant change of duties."""
+    """POST /api/employees/{id}/position-changes – change of position with a significant change of duties."""
     data_zmiany: date
+    nowe_stanowisko: str = Field(min_length=1)
+    nowy_arkusz: Arkusz | None = None           # the sheet the new position needs (None = keep)
 
 
 class PositionChangeOut(_Out):
@@ -588,6 +598,8 @@ class PositionChangeOut(_Out):
     data_odniesienia: date               # last evaluation, or criteria date for a first evaluation
     termin: date
     najwczesniej: date | None = None
+    wyjasnienie: str = ""                # what it means, in Polish, for the UI
+    arkusz_zmieniony: bool = False
     ocena: "EvaluationOut | None" = None  # the cycle after the change
 
 
@@ -664,6 +676,7 @@ class UstawieniaPrzypomnienIn(BaseModel):
     godzina: str | None = Field(None, examples=["11:00"])
     etapy: dict[Literal["WYZNACZENIE_KRYTERIOW", "OKRES_OCENY", "ZAPOZNANIE", "ROZPATRZENIE_SPRZECIWU"],
                 list[RegulaPrzypomnienia]] = {}
+    email: bool | None = None                   # own settings only: false = no e-mails, in-app notifications only
 
 
 class UstawieniaPrzypomnienOut(_Out):
@@ -671,6 +684,8 @@ class UstawieniaPrzypomnienOut(_Out):
     godziny_pracy: tuple[str, str]              # ("08:00", "16:00") – reminders only inside, only on working days
     etapy: dict[str, list[RegulaPrzypomnienia]]
     wlasne: bool                                # true = the user's own schedule, false = office default
+    email: bool = True                          # reminders also by e-mail (when the person has an address)
+    adres_email: str | None = None              # from the HR data; None = in-app notifications only
 
 
 class PlanowanePrzypomnienie(_Out):

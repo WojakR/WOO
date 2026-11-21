@@ -90,6 +90,9 @@ EDITABLE_IN: dict[str, frozenset[Status]] = {
     "justification": _EVALUATION_STAGE,
     "iprz_conclusions": _EVALUATION_STAGE,
     "previous_evaluation": _EVALUATION_STAGE,
+    "promotion_request": _EVALUATION_STAGE,
+    "promotion_motivation": _EVALUATION_STAGE,
+    "held_grade": _EVALUATION_STAGE,
 }
 
 FIELD_LABELS = {
@@ -103,6 +106,9 @@ FIELD_LABELS = {
     "justification": "uzasadnienie oceny",
     "iprz_conclusions": "wnioski IPRZ",
     "previous_evaluation": "dane poprzedniej oceny",
+    "promotion_request": "wniosek o kolejny stopień służbowy",
+    "promotion_motivation": "umotywowanie wniosku o stopień",
+    "held_grade": "posiadany stopień służbowy",
 }
 
 
@@ -154,6 +160,12 @@ class EvaluationCycle:
     objection_decided_by: str | None = None
     objection_reason: str = ""
     history: list[tuple[date, Status]] = field(default_factory=list)
+    # part III – request for the next grade (art. 89 ust. 1; civil servants only, positive evaluation only)
+    promotion_request: bool = False
+    promotion_motivation: str = ""
+    held_grade: int | None = None  # posiadany stopień (default: the HR data)
+    # change of the evaluator during the period (§ 9 ust. 3): (day, previous evaluator, new evaluator)
+    evaluator_changes: list[tuple[date, str, str]] = field(default_factory=list)
 
     # ---- creation -------------------------------------------------------------------------------
     @classmethod
@@ -426,6 +438,47 @@ class EvaluationCycle:
             self.deadline_override = outcome.deadline
         self.position_changes.append(outcome)
         return outcome
+
+    def change_deadline(self, actor_id: str, reason: str, new_deadline: date | None, justification: str,
+                        today: date, rules: RuleBook, cal: WorkingCalendar) -> tuple[date, date]:
+        """Art. 81 ust. 8: the evaluator moves the evaluation deadline (-> (old, new)). Before the evaluation is
+        drawn up only; the evaluated person is informed in writing (§ 8, letter: backend/notice_pdf.py)."""
+        from .deadline_change import check_deadline_change
+
+        self._require_actor(actor_id, self.evaluator_id, "oceniający (art. 81 ust. 8)")
+        if self.status in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED, Status.OBJECTION):
+            raise InvalidTransition("Ocena została już sporządzona – nie można zmienić jej terminu.")
+        old = self.evaluation_deadline(rules, cal)
+        new = check_deadline_change(reason, self.start_date, old, new_deadline, today, rules, cal, justification)
+        self.deadline_override = new
+        return old, new
+
+    def evaluator_since(self) -> date:
+        """Since when the current evaluator evaluates this person in this cycle."""
+        return self.evaluator_changes[-1][0] if self.evaluator_changes else self.start_date
+
+    def reassign_evaluator(self, new_evaluator: str, on: date) -> None:
+        """§ 9 ust. 3: the new evaluator takes over the running cycle – the criteria chosen before and the
+        deadline stay. Not after the evaluation has been drawn up (that one belongs to whoever drew it up)."""
+        if self.status in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED, Status.OBJECTION):
+            raise InvalidTransition("Ocena została już sporządzona – zmiana oceniającego dotyczy kolejnego cyklu.")
+        if new_evaluator == self.employee_id:
+            raise ValidationError(["Pracownik nie może oceniać sam siebie."])
+        if new_evaluator == self.evaluator_id:
+            raise ValidationError(["To jest już oceniający tego pracownika."])
+        self.evaluator_changes.append((on, self.evaluator_id, new_evaluator))
+        self.evaluator_id = new_evaluator
+
+    def change_sheet(self, sheet: str, rules: RuleBook) -> None:
+        """A different sheet (A/B/C) for the new position – only before the criteria are set again
+        (the mandatory criteria come from the sheet). Additional criteria that are mandatory now are dropped."""
+        if sheet not in rules.sheets:
+            raise ValidationError([f"Nieznany arkusz „{sheet}”."])
+        if self.status is not Status.CYCLE_STARTED:
+            raise InvalidTransition("Arkusz można zmienić tylko przed wyznaczeniem kryteriów.")
+        mandatory = set(rules.mandatory(sheet))
+        self.sheet = sheet
+        self.additional_criteria = [c for c in self.additional_criteria if c not in mandatory]
 
     @property
     def is_negative(self) -> bool:

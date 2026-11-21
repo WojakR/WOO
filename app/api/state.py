@@ -27,7 +27,8 @@ from app.domain.employee import Employee
 from app.domain.notes import Note
 from app.infrastructure.assistant_factory import build_assistant
 from app.infrastructure.kprm_adapter import KprmEmployeeDirectory, kprm_rulebook
-from app.infrastructure.memory import FixedClock, InMemoryCycleRepository
+from app.infrastructure.clock import FixedClock, SystemClock
+from app.infrastructure.memory import InMemoryCycleRepository
 from app.infrastructure.json_codec import JsonCodec
 from app.infrastructure.sql_store import SqlStateStore, Snapshot
 from app.infrastructure.settings import OfficeSettings, load_office_settings
@@ -46,6 +47,9 @@ class NoteRecord:
     visible_to_employee: bool = False
     status: str = "BRAK"  # status_klasyfikacji
     classification: NoteClassification | None = None  # AI / rule suggestions – never applied automatically
+    # the evaluator changed: the predecessor's notes are not passed on automatically – only the author sees them
+    # until they hand them over (POST /api/notes/{id}/przekaz)
+    withheld: bool = False
 
 
 @dataclass
@@ -81,6 +85,32 @@ class DeadlineChangeRecord:
     status: str  # StatusWniosku
     justification: str
     decided_at: datetime | None
+    requested_by: str = ""  # evaluator / deputy who changed or asked for the change (art. 81 ust. 8)
+    decided_by: str | None = None
+    decision_note: str = ""
+
+
+@dataclass
+class EvaluatorChangeRecord:
+    """Change of the evaluator (HR): planned (date in the future – the leaving one is reminded) or done."""
+    id: int
+    employee_id: str
+    old_evaluator_id: str
+    new_evaluator_id: str
+    on: date
+    status: str  # PLANOWANA | WYKONANA
+    variant: str | None = None  # NOWY_CYKL | PRZEJECIE (when done)
+    registered_by: str = ""
+
+
+@dataclass
+class EvaluatorAbsenceRecord:
+    """A planned absence of an evaluator (art. 81 ust. 8 pkt 3) – the app suggests a deputy or a new deadline."""
+    id: int
+    evaluator_id: str
+    od: date
+    do: date
+    registered_by: str
 
 
 @dataclass
@@ -112,7 +142,7 @@ class RuleChangeRecord:
 
 @dataclass
 class DemoState:
-    clock: FixedClock  # the server's own clock (contract rule 7: never the browser's date)
+    clock: FixedClock | SystemClock  # the server's own clock (contract rule 7: never the browser's date)
     directory: KprmEmployeeDirectory
     evaluations: EvaluationService
     assistant: AiSuggestionService
@@ -125,6 +155,8 @@ class DemoState:
     hr_decisions: dict[int, str] = field(default_factory=dict)  # signal id -> ZAAKCEPTOWANY / ODRZUCONY
     absences: list[AbsenceRecord] = field(default_factory=list)
     deadline_changes: list[DeadlineChangeRecord] = field(default_factory=list)
+    evaluator_absences: list[EvaluatorAbsenceRecord] = field(default_factory=list)
+    evaluator_changes: list[EvaluatorChangeRecord] = field(default_factory=list)
     settings: OfficeSettings = field(default_factory=load_office_settings)
     deputy_records: list[DeputyRecord] = field(default_factory=list)
     reminder_prefs: dict[str, ReminderSchedule] = field(default_factory=dict)  # user id -> own schedule
@@ -137,6 +169,12 @@ class DemoState:
     hr_partner_office: bool = True
     ai_off_for: set[str] = field(default_factory=set)
     hr_partner_off_for: set[str] = field(default_factory=set)
+    # e-mail reminders (app/application/notify_job.py)
+    # people imported from the HR system (app/infrastructure/hr_import.py) – on top of the sample data
+    imported_employees: dict[str, Employee] = field(default_factory=dict)
+    sent_email_keys: set[str] = field(default_factory=set)
+    email_off_for: set[str] = field(default_factory=set)
+    notify_last_run: date | None = None
     _assistant_off: AiSuggestionService | None = None
 
     def ai_enabled_for(self, user_id: str) -> bool:
@@ -164,6 +202,10 @@ class DemoState:
         if self._assistant_off is not None:
             self._assistant_off.rules = rb
 
+    def import_employees(self, employees: list[Employee]) -> None:
+        self.directory.upsert(employees)
+        self.imported_employees.update({e.id: e for e in employees})
+
     def schedule_for(self, user_id: str) -> ReminderSchedule:
         """The user's own reminder schedule, else the office default (config/ustawienia_urzedu.json)."""
         return self.reminder_prefs.get(user_id, self.settings.reminders)
@@ -179,11 +221,14 @@ class DemoState:
             evaluator_of={e.id: e.evaluator_id for e in self.directory.all()},
             scope=self.settings.visibility_scope,
             deputies={ev: frozenset(self.active_deputies(ev, today)) for ev in evaluators},
-            admins=frozenset({HR, self.settings.objection_reviewer}),  # the reviewer of objections reads all
+            # the reviewer of objections reads all; accounts with the admin flag (AUTH_MODE=session)
+            admins=frozenset({HR, self.settings.objection_reviewer}) | _account_admins(),
         )
 
-    def notes_of(self, evaluation_id: int) -> list[NoteRecord]:
-        return [r for r in self.notes.values() if r.evaluation_id == evaluation_id]
+    def notes_of(self, evaluation_id: int, include_withheld: bool = False) -> list[NoteRecord]:
+        """Notes of the evaluation – without the previous evaluator's notes they have not handed over."""
+        return [r for r in self.notes.values() if r.evaluation_id == evaluation_id
+                and (include_withheld or not r.withheld)]
 
     def add_note(self, evaluation_id: int, note: Note, kind: str = "OBSERWACJA") -> NoteRecord:
         """Store a note under a fresh int id (the domain Note gets the same id as text)."""
@@ -222,9 +267,15 @@ class DemoState:
             return False
 
 
+def _account_admins() -> frozenset[str]:
+    from app.api.auth import admin_employee_ids  # late: auth imports backend.db
+
+    return admin_employee_ids()
+
+
 def _empty_state(today: date | None, ai_mode: str | None, scenario: bool, first_cycle_id: int = 1) -> DemoState:
     ids = itertools.count(first_cycle_id)
-    clock = FixedClock(today or (DEMO_TODAY if scenario else date.today()))
+    clock = SystemClock() if is_production() else FixedClock(today or (DEMO_TODAY if scenario else date.today()))
     directory = KprmEmployeeDirectory()
     evaluations = EvaluationService(kprm_rulebook(), InMemoryCycleRepository(), directory, clock,
                                     new_id=lambda: str(next(ids)))
@@ -235,8 +286,15 @@ def _empty_state(today: date | None, ai_mode: str | None, scenario: bool, first_
     return st
 
 
+def is_production() -> bool:
+    """APP_MODE=production: system clock, no demo endpoints, no demo data (backend/config.py)."""
+    return config.APP_MODE == "production"
+
+
 def build_state(today: date | None = None, ai_mode: str | None = None, scenario: bool = False) -> DemoState:
     st = _empty_state(today, ai_mode, scenario)
+    if is_production():
+        return st  # the office's real data comes from the HR import, never from the demo seed
     if scenario:
         from .demo_seed import seed_scenario
 
@@ -255,9 +313,9 @@ def _codec() -> JsonCodec:
     import sys
 
     from app.application import assistant
-    from app.domain import access, cycle, deadlines, notes, reminder_schedule, scoring
+    from app.domain import access, cycle, deadlines, employee, notes, reminder_schedule, scoring
 
-    mods = [cycle, deadlines, scoring, notes, reminder_schedule, access, assistant, sys.modules[__name__]]
+    mods = [cycle, deadlines, scoring, notes, reminder_schedule, access, employee, assistant, sys.modules[__name__]]
     types = [obj for m in mods for _, obj in inspect.getmembers(m, inspect.isclass)
              if obj.__module__ == m.__name__ and (dataclasses.is_dataclass(obj) or issubclass(obj, Enum))]
     return JsonCodec(types)
@@ -285,6 +343,11 @@ def snapshot(st: DemoState) -> Snapshot:
               "reguly_nadpisane": dict(st.rule_overrides), "zmiany_regul": list(st.rule_changes),
               "ai_urzad": st.ai_office, "hr_partner_urzad": st.hr_partner_office,
               "ai_wylaczone": set(st.ai_off_for), "hr_partner_wylaczony": set(st.hr_partner_off_for),
+              "pracownicy_import": list(st.imported_employees.values()),
+              "nieobecnosci_oceniajacych": list(st.evaluator_absences),
+              "zmiany_oceniajacych": list(st.evaluator_changes),
+              "email_wyslane": set(st.sent_email_keys), "email_wylaczony": set(st.email_off_for),
+              "email_ostatnie_uruchomienie": st.notify_last_run,
               **({"zakres_widocznosci": st.settings.visibility_scope}
                  if st.settings.visibility_scope != load_office_settings().visibility_scope else {}),
               # office default changed by HR in the app (else the file config/ustawienia_urzedu.json applies)
@@ -295,7 +358,8 @@ def snapshot(st: DemoState) -> Snapshot:
 
 def restore(snap: Snapshot, ai_mode: str | None = None) -> DemoState:
     last_cycle = max((int(c.id) for c in snap.cycles if str(c.id).isdigit()), default=0)
-    st = _empty_state(snap.meta.get("dzis"), ai_mode, scenario=False, first_cycle_id=last_cycle + 1)
+    st = _empty_state(snap.meta.get("dzis"), ai_mode, scenario=False, first_cycle_id=last_cycle + 1)  # demo clock
+    st.import_employees(list(snap.meta.get("pracownicy_import", [])))  # before the cycles: they refer to people
     for c in snap.cycles:
         st.evaluations.cycles.save(c)
     st.notes = {int(r.note.id): r for r in snap.notes}
@@ -319,6 +383,11 @@ def restore(snap: Snapshot, ai_mode: str | None = None) -> DemoState:
     st.hr_partner_office = snap.meta.get("hr_partner_urzad", True)
     st.ai_off_for = set(snap.meta.get("ai_wylaczone", set()))
     st.hr_partner_off_for = set(snap.meta.get("hr_partner_wylaczony", set()))
+    st.evaluator_absences = list(snap.meta.get("nieobecnosci_oceniajacych", []))
+    st.evaluator_changes = list(snap.meta.get("zmiany_oceniajacych", []))
+    st.sent_email_keys = set(snap.meta.get("email_wyslane", set()))
+    st.email_off_for = set(snap.meta.get("email_wylaczony", set()))
+    st.notify_last_run = snap.meta.get("email_ostatnie_uruchomienie")
     return st
 
 
@@ -332,7 +401,8 @@ _state: DemoState | None = None
 
 
 def get_state() -> DemoState:
-    """FastAPI dependency. Loads the saved state from the database; an empty database gets the demo scenario."""
+    """FastAPI dependency. Loads the saved state from the database; an empty database gets the demo scenario
+    (production: stays empty)."""
     global _state
     if _state is None:
         if store().is_empty():

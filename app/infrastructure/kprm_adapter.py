@@ -26,6 +26,12 @@ def _employee(raw: dict) -> Employee:
         position=raw.get("stanowisko", ""),
         sheet=raw["arkusz"],
         evaluator_id=raw.get("oceniajacy"),
+        civil_servant=bool(raw.get("urzednik_mianowany", False)),
+        grade=raw.get("stopien_sluzbowy"),
+        grade_since=date.fromisoformat(raw["data_przyznania_stopnia"]) if raw.get("data_przyznania_stopnia") else None,
+        manages_people=raw.get("kieruje_zespolem"),
+        is_office_head=raw.get("kierownik_urzedu"),
+        email=raw.get("email"),
         previous_evaluation=PreviousEvaluation(
             outcome=prev.get("ocena"),
             level=prev.get("poziom"),
@@ -46,3 +52,8 @@ class KprmEmployeeDirectory:
 
     def all(self) -> list[Employee]:
         return list(self._by_id.values())
+
+    def upsert(self, employees: list[Employee]) -> None:
+        """People from the HR import: same id = updated, new id = added (order of the directory kept)."""
+        for e in employees:
+            self._by_id[e.id] = e
