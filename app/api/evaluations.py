@@ -48,6 +48,7 @@ ACTIONS = {
     s.Akcja.ROZPOCZNIJ_ROZMOWE: ("record_review_meeting", "evaluator"),
     s.Akcja.ZATWIERDZ_OCENE: ("submit_evaluation", "evaluator"),
     s.Akcja.POTWIERDZ_ZAPOZNANIE: ("acknowledge", "employee"),
+    s.Akcja.FIKCJA_ZAPOZNANIA: ("refuse_acknowledgement", "evaluator"),  # refused to sign, the evaluator notes it
     s.Akcja.ZLOZ_SPRZECIW: ("file_objection", "employee"),
     s.Akcja.ROZPATRZ_SPRZECIW: ("decide_objection", "reviewer"),  # director general (office setting)
 }
@@ -115,9 +116,9 @@ def _notes(st: DemoState, c: EvaluationCycle) -> list[Note]:
 def _live_result(st: DemoState, c: EvaluationCycle) -> EvaluationResult | None:
     if c.result is not None:
         return c.result
-    ids = c.criteria_ids(st.evaluations.rules)
+    ids = c.criteria_ids(st.rules_for(c))
     if ids and all(c.scores.get(i) is not None for i in ids):
-        return compute_result([c.scores[i] for i in ids], st.evaluations.rules)
+        return compute_result([c.scores[i] for i in ids], st.rules_for(c))
     return None
 
 
@@ -128,7 +129,7 @@ def _wynik(result: EvaluationResult | None) -> s.Wynik | None:
 
 
 def _criteria_out(st: DemoState, c: EvaluationCycle) -> list[s.EvaluationCriterionOut]:
-    rules = st.evaluations.rules
+    rules = st.rules_for(c)
     ids = c.criteria_ids(rules)
     mandatory = set(rules.mandatory(c.sheet))
     ev = evidence_by_criterion(_notes(st, c), ids)
@@ -150,7 +151,7 @@ def _validations(st: DemoState, c: EvaluationCycle) -> list[s.Walidacja]:
     """Current blocking problems for submitting the evaluation (rules from the domain's rule book)."""
     if c.status is not Status.MEETING_HELD:
         return []
-    rules = st.evaluations.rules
+    rules = st.rules_for(c)
     out: list[s.Walidacja] = []
     for cid in c.criteria_ids(rules):
         if c.scores.get(cid) is None:
@@ -165,6 +166,31 @@ def _validations(st: DemoState, c: EvaluationCycle) -> list[s.Walidacja]:
         out.append(s.Walidacja(kod="IPRZ_WYMAGANE", pole="wnioski_iprz", waga=s.Waga.BLAD,
                                komunikat="Wnioski dotyczące indywidualnego programu rozwoju zawodowego są obowiązkowe."))
     return out
+
+
+def _person_name(st: DemoState, who: str) -> str:
+    if who == HR:
+        return "Dział kadr"
+    e = st.directory.get(who)
+    return e.full_name if e else who
+
+
+def _sheet_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.DoborArkusza | None:
+    if c.sheet_suggested is None:
+        return None
+    return s.DoborArkusza(
+        sugerowany=s.Arkusz(c.sheet_suggested), powod=c.sheet_reason, ostrzezenie=c.sheet_warning,
+        zmiany=[s.ZmianaArkusza(data=d, kto=_person_name(st, by), z=s.Arkusz(a), na=s.Arkusz(b), uzasadnienie=r)
+                for d, by, a, b, r in c.sheet_changes],
+        mozna_zmienic=actor == HR and c.status is Status.CYCLE_STARTED)
+
+
+def _eakt_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.EksportEakt | None:
+    x = st.eakt_status.get(c.id)
+    if actor != HR or x is None:
+        return None
+    return s.EksportEakt(status=x.status, zdarzenie=x.reason, proby=x.attempts, ostatnia_proba=x.last_attempt,
+                         miejsce=x.location, sha256=x.sha256, blad=x.error)
 
 
 def _allowed_actions(c: EvaluationCycle, actor: str, as_evaluator: bool, reviewer: str) -> list[s.Akcja]:
@@ -189,7 +215,7 @@ def _editable(c: EvaluationCycle, as_evaluator: bool) -> list[str]:
 def _objection_out(st: DemoState, c: EvaluationCycle) -> s.SprzeciwOut | None:
     if c.objection_filed_on is None:
         return None
-    rules, cal = st.evaluations.rules, st.evaluations.calendar
+    rules, cal = st.rules_for(c), st.evaluations.calendar
     return s.SprzeciwOut(zlozony=c.objection_filed_on, tresc=c.objection_text,
                          termin_rozpatrzenia=c.objection_review_deadline(rules, cal), decyzja=c.objection_decision,
                          rozstrzygnieto=c.objection_decided_on, uzasadnienie_decyzji=c.objection_reason,
@@ -207,13 +233,15 @@ def _evaluation_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.Evaluati
     result = _live_result(st, c)
     ver = st.version_of(c.id)
     svc = st.evaluations
+    absences = svc.employee_absences(c.employee_id)
+    reviewer = st.objection_reviewer(c)
     return s.EvaluationOut(
         id=int(c.id), wersja=ver.version, status=STATUS_MAP[c.status], arkusz=s.Arkusz(c.sheet),
         urzad=emp.office, oceniany=_employee_out(st, emp), oceniajacy=_osoba(st, boss),
         kryteria=_criteria_out(st, c),
         czesc_i=s.CzescI(
             data_wyznaczenia_kryteriow=c.criteria_set_on,
-            termin_oceny=c.evaluation_deadline(svc.rules, svc.calendar),
+            termin_oceny=c.evaluation_deadline(st.rules_for(c), svc.calendar),
             termin_wyznaczenia_kryteriow=c.criteria_deadline,
             potw_oceniajacy=_podpis(st, c.criteria_set_on, boss),
             potw_oceniany=_podpis(st, c.criteria_confirmed_on, emp),
@@ -227,15 +255,22 @@ def _evaluation_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.Evaluati
             wniosek_o_stopien=s.WniosekOStopien.NIE_DOTYCZY,
             data_sporzadzenia=_dt(c.evaluated_on), podpis_oceniajacego=_podpis(st, c.evaluated_on, boss),
             zapoznanie=_podpis(st, c.acknowledged_on, emp),
-            termin_sprzeciwu=c.objection_deadline(svc.rules, svc.calendar),
+            fikcja_zapoznania=c.acknowledgement_refused, adnotacja_odmowy=c.refusal_note or None,
+            data_wydruku=c.printed_on, data_podpisu=c.signed_on,
+            termin_sprzeciwu=c.objection_deadline(st.rules_for(c), svc.calendar, absences),
         ),
         jako_oceniajacy=as_evaluator,
         sprzeciw=_objection_out(st, c),
-        dozwolone_akcje=_allowed_actions(c, actor, as_evaluator, st.settings.objection_reviewer), edytowalne_pola=_editable(c, as_evaluator),
+        dozwolone_akcje=_allowed_actions(c, actor, as_evaluator, reviewer.id),
+        edytowalne_pola=_editable(c, as_evaluator),
+        dobor_arkusza=_sheet_out(st, c, actor),
+        eksport_eakt=_eakt_out(st, c, actor),
+        rozpatrujacy_sprzeciw=s.RozpatrujacySprzeciw(id=reviewer.id, nazwa=_person_name(st, reviewer.id),
+                                                     podstawa=reviewer.basis),
         walidacje=_validations(st, c), updated_at=ver.updated_at,
         terminy=[s.TerminOut(rodzaj=d.kind, nazwa=d.label, data=d.due, podstawa=d.basis, stan=d.state,
                              spelniony_at=d.done_on, opis=d.note)
-                 for d in deadlines_of(c, svc.rules, svc.calendar, st.clock.today())],
+                 for d in deadlines_of(c, st.rules_for(c), svc.calendar, st.clock.today(), absences)],
     )
 
 
@@ -318,13 +353,13 @@ def dashboard(x_user_id: str | None = Header(default=None), st: DemoState = Depe
 def _dashboard_item(st: DemoState, e: Employee, c: EvaluationCycle, today: date) -> s.DashboardItem:
     svc = st.evaluations
     step, who = NEXT_STEP[c.status]
-    deadline = c.evaluation_deadline(svc.rules, svc.calendar)
+    deadline = c.evaluation_deadline(st.rules_for(c), svc.calendar)
     if c.status in (Status.CYCLE_STARTED, Status.CRITERIA_SET):
         due = c.criteria_deadline
     elif c.status in (Status.CRITERIA_CONFIRMED, Status.MEETING_HELD):
         due = deadline
     elif c.status is Status.OBJECTION:
-        due = c.objection_review_deadline(svc.rules, svc.calendar)
+        due = c.objection_review_deadline(st.rules_for(c), svc.calendar)
     else:
         due = None
     days = (due - today).days if due else None
@@ -358,9 +393,51 @@ def create_evaluation(body: s.EvaluationCreate, x_user_id: str | None = Header(d
         raise ApiProblem(409, "BRAK_OCENIAJACEGO", f"{emp.full_name} nie ma przypisanego oceniającego.")
     if st.evaluations.cycles.find_open_for(emp.id) is not None:
         raise ApiProblem(409, "CYKL_OTWARTY", f"{emp.full_name} ma już otwarty cykl oceny.")
-    c = st.evaluations.start_cycle(emp.id, start_date=body.data_poczatku_cyklu)
+    if body.arkusz is not None and actor != HR and body.arkusz.value != st.evaluations.suggest_sheet(emp.id).sheet:
+        raise NotAuthorized("Inny arkusz niż podpowiedziany może wybrać tylko dział kadr.")
+    c = st.evaluations.start_cycle(emp.id, start_date=body.data_poczatku_cyklu,
+                                   sheet=body.arkusz.value if body.arkusz else None,
+                                   sheet_reason=body.uzasadnienie_arkusza, by=actor)
     st.touch(c.id)
     return _evaluation_out(st, c, actor)
+
+
+@router.get("/employees/{employee_id}/sheet-suggestion", response_model=s.DoborArkusza, tags=["ocena"])
+def sheet_suggestion(employee_id: int, x_user_id: str | None = Header(default=None),
+                     st: DemoState = Depends(get_state)) -> s.DoborArkusza:
+    """Which sheet the system suggests for the person's position and why (shown before starting a cycle)."""
+    actor = _actor(st, x_user_id)
+    emp = _employee(st, employee_id)
+    if not st.policy().can_read(actor, emp.id, emp.evaluator_id):
+        raise NotAuthorized("Nie masz dostępu do danych tego pracownika.")
+    sug = st.evaluations.suggest_sheet(emp.id)
+    return s.DoborArkusza(sugerowany=s.Arkusz(sug.sheet), powod=sug.reason, ostrzezenie=sug.warning,
+                          mozna_zmienic=actor == HR)
+
+
+@router.put("/evaluations/{evaluation_id}/sheet", response_model=s.EvaluationOut, tags=["ocena"])
+def change_sheet(evaluation_id: int, body: s.SheetChangeIn, x_user_id: str | None = Header(default=None),
+                 st: DemoState = Depends(get_state)) -> s.EvaluationOut:
+    """HR changes the sheet with a reason – only before the criteria are approved (else 409)."""
+    actor = _actor(st, x_user_id)
+    c = _cycle(st, evaluation_id, actor)
+    if actor != HR:
+        raise NotAuthorized("Arkusz oceny zmienia dział kadr.")
+    st.evaluations.change_sheet(c.id, body.arkusz.value, body.uzasadnienie, actor)
+    st.touch(c.id)
+    return _evaluation_out(st, st.evaluations.cycles.get(c.id), actor)
+
+
+@router.put("/evaluations/{evaluation_id}/paper", response_model=s.EvaluationOut, tags=["ocena"])
+def paper(evaluation_id: int, body: s.PaperIn, x_user_id: str | None = Header(default=None),
+          st: DemoState = Depends(get_state)) -> s.EvaluationOut:
+    """Paper flow (the form printed and signed by hand): the evaluator enters the dates; the signature date is the
+    acknowledgement – the objection period and the reminders run from it (or from the return to work)."""
+    actor = _actor(st, x_user_id)
+    c = _cycle(st, evaluation_id, actor)
+    st.evaluations.record_paper(c.id, actor, body.data_wydruku, body.data_podpisu)
+    st.touch(c.id)
+    return _evaluation_out(st, st.evaluations.cycles.get(c.id), actor)
 
 
 @router.get("/evaluations/{evaluation_id}", response_model=s.EvaluationOut, tags=["ocena"])
@@ -440,12 +517,15 @@ def action(evaluation_id: int, akcja: s.Akcja, body: s.ActionIn | None = None,
         svc.submit_evaluation(c.id, actor)
     elif akcja is s.Akcja.POTWIERDZ_ZAPOZNANIE:
         svc.acknowledge(c.id, actor)
+    elif akcja is s.Akcja.FIKCJA_ZAPOZNANIA:
+        svc.refuse_acknowledgement(c.id, actor, (body.komentarz if body else None) or "", body.data if body else None)
     elif akcja is s.Akcja.ZLOZ_SPRZECIW:
         svc.file_objection(c.id, actor, (body.komentarz if body else None) or "")
     elif akcja is s.Akcja.ROZPATRZ_SPRZECIW:
-        if actor != st.settings.objection_reviewer:
-            raise NotAuthorized("Sprzeciw rozpatruje dyrektor generalny urzędu (art. 83 ust. 1) – w ustawieniach "
-                                "urzędu wskazana osoba.")
+        reviewer = st.objection_reviewer(c)
+        if actor != reviewer.id:
+            raise NotAuthorized(f"Sprzeciw od tej oceny rozpatruje: {_person_name(st, reviewer.id)}. "
+                                f"{reviewer.basis}.")
         if body is None or body.uwzglednij is None:
             raise ValidationError(["Wybierz rozstrzygnięcie: sprzeciw uwzględniony albo nieuwzględniony."])
         svc.decide_objection(c.id, actor, body.uwzglednij, body.komentarz or "")
@@ -464,7 +544,7 @@ def _range_text(band, low: int) -> str:
 def _sheet_pdf_data(st: DemoState, c: EvaluationCycle):
     from backend.sheet_pdf import Person, SheetPdf
 
-    rules = st.evaluations.rules
+    rules = st.rules_for(c)
 
     def person(e: Employee) -> Person:
         return Person(e.first_name, e.last_name, e.unit, e.position)
@@ -514,7 +594,7 @@ def evidence(evaluation_id: int, x_user_id: str | None = Header(default=None),
     actor = _actor(st, x_user_id)
     c = _cycle(st, evaluation_id, actor)
     require_working_material(st, actor, c, "Mapę dowodów z notatek widzi tylko oceniający (lub jego zastępca).")
-    rules = st.evaluations.rules
+    rules = st.rules_for(c)
     ids = c.criteria_ids(rules)
     ev = evidence_by_criterion(_notes(st, c), ids)
     out = []
@@ -545,10 +625,13 @@ def hr_partner(evaluation_id: int, x_user_id: str | None = Header(default=None),
         raise ApiProblem(409, "HR_PARTNER_WYLACZONY", "Wirtualny HR partner jest wyłączony (Ustawienia).")
     notes = _notes(st, c)
     ai_on = st.ai_enabled_for(actor)
-    key = (tuple(n.id for n in notes), tuple(sorted(c.scores.items())), st.clock.today(), ai_on)
+    extra = st.hr_extra_evidence(c)  # wellbeing checklist + RCP indicators (aggregated, no raw hours)
+    key = (tuple(n.id for n in notes), tuple(sorted(c.scores.items())), st.clock.today(), ai_on,
+           tuple((k, tuple(v)) for k, v in sorted(extra.items())))
     cached = st.hr_reports.get(c.id)
     if cached is None or cached[0] != key:
-        report = st.assistant_for(actor).hr_partner(c, st.directory.get(c.employee_id), notes, c.absences, st.clock.today())
+        report = st.assistant_for(actor).hr_partner(c, st.directory.get(c.employee_id), notes, c.absences,
+                                                    st.clock.today(), extra=extra)
         st.hr_reports[c.id] = (key, report)
     out = m.to_hr_partner_out(st.hr_reports[c.id][1])
     for sig in out.sygnaly:  # stable ids per (cycle, kind), so decisions survive recomputation
@@ -625,7 +708,7 @@ def add_absence(employee_id: int, body: s.AbsenceIn, x_user_id: str | None = Hea
     change_id = None
     if after != before:
         change_id = len(st.deadline_changes) + 1
-        months = st.evaluations.rules.absence_extends_after_months
+        months = st.rules_for(c).absence_extends_after_months
         st.deadline_changes.append(DeadlineChangeRecord(
             id=change_id, cycle_id=c.id, reason=s.PowodZmianyTerminu.NIEOBECNOSC_OCENIANEGO_AUTO.value,
             old=before, new=after, status=s.StatusWniosku.AUTO.value,
@@ -660,6 +743,7 @@ def set_clock(body: s.ClockIn, st: DemoState = Depends(get_state)) -> s.ClockOut
         st.clock.set(body.ustaw_date)
     if body.przesun_dni:
         st.clock.advance(days=body.przesun_dni)
+    st.refresh_rules()  # a version with a later start date may have come into force
     sent = st.evaluations.reminders_between(before, st.clock.today(), st.schedule_for)
     return s.ClockOut(dzis=st.clock.today(), nowe_powiadomienia=len(sent))
 
@@ -669,3 +753,10 @@ def demo_reset(st: DemoState = Depends(get_state)) -> Response:
     """Fresh demo scenario (same AI mode)."""
     reset_state(ai_mode=st.ai_mode, scenario=True)
     return Response(status_code=204)
+
+
+def sheet_pdf_bytes(st: DemoState, c: EvaluationCycle) -> bytes:
+    """The sheet PDF as stored in the archive / sent to e-Akt (same layout as GET .../pdf)."""
+    from backend.sheet_pdf import render_sheet_pdf
+
+    return render_sheet_pdf(_sheet_pdf_data(st, c))

@@ -57,6 +57,8 @@ class RuleBook:
     sheets: dict[str, tuple[str, ...]]  # sheet -> mandatory criterion ids, in form order
     criteria: dict[str, Criterion]
     statuses: tuple[str, ...]
+    # criteria the office no longer offers as additional ones (a version of the regulation may withdraw them)
+    unavailable_additional: frozenset[str] = frozenset()
 
     @classmethod
     def from_kprm(cls, rules: dict, sheets: dict, criteria: dict[str, dict]) -> RuleBook:

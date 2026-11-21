@@ -1,7 +1,7 @@
 // Screen 1 – one evaluation (evaluator's view; the evaluated person sees the same sheet read-only with their own actions).
 // Every rule (average, level, outcome, locks, allowed actions, validations) comes from the server.
 import { api, ApiError, currentUserId } from "../api.js";
-import { h, icon, replace, fmtDate, fmtNumber, avatar, daysBetween, daysLeftText, urgency, toast, loading } from "../ui.js";
+import { h, icon, replace, fmtDate, fmtNumber, avatar, daysBetween, daysLeftText, urgency, toast, loading, helpLink } from "../ui.js";
 import {
   STAGES, stageIndex, STATUS_LABEL, LEVEL_LABEL, SCALE_SHORT, ACTION_LABEL, ACTION_DONE, EMPLOYMENT_LABEL, SIGNAL_LABEL, personName,
 } from "../labels.js";
@@ -16,8 +16,10 @@ const CHECK_LABEL = {
   IPRZ_WYMAGANE: "Wnioski do indywidualnego programu rozwoju zawodowego",
 };
 const TEXT_FIELDS = {
-  uzasadnienie: { label: "Uzasadnienie oceny", draft: "UZASADNIENIE" },
-  wnioski_iprz: { label: "Wnioski do indywidualnego programu rozwoju zawodowego", draft: "IPRZ" },
+  uzasadnienie: { label: "Uzasadnienie oceny", draft: "UZASADNIENIE",
+    help: ["rozporzadzenie-oceny-okresowe-2016", "Oceniający sporządza uzasadnienie", "§ 11 ust. 3–4 – uzasadnienie oceny"] },
+  wnioski_iprz: { label: "Wnioski do indywidualnego programu rozwoju zawodowego", draft: "IPRZ",
+    help: ["ustawa-sc-wyciag-oceny", "rozwoju zawodowego", "art. 81 ust. 5 – wnioski do IPRZ"] },
 };
 
 export async function renderEvaluation(view, id, ctx) {
@@ -49,6 +51,10 @@ export async function renderEvaluation(view, id, ctx) {
     if (canSeeWorkNotes()) {  // evaluator, deputy, HR – the evaluated person and managers above get 403 anyway
       tasks.push(api.evidence(id).then((x) => { s.evidence = x; }).catch(() => {}));
       tasks.push(api.notes(id).then((x) => { s.notes = x; }).catch(() => {}));
+    }
+    if (s.ev.status === "ROZMOWA_OCENIAJACA" && isEvaluator()) {
+      tasks.push(Promise.all([api.wellbeingChecklist(), api.wellbeing(id)])
+        .then(([list, answers]) => { s.wb = { list, answers, draft: { ...answers.odpowiedzi } }; }).catch(() => {}));
     }
     if (s.ev.status === "KRYTERIA_DO_WYZNACZENIA" && !s.criteriaDict) {
       tasks.push(api.criteria(s.ev.arkusz).then((x) => { s.criteriaDict = x; }));
@@ -162,13 +168,130 @@ export async function renderEvaluation(view, id, ctx) {
   // ------------------------------------------------------------ main panel (depends on the stage)
   function renderMain() {
     const st = s.ev.status;
-    if (st === "KRYTERIA_DO_WYZNACZENIA") return replace(R.main, criteriaSelection());
+    if (st === "KRYTERIA_DO_WYZNACZENIA") return replace(R.main, sheetPanel(), criteriaSelection());
     if (st === "KRYTERIA_DO_POTWIERDZENIA" || st === "OKRES_OCENY") return replace(R.main, criteriaOverview());
-    replace(R.main, scoringPanel(), objectionPanel());
+    replace(R.main, scoringPanel(), wellbeingPanel(), paperPanel(), objectionPanel());
+  }
+
+  // ------------------------------------------------------------ burnout checklist (working material, never in the PDF)
+  function wellbeingPanel() {
+    if (s.ev.status !== "ROZMOWA_OCENIAJACA" || !isEvaluator() || !s.wb) return null;
+    const { list, answers, draft } = s.wb;
+    const rows = list.objawy.map((o) => {
+      const cur = draft[o.id] || {};
+      const name = `wb-${o.id}`;
+      return h("fieldset", { class: "wb-row" },
+        h("legend", {}, h("strong", {}, o.nazwa), h("span", { class: "small muted" }, ` – ${o.opis}`)),
+        h("div", { class: "row", style: { gap: "14px", flexWrap: "wrap" } },
+          list.odpowiedzi.map((a) => h("label", { class: "row", style: { gap: "4px" } },
+            h("input", { type: "radio", name, value: a.kod, checked: cur.odpowiedz === a.kod,
+              onchange: () => { draft[o.id] = { ...(draft[o.id] || {}), odpowiedz: a.kod }; } }), a.nazwa)),
+          h("input", { type: "text", "aria-label": `Komentarz: ${o.nazwa}`, placeholder: "Komentarz (opcjonalnie)",
+            value: cur.komentarz || "", style: { flex: "1 1 200px" },
+            oninput: (e) => { draft[o.id] = { ...(draft[o.id] || { odpowiedz: "NIE_ZAUWAZAM" }), komentarz: e.target.value }; } })));
+    });
+    const save = async () => {
+      const body = Object.fromEntries(Object.entries(draft).filter(([, v]) => v && v.odpowiedz));
+      try {
+        s.wb.answers = await api.setWellbeing(id, body);
+        toast("Zapisano listę kontrolną dobrostanu.");
+        s.hr = null; renderMain(); loadHr();
+      } catch (e) { toast(e.message, "bad"); }
+    };
+    return h("section", { class: "card card-pad", style: { marginTop: "12px" }, "aria-labelledby": "wb-h" },
+      h("div", { class: "row", style: { justifyContent: "space-between" } },
+        h("h2", { id: "wb-h", class: "row", style: { gap: "8px" } }, icon("lifebuoy"), "Dobrostan"),
+        h("span", { class: "badge badge-idle" }, icon("lock"), "tylko dla Ciebie i HR")),
+      h("p", { class: "small muted" }, list.instrukcja),
+      answers.sygnal_przeciazenia ? h("p", { class: "notice notice-bad" }, icon("alert"),
+        `„Często” w ${answers.liczba_czesto} obszarach – HR partner pokaże sygnał przeciążenia z rekomendacjami.`) : null,
+      h("div", { class: "stack", style: { gap: "10px", marginTop: "10px" } }, rows),
+      h("div", { class: "row", style: { justifyContent: "space-between", marginTop: "10px" } },
+        h("span", { class: "small muted" }, answers.zaktualizowano ? `Zapisano ${fmtDate(answers.zaktualizowano)}` : "Jeszcze nie zapisano"),
+        h("button", { class: "btn", type: "button", onclick: save }, icon("save"), "Zapisz listę")));
+  }
+
+  // ------------------------------------------------------------ sheet suggested from the position (§ 3)
+  function sheetPanel() {
+    const d = s.ev.dobor_arkusza;
+    if (!d) return null;
+    const parts = [
+      h("p", {}, h("strong", {}, `Arkusz ${s.ev.arkusz}. `), d.sugerowany === s.ev.arkusz ? d.powod
+        : `System podpowiadał arkusz ${d.sugerowany} (${d.powod}).`),
+      d.ostrzezenie ? h("p", { class: "notice notice-bad" }, icon("alert"), d.ostrzezenie) : null,
+      d.zmiany.length ? h("ul", { class: "small muted" }, d.zmiany.map((z) =>
+        h("li", {}, `${fmtDate(z.data)}: ${z.kto} zmienił(a) arkusz ${z.z} → ${z.na} – ${z.uzasadnienie}`))) : null,
+    ];
+    if (d.mozna_zmienic) {
+      const sel = h("select", { "aria-label": "Nowy arkusz" }, ["A", "B", "C"].map((x) =>
+        h("option", { value: x, selected: x === s.ev.arkusz }, `Arkusz ${x}`)));
+      const why = h("input", { type: "text", "aria-label": "Uzasadnienie zmiany arkusza", placeholder: "Uzasadnienie zmiany" });
+      parts.push(h("div", { class: "row", style: { gap: "8px", marginTop: "8px", flexWrap: "wrap" } }, sel, why,
+        h("button", { class: "btn btn-sm", type: "button", onclick: async () => {
+          try {
+            s.ev = await api.changeSheet(id, { arkusz: sel.value, uzasadnienie: why.value });
+            s.criteriaDict = await api.criteria(s.ev.arkusz);
+            toast(`Zmieniono arkusz na ${s.ev.arkusz}.`);
+            renderAll();
+          } catch (e) { toast(e.message, "bad"); }
+        } }, "Zmień arkusz")),
+      h("p", { class: "small muted" }, "Arkusz można zmienić tylko przed zatwierdzeniem kryteriów."));
+    }
+    return h("section", { class: "card card-pad" }, h("h2", { class: "row", style: { gap: "8px" } }, "Dobór arkusza",
+      helpLink("rozporzadzenie-oceny-okresowe-2016", "§ 3", "§ 3 – arkusze A, B, C")), parts);
+  }
+
+  // ------------------------------------------------------------ paper flow: print date, signature, refusal to sign
+  function paperPanel() {
+    const ev = s.ev, c = ev.czesc_ii;
+    const canEdit = isEvaluator() && ["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA", "SPRZECIW"].includes(ev.status) && c.data_sporzadzenia;
+    if (!c.data_wydruku && !c.data_podpisu && !c.fikcja_zapoznania && !(canEdit && ev.status === "OCENA_DO_ZAPOZNANIA")) return null;
+    const parts = [h("h2", {}, "Zapoznanie na papierze")];
+    const facts = [];
+    if (c.data_wydruku) facts.push(h("dt", {}, "Wydruk arkusza"), h("dd", {}, fmtDate(c.data_wydruku)));
+    if (c.data_podpisu) facts.push(h("dt", {}, "Podpis ocenianego"), h("dd", {}, fmtDate(c.data_podpisu)));
+    if (c.fikcja_zapoznania) facts.push(h("dt", {}, "Odmowa podpisu"), h("dd", {}, c.adnotacja_odmowy || "tak"));
+    if (c.termin_sprzeciwu) facts.push(h("dt", {}, "Termin sprzeciwu"), h("dd", {}, fmtDate(c.termin_sprzeciwu)));
+    if (facts.length) parts.push(h("dl", { class: "small" }, facts));
+    if (canEdit && ev.status === "OCENA_DO_ZAPOZNANIA") {
+      const printed = h("input", { type: "date", id: "paper-printed", value: c.data_wydruku || "" });
+      const signed = h("input", { type: "date", id: "paper-signed" });
+      const save = async (body, done) => {
+        try {
+          s.ev = await api.paper(id, body);
+          toast(done);
+          await loadSide();
+          renderAll();
+        } catch (e) {
+          const extra = e.walidacje?.length ? ` ${e.walidacje.map((w) => w.komunikat).join(" ")}` : "";
+          toast(`${e.message}${extra}`, "bad");
+        }
+      };
+      parts.push(h("p", { class: "small muted" },
+        "Wydrukuj arkusz (PDF), daj go ocenianemu do podpisu i wpisz daty. Data podpisu jest datą zapoznania – od niej "
+        + "(albo od powrotu do pracy, gdy oceniany był nieobecny) liczy się termin sprzeciwu i przypomnienia."),
+      h("div", { class: "row", style: { gap: "12px", flexWrap: "wrap", alignItems: "flex-end" } },
+        h("label", { for: "paper-printed", class: "stack", style: { gap: "4px" } }, h("span", {}, "Data wydruku"), printed),
+        h("label", { for: "paper-signed", class: "stack", style: { gap: "4px" } }, h("span", {}, "Data podpisu ocenianego"), signed),
+        h("button", { class: "btn btn-primary", type: "button", onclick: () =>
+          save({ data_wydruku: printed.value || null, data_podpisu: signed.value || null },
+            signed.value ? "Zapisano podpis – ocena zapoznana." : "Zapisano datę wydruku.") }, icon("save"), "Zapisz daty")));
+      if (ev.dozwolone_akcje.includes("FIKCJA_ZAPOZNANIA")) {
+        const note = h("textarea", { rows: 2, "aria-label": "Adnotacja o odmowie podpisu",
+          placeholder: "Np. Oceniany odmówił podpisu w obecności …" });
+        const day = h("input", { type: "date", "aria-label": "Data odmowy podpisu" });
+        parts.push(h("details", { style: { marginTop: "12px" } }, h("summary", {}, "Oceniany odmawia podpisu"),
+          h("p", { class: "small muted" }, "Odnotuj odmowę na arkuszu (fikcja zapoznania) – od tego dnia ocena jest uznana za zapoznaną."),
+          note, h("div", { class: "row", style: { gap: "8px", marginTop: "8px" } }, day,
+            h("button", { class: "btn", type: "button", onclick: () => objectionAction("FIKCJA_ZAPOZNANIA",
+              { komentarz: note.value, data: day.value || null }) }, "Odnotuj odmowę podpisu"))));
+      }
+    }
+    return h("section", { class: "card card-pad", style: { marginTop: "12px" } }, parts);
   }
 
   // ------------------------------------------------------------ objection (art. 83): its own panel, not the main button
-  const OBJECTION_ACTIONS = ["ZLOZ_SPRZECIW", "ROZPATRZ_SPRZECIW"];
+  const OBJECTION_ACTIONS = ["ZLOZ_SPRZECIW", "ROZPATRZ_SPRZECIW", "FIKCJA_ZAPOZNANIA"];
 
   async function objectionAction(akcja, body) {
     try {
@@ -184,7 +307,8 @@ export async function renderEvaluation(view, id, ctx) {
   function objectionPanel() {
     const ev = s.ev, o = ev.sprzeciw, can = (a) => ev.dozwolone_akcje.includes(a);
     if (!o && !can("ZLOZ_SPRZECIW")) return null;
-    const parts = [h("h2", {}, "Sprzeciw od oceny")];
+    const parts = [h("h2", { class: "row", style: { gap: "8px" } }, "Sprzeciw od oceny",
+      helpLink("ustawa-sc-wyciag-oceny", "Art. 83", "art. 83 – sprzeciw od oceny"))];
     if (o) {
       const decided = o.decyzja ? (o.decyzja === "UWZGLEDNIONY" ? "uwzględniony" : "nieuwzględniony") : null;
       parts.push(h("dl", { class: "small" },
@@ -198,7 +322,8 @@ export async function renderEvaluation(view, id, ctx) {
     if (can("ZLOZ_SPRZECIW")) {
       const ta = h("textarea", { rows: 3, "aria-label": "Treść sprzeciwu", placeholder: "Z czym się nie zgadzasz i dlaczego?" });
       parts.push(h("p", { class: "small muted" },
-        "Masz 7 dni od zapoznania się z oceną. Sprzeciw rozpatruje dyrektor generalny urzędu (art. 83 ustawy)."),
+        `Termin: ${fmtDate(ev.czesc_ii.termin_sprzeciwu)} (7 dni od zapoznania się z oceną). `
+        + `${ev.rozpatrujacy_sprzeciw ? ev.rozpatrujacy_sprzeciw.podstawa : "Sprzeciw rozpatruje dyrektor generalny urzędu"}.`),
         ta, h("button", { class: "btn btn-primary", type: "button", style: { marginTop: "8px" },
           onclick: () => objectionAction("ZLOZ_SPRZECIW", { komentarz: ta.value }) }, icon("send"), "Złóż sprzeciw"));
     }
@@ -479,7 +604,7 @@ export async function renderEvaluation(view, id, ctx) {
     const locked = !can && s.ev.czesc_ii.podpis_oceniajacego?.at;
     return h("div", { class: "field" },
       h("div", { class: "field-head" },
-        h("div", { class: "row", style: { gap: "10px" } }, h("label", { for: fid }, cfg.label), reqBox),
+        h("div", { class: "row", style: { gap: "10px" } }, h("label", { for: fid }, cfg.label), helpLink(...cfg.help), reqBox),
         can && aiOn() && d?.state !== "loading"
           ? h("button", { class: "btn btn-sm btn-ai", type: "button", onclick: () => requestDraft(cfg.draft) },
             icon("sparkles"), "Szkic od asystenta")

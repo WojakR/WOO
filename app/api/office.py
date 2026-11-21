@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Header
 from app.domain.access import VisibilityScope
 from app.domain.errors import NotAuthorized
 from app.infrastructure import regulations
+from backend import kprm
 
 from . import schemas as s
 from .access import actor as _actor
@@ -29,10 +30,45 @@ def _require_admin(who: str, what: str) -> None:
 
 # ---------------------------------------------------------------- requirements of the regulation
 
+def _versions_out(st: DemoState) -> list[s.WersjaRegulOut]:
+    vs = st.rule_versions
+    today = st.clock.today()
+    now = vs.at(today).id
+    cycles = st.evaluations.cycles.list_all()
+    used: dict[int, int] = {}
+    for c in cycles:
+        v = c.rules_version if c.rules_version is not None else vs.at(c.criteria_set_on or c.history[0][0]).id
+        used[v] = used.get(v, 0) + 1
+    names = {cid: c["nazwa"] for cid, c in kprm.criteria().items()}
+    out = []
+    for v in reversed(vs.all()):
+        values, crit = vs.diff(v) if v.id else ([], [])
+        out.append(s.WersjaRegulOut(
+            id=v.id, obowiazuje_od=None if v.id == 0 else v.valid_from, opis=v.description,
+            autor="Dział kadr" if v.author == HR else v.author, utworzono=v.created_on, aktualna=v.id == now,
+            przyszla=v.valid_from > today, oceny=used.get(v.id, 0),
+            zmiany=[s.ZmianaRegulyOut(klucz=k, nazwa=regulations.BY_KEY[k].label, stara=a, nowa=b,
+                                      podstawa_zmiany=v.description, kto=v.author, kiedy=v.created_on or today)
+                    for k, a, b in values if k in regulations.BY_KEY],
+            zmiany_kryteriow=[s.ZmianaKryteriumOut(kryterium=cid, nazwa=names.get(cid, cid), pole=f, stara=a, nowa=b)
+                              for cid, f, a, b in crit]))
+    return out
+
+
+def _criteria_out(st: DemoState) -> list[s.KryteriumWersjiOut]:
+    rb = st.rule_versions.rulebook(st.rule_versions.latest().id)
+    sheets = {cid: [k for k, ids in rb.sheets.items() if cid in ids] for cid in rb.criteria}
+    return [s.KryteriumWersjiOut(id=c.id, nazwa=c.name, wskazniki=list(c.indicators),
+                                 dostepne=c.id not in rb.unavailable_additional, obowiazkowe_w=sheets[c.id])
+            for c in sorted(rb.criteria.values(), key=lambda c: c.number)]
+
+
 def _rules_out(st: DemoState, who: str) -> s.RegulyOut:
     default = regulations.defaults()
     current = {**default, **st.rule_overrides}
     return s.RegulyOut(
+        wersje=_versions_out(st), aktualna_wersja=st.rule_versions.at(st.clock.today()).id,
+        kryteria=_criteria_out(st),
         parametry=[s.RegulaOut(klucz=r.key, nazwa=r.label, wartosc=current[r.key], domyslna=default[r.key],
                                jednostka=r.unit, podstawa=r.basis, min=r.low, max=r.high)
                    for r in regulations.EDITABLE if r.key in current],
@@ -54,32 +90,36 @@ def get_rules(x_user_id: str | None = Header(default=None), st: DemoState = Depe
 
 @router.put("/ustawienia/reguly", response_model=s.RegulyOut)
 def set_rules(body: s.RegulyIn, x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)):
-    """After an amendment: new values with the legal basis of the change. Every deadline is recomputed."""
+    """After an amendment: a new version of the requirements, in force from the given day (default today). Running
+    evaluations keep their version; cycles whose criteria are set from that day on follow the new one."""
     who = _actor(st, x_user_id)
     _require_admin(who, "Wymagania z rozporządzenia")
-    new = regulations.validate(body.wartosci)
-    current = {**regulations.defaults(), **st.rule_overrides}
-    for key, value in new.items():
-        if current[key] != value:
-            st.rule_changes.append(RuleChangeRecord(key, current[key], value, body.podstawa_zmiany.strip(), who,
-                                                    st.clock.today()))
-    default = regulations.defaults()
-    merged = {k: v for k, v in {**st.rule_overrides, **new}.items() if v != default[k]}
-    st.apply_rules(merged)
+    today = st.clock.today()
+    before = {**regulations.defaults(), **st.rule_versions.latest().values}
+    v = st.rule_versions.add(body.wartosci, body.kryteria, body.obowiazuje_od or today, body.podstawa_zmiany, who,
+                             today)
+    after = {**regulations.defaults(), **v.values}
+    for key in after:
+        if before[key] != after[key]:
+            st.rule_changes.append(RuleChangeRecord(key, before[key], after[key], body.podstawa_zmiany.strip(), who,
+                                                    today))
+    st.refresh_rules()
     st.hr_reports.clear()
     return _rules_out(st, who)
 
 
 @router.delete("/ustawienia/reguly", response_model=s.RegulyOut)
 def reset_rules(x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)):
-    """Back to the published regulation (reguly.json); the change is logged."""
+    """Back to the published regulation (reguly.json) from today – as a new version; the change is logged."""
     who = _actor(st, x_user_id)
     _require_admin(who, "Wymagania z rozporządzenia")
     default = regulations.defaults()
-    for key, value in st.rule_overrides.items():
+    today = st.clock.today()
+    for key, value in st.rule_versions.latest().values.items():
         st.rule_changes.append(RuleChangeRecord(key, value, default[key], "przywrócenie wartości z rozporządzenia",
-                                                who, st.clock.today()))
-    st.apply_rules({})
+                                                who, today))
+    st.rule_versions.add({}, {}, today, "przywrócenie wartości z rozporządzenia", who, today, replace=True)
+    st.refresh_rules()
     st.hr_reports.clear()
     return _rules_out(st, who)
 

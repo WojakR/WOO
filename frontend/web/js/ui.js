@@ -99,6 +99,12 @@ export function toast(message, kind = "") {
   setTimeout(() => t.remove(), 5000);
 }
 
+/** "?" next to a field: opens the regulation in "Pomoc" at the first occurrence of `q`. */
+export function helpLink(slug, q, label) {
+  return h("a", { class: "help-link", href: `#/pomoc/${slug}?q=${encodeURIComponent(q)}`, title: `Przepisy: ${label}`,
+    "aria-label": `Przepisy: ${label}` }, "?");
+}
+
 export function loading(text = "Wczytywanie…") {
   return h("div", { class: "loading" }, h("span", { class: "spinner", "aria-hidden": "true" }), text);
 }

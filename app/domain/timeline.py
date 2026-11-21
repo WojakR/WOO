@@ -13,7 +13,7 @@ from typing import Literal
 
 from .calendar import WorkingCalendar
 from .cycle import EvaluationCycle, Status
-from .deadlines import criteria_deadline, evaluation_deadline
+from .deadlines import Absence, criteria_deadline, evaluation_deadline
 from .rulebook import RuleBook
 
 State = Literal["SPELNIONY", "AKTUALNY", "PO_TERMINIE", "NASTEPNY_OKRES"]
@@ -36,7 +36,9 @@ def _state(due: date | None, done_on: date | None, today: date) -> State:
     return "PO_TERMINIE" if due is not None and today > due else "AKTUALNY"
 
 
-def deadlines_of(c: EvaluationCycle, rules: RuleBook, cal: WorkingCalendar, today: date) -> list[DeadlineItem]:
+def deadlines_of(c: EvaluationCycle, rules: RuleBook, cal: WorkingCalendar, today: date,
+                 absences: list[Absence] | None = None) -> list[DeadlineItem]:
+    """`absences`: the employee's absences outside this cycle (they can move the objection period)."""
     out: list[DeadlineItem] = []
     after_negative_basis = "§ 7 pkt 2 rozporządzenia" if c.after_negative else "§ 7 pkt 1 rozporządzenia"
     out.append(DeadlineItem(
@@ -62,18 +64,23 @@ def deadlines_of(c: EvaluationCycle, rules: RuleBook, cal: WorkingCalendar, toda
     # the evaluation is entered -> the employee is acquainted with it "niezwłocznie" (§ 12 ust. 1)
     out.append(DeadlineItem(
         "ZAPOZNANIE", "Zapoznanie się z oceną", None, "§ 12 ust. 1 rozporządzenia",
-        "SPELNIONY" if c.acknowledged_on else "AKTUALNY", c.acknowledged_on, "niezwłocznie"))
+        "SPELNIONY" if c.acknowledged_on else "AKTUALNY", c.acknowledged_on,
+        "odmowa podpisu – fikcja zapoznania" if c.acknowledgement_refused
+        else "podpis na papierze" if c.signed_on else "niezwłocznie"))
 
     if c.acknowledged_on is None:
         return out
 
     # the employee signed -> objection period, next evaluation, criteria for the next period
-    objection = c.objection_deadline(rules, cal)
+    objection = c.objection_deadline(rules, cal, absences)
+    start = c.objection_start(absences, cal)
     filed = c.objection_filed_on if c.objection_filed_on and c.objection_filed_on >= c.acknowledged_on else None
+    since = (f"od powrotu do pracy {start:%d.%m.%Y} (nieobecność w dniu doręczenia)" if start != c.acknowledged_on
+             else "od zapoznania się z oceną")
     out.append(DeadlineItem(
-        "SPRZECIW", "Sprzeciw do dyrektora generalnego", objection, "art. 83 ust. 1 ustawy",
+        "SPRZECIW", "Sprzeciw od oceny", objection, "art. 83 ust. 1 ustawy",
         "SPELNIONY" if filed else ("PO_TERMINIE" if objection and today > objection else "AKTUALNY"), filed,
-        "sprzeciw złożony" if filed else f"{rules.objection_days} dni od zapoznania się z oceną"))
+        "sprzeciw złożony" if filed else f"{rules.objection_days} dni {since}"))
     if filed:
         review = c.objection_review_deadline(rules, cal)
         out.append(DeadlineItem(

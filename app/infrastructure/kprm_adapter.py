@@ -26,6 +26,9 @@ def _employee(raw: dict) -> Employee:
         position=raw.get("stanowisko", ""),
         sheet=raw["arkusz"],
         evaluator_id=raw.get("oceniajacy"),
+        is_office_head=raw.get("kierownik_urzedu"),
+        manages_people=raw.get("zarzadza_ludzmi"),
+        employment_end=date.fromisoformat(raw["data_ustania_zatrudnienia"]) if raw.get("data_ustania_zatrudnienia") else None,
         previous_evaluation=PreviousEvaluation(
             outcome=prev.get("ocena"),
             level=prev.get("poziom"),

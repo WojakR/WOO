@@ -21,8 +21,8 @@ function errorText(err) {
 
 export async function renderOfficeSections(box, ctx) {
   const isHr = ctx.me.rola === "KADRY";
-  const s = { office: null, mine: null, rules: null, edits: {}, basis: "" };
-  const R = { ai: h("div"), vis: h("div"), rules: h("div") };
+  const s = { office: null, mine: null, rules: null, edits: {}, basis: "", from: "", crit: {} };
+  const R = { ai: h("div"), vis: h("div"), rules: h("div"), rcp: h("div") };
 
   async function refreshMeta() {
     appCtx.meta = await api.meta();
@@ -128,14 +128,52 @@ export async function renderOfficeSections(box, ctx) {
     async function save() {
       const wartosci = Object.fromEntries(Object.entries(s.edits)
         .filter(([k, v]) => r.parametry.find((p) => p.klucz === k)?.wartosc !== v));
-      if (!Object.keys(wartosci).length) { toast("Brak zmian do zapisania."); return; }
+      const kryteria = Object.fromEntries(Object.entries(s.crit).filter(([, v]) => Object.keys(v).length));
+      if (!Object.keys(wartosci).length && !Object.keys(kryteria).length) { toast("Brak zmian do zapisania."); return; }
       try {
-        s.rules = await api.setRules({ wartosci, podstawa_zmiany: s.basis });
-        s.edits = {}; s.basis = "";
-        toast("Zapisano. Terminy wszystkich ocen są liczone według nowych wartości.");
+        s.rules = await api.setRules({ wartosci, kryteria, podstawa_zmiany: s.basis, obowiazuje_od: s.from || null });
+        s.edits = {}; s.basis = ""; s.crit = {};
+        const v = s.rules.wersje[0];
+        toast(v.przyszla ? `Zapisano wersję ${v.id} – wejdzie w życie ${fmtDate(v.obowiazuje_od)}.`
+          : `Zapisano wersję ${v.id}. Trwające oceny liczą się według swojej wersji, nowe – według tej.`);
+        s.from = "";
         await refreshMeta(); renderRules();
       } catch (err) { toast(errorText(err), "bad"); }
     }
+
+    const critEditor = isHr ? h("details", { style: { marginTop: "12px" } },
+      h("summary", {}, "Kryteria dodatkowe – nazwy, wskaźniki, dostępność (część nowej wersji)"),
+      h("div", { class: "table-wrap" }, h("table", { class: "data rules compact" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Kryterium"), h("th", {}, "Wskaźniki (jeden w wierszu)"), h("th", {}, "Dostępne"))),
+        h("tbody", {}, r.kryteria.map((c) => {
+          const ed = (s.crit[c.id] ||= {});
+          return h("tr", {},
+            h("td", {}, h("input", { type: "text", value: ed.nazwa ?? c.nazwa, "aria-label": `Nazwa kryterium ${c.nazwa}`,
+              style: { width: "100%" }, oninput: (e) => { if (e.target.value !== c.nazwa) ed.nazwa = e.target.value; else delete ed.nazwa; } }),
+              c.obowiazkowe_w.length ? h("div", { class: "small muted" }, `obowiązkowe w arkuszu ${c.obowiazkowe_w.join(", ")}`) : null),
+            h("td", {}, h("textarea", { rows: 2, "aria-label": `Wskaźniki: ${c.nazwa}`, style: { width: "100%" },
+              oninput: (e) => { const list = e.target.value.split("\n").map((x) => x.trim()).filter(Boolean);
+                if (list.join("\n") !== c.wskazniki.join("\n")) ed.wskazniki = list; else delete ed.wskazniki; } },
+            (ed.wskazniki ?? c.wskazniki).join("\n"))),
+            h("td", {}, h("input", { type: "checkbox", checked: ed.dostepne ?? c.dostepne, disabled: c.obowiazkowe_w.length > 0,
+              "aria-label": `Dostępne jako dodatkowe: ${c.nazwa}`,
+              onchange: (e) => { if (e.target.checked !== c.dostepne) ed.dostepne = e.target.checked; else delete ed.dostepne; } })));
+        }))))) : null;
+
+    const versionList = h("details", { style: { marginTop: "10px" }, open: r.wersje.length > 1 },
+      h("summary", {}, `Wersje przepisów (${r.wersje.length})`),
+      h("p", { class: "small muted" }, "Każda ocena liczy się według wersji obowiązującej w dniu wyznaczenia kryteriów – nowelizacja nie zmienia trwających ocen."),
+      h("ul", { class: "plain-list" }, r.wersje.map((v) => h("li", {},
+        h("div", {},
+          h("strong", {}, v.id === 0 ? "Wersja 0 – rozporządzenie" : `Wersja ${v.id}`), " ",
+          v.aktualna ? h("span", { class: "badge badge-ok" }, "obowiązuje") : v.przyszla
+            ? h("span", { class: "badge badge-warn" }, `od ${fmtDate(v.obowiazuje_od)}`) : h("span", { class: "badge badge-idle" }, "archiwalna"),
+          h("span", { class: "small muted" }, ` · ${v.opis}${v.obowiazuje_od ? ` · obowiązuje od ${fmtDate(v.obowiazuje_od)}` : ""}`
+            + `${v.autor ? ` · ${v.autor}` : ""} · ocen: ${v.oceny}`)),
+        v.zmiany.length || v.zmiany_kryteriow.length ? h("ul", { class: "small" },
+          v.zmiany.map((z) => h("li", {}, `${z.nazwa}: ${z.stara} → ${z.nowa}`)),
+          v.zmiany_kryteriow.map((z) => h("li", {}, `${z.nazwa} – ${z.pole === "dostepne" ? "dostępność" : z.pole}: `
+            + `${Array.isArray(z.stara) ? z.stara.join("; ") : z.stara ?? "bez zmian"} → ${Array.isArray(z.nowa) ? z.nowa.join("; ") : z.nowa}`))) : null))));
     async function reset() {
       try {
         s.rules = await api.resetRules();
@@ -152,7 +190,8 @@ export async function renderOfficeSections(box, ctx) {
           : h("span", { class: "badge badge-ok" }, icon("check"), "zgodne z rozporządzeniem")),
       h("p", { class: "small muted", style: { margin: "6px 0 10px" } },
         "Rozporządzenie Prezesa Rady Ministrów z 4.04.2016 r. (Dz. U. poz. 470) i ustawa o służbie cywilnej. " +
-        (isHr ? "Po nowelizacji zmień wartości i podaj podstawę – system przeliczy terminy." : "Zmienia administrator po nowelizacji.")),
+        (isHr ? "Po nowelizacji zmień wartości, podaj podstawę i datę wejścia w życie – powstanie nowa wersja przepisów."
+          : "Zmienia administrator po nowelizacji.")),
       h("div", { class: "table-wrap" }, h("table", { class: "data rules" },
         h("thead", {}, h("tr", {}, h("th", {}, "Termin / wymaganie"), h("th", {}, "Wartość"), h("th", {}, ""))),
         h("tbody", {}, rows))),
@@ -160,8 +199,13 @@ export async function renderOfficeSections(box, ctx) {
         h("input", { type: "text", placeholder: "Podstawa zmiany, np. nowelizacja, Dz. U. 2027 poz. 123",
           "aria-label": "Podstawa zmiany", value: s.basis, style: { flex: "1 1 320px" },
           oninput: (e) => { s.basis = e.target.value; } }),
-        h("button", { class: "btn btn-primary", type: "button", onclick: save }, icon("check"), "Zapisz zmiany"),
+        h("label", { class: "row", style: { gap: "6px" } }, "Obowiązuje od",
+          h("input", { type: "date", value: s.from, min: ctx.meta.dzis, "aria-label": "Data wejścia w życie",
+            oninput: (e) => { s.from = e.target.value; } })),
+        h("button", { class: "btn btn-primary", type: "button", onclick: save }, icon("check"), "Zapisz nową wersję"),
         r.zmienione ? h("button", { class: "btn", type: "button", onclick: reset }, "Przywróć z rozporządzenia") : null) : null,
+      critEditor,
+      versionList,
       h("details", { style: { marginTop: "14px" } },
         h("summary", {}, "Pozostałe wymagania (skala, poziomy, kryteria obowiązkowe)"),
         h("dl", { class: "stack", style: { gap: "8px", marginTop: "8px" } }, r.wymagania.map((w) => h("div", {},
@@ -174,7 +218,29 @@ export async function renderOfficeSections(box, ctx) {
           h("span", { class: "small muted" }, `${z.podstawa_zmiany} (${z.kto})`))))) : null));
   }
 
+  // ------------------------------------------------------------ working time (RCP) import – HR only
+  function renderRcp() {
+    if (!isHr) return;
+    const file = h("input", { type: "file", accept: ".csv,.xlsx", "aria-label": "Plik RCP (CSV lub XLSX)" });
+    const out = h("div");
+    replace(R.rcp, h("div", { class: "card card-pad", style: { marginBottom: "12px" } },
+      h("h3", {}, "Import czasu pracy (RCP)"),
+      h("p", { class: "small muted" }, "Plik CSV/XLSX z kolumnami: id_pracownika, data, wejscie, wyjscie, przerwy_min, "
+        + "aktywnosc_po_godzinach (opcjonalnie). HR partner dostaje tylko wskaźniki zbiorcze (nadgodziny, przerwy, praca po godzinach)."),
+      h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap" } }, file,
+        h("button", { class: "btn", type: "button", onclick: async () => {
+          if (!file.files[0]) { toast("Wybierz plik."); return; }
+          try {
+            const r = await api.importRcp(file.files[0]);
+            replace(out, h("p", { class: r.bledy.length ? "notice notice-bad" : "notice notice-ok" },
+              `Zaimportowano ${r.zaimportowano} dni pracy (${r.pracownicy} os.).`,
+              r.bledy.length ? ` Błędne wiersze: ${r.bledy.slice(0, 5).map((b) => `${b.wiersz} – ${b.komunikat}`).join("; ")}` : ""));
+          } catch (err) { toast(errorText(err), "bad"); }
+        } }, icon("upload"), "Importuj")),
+      out));
+  }
+
   [s.office, s.rules, s.mine] = await Promise.all([api.office(), api.rules(), isHr ? null : api.myAssistant()]);
-  replace(box, R.ai, R.vis, R.rules);
-  renderAi(); renderVisibility(); renderRules();
+  replace(box, R.ai, R.vis, R.rules, R.rcp);
+  renderAi(); renderVisibility(); renderRules(); renderRcp();
 }

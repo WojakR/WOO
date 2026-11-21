@@ -57,3 +57,21 @@ class AiModel(Protocol):
     def complete_text(self, system: str, prompt: str, task: AiTask) -> str: ...
 
     def stream_text(self, system: str, prompt: str, task: AiTask) -> Iterator[str]: ...
+
+
+# ---------------------------------------------------------------- working time (RCP)
+
+class WorkTimeSource(Protocol):
+    """Days recorded by the time-recording system (adapter: app/infrastructure/rcp_import.py)."""
+
+    def days_for(self, employee_id: str, start: date, end: date) -> list: ...
+
+
+# ---------------------------------------------------------------- personnel file (e-Akt)
+
+class PersonnelFileExporter(Protocol):
+    """Sends a document to the electronic personnel file (adapters: app/infrastructure/eakt.py).
+    `document` is app.application.personnel_export.PersonnelDocument; returns where it was stored.
+    Raises any exception on failure – the export is then retried."""
+
+    def export(self, document) -> str: ...

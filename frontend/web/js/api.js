@@ -50,6 +50,9 @@ export const api = {
   dashboard: () => request("GET", "/dashboard"),
   evaluation: (id) => request("GET", `/evaluations/${id}`),
   startEvaluation: (body) => request("POST", "/evaluations", body),
+  sheetSuggestion: (employeeId) => request("GET", `/employees/${employeeId}/sheet-suggestion`),
+  changeSheet: (id, body) => request("PUT", `/evaluations/${id}/sheet`, body),
+  paper: (id, body) => request("PUT", `/evaluations/${id}/paper`, body),
   absences: (employeeId) => request("GET", `/employees/${employeeId}/absences`),
   addAbsence: (employeeId, body) => request("POST", `/employees/${employeeId}/absences`, body),
   deadlineChanges: (id) => request("GET", `/evaluations/${id}/deadline-changes`),
@@ -62,6 +65,9 @@ export const api = {
   criteria: (sheet) => request("GET", `/criteria?arkusz=${encodeURIComponent(sheet)}`),
   draft: (id, rodzaj) => request("POST", `/evaluations/${id}/ai/draft`, { rodzaj }),
   hrPartner: (id) => request("GET", `/evaluations/${id}/hr-partner`),
+  wellbeingChecklist: () => request("GET", "/wellbeing/checklist"),
+  wellbeing: (id) => request("GET", `/evaluations/${id}/wellbeing`),
+  setWellbeing: (id, odpowiedzi) => request("PUT", `/evaluations/${id}/wellbeing`, { odpowiedzi }),
   hrDecision: (signalId, status) => request("POST", `/hr-signals/${signalId}/decision`, { status }),
   clock: (body) => request("POST", "/demo/clock", body),
   reset: () => request("POST", "/demo/reset"),
@@ -72,6 +78,10 @@ export const api = {
   setOfficeReminders: (body) => request("PUT", "/ustawienia/przypomnienia", body),
   reminderPlan: (id) => request("GET", `/evaluations/${id}/przypomnienia`),
   notifications: () => request("GET", "/notifications"),
+  report: (name, query = "") => request("GET", `/reports/${name}${query}`),
+  knowledge: () => request("GET", "/knowledge"),
+  knowledgeDoc: (slug) => request("GET", `/knowledge/${encodeURIComponent(slug)}`),
+  knowledgeSearch: (q) => request("GET", `/knowledge/search?q=${encodeURIComponent(q)}`),
   rules: () => request("GET", "/ustawienia/reguly"),
   setRules: (body) => request("PUT", "/ustawienia/reguly", body),
   resetRules: () => request("DELETE", "/ustawienia/reguly"),
@@ -80,4 +90,24 @@ export const api = {
   myAssistant: () => request("GET", "/me/asystent"),
   setMyAssistant: (body) => request("PUT", "/me/asystent", body),
   readNotification: (id) => request("POST", `/notifications/${id}/read`),
+  importRcp: (file) => upload("/admin/rcp/import", file),
 };
+
+async function upload(path, file) {
+  const form = new FormData();
+  form.append("file", file);
+  const headers = { Accept: "application/json" };
+  const uid = currentUserId();
+  if (uid) headers["X-User-Id"] = uid;
+  let res;
+  try {
+    res = await fetch(`/api${path}`, { method: "POST", headers, body: form });
+  } catch {
+    throw new ApiError(0, { komunikat: "Brak połączenia z serwerem." });
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, data);
+  return data;
+}
+
+export { upload };

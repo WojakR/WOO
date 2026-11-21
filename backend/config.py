@@ -43,3 +43,9 @@ AI_LOCAL_MODEL_TEXT = _secret("AI_LOCAL_MODEL_TEXT", _BIELIK)  # drafts, convers
 AI_LOCAL_MODEL_FAST = _secret("AI_LOCAL_MODEL_FAST", AI_LOCAL_MODEL_TEXT)  # note classification; a smaller model is fine
 AI_TIMEOUT_S = float(_secret("AI_TIMEOUT_S", "60"))
 AI_MIN_CONFIDENCE = float(_secret("AI_MIN_CONFIDENCE", "0.6"))
+
+# e-Akt export (app/infrastructure/eakt.py): off | katalog | http
+EAKT_MODE = _secret("EAKT_MODE", "katalog").lower()
+EAKT_DIR = ROOT / _secret("EAKT_DIR", "data/eakt")
+EAKT_URL = _secret("EAKT_URL")
+EAKT_TOKEN = _secret("EAKT_TOKEN")

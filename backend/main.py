@@ -14,6 +14,13 @@ from app.api.notes import router as notes_router
 from app.api.deputies import router as deputies_router
 from app.api.office import router as office_router
 from app.api.reminders import router as reminders_router
+from app.api.wellbeing import router as wellbeing_router
+from app.api.admin_rcp import router as rcp_router
+from app.api.reports import router as reports_router
+from app.api.knowledge import router as knowledge_router
+from app.api.archive import router as archive_router
+from app.api.eakt import router as eakt_router
+from app.api.legacy_import import router as legacy_router
 from app.api.state import save_state
 from backend import config, db
 from backend.llm import ask_llm
@@ -27,6 +34,13 @@ app.include_router(deputies_router)  # zastępstwa
 app.include_router(reminders_router)  # przypomnienia
 app.include_router(evaluations_router)  # sheet, dashboard, HR partner, demo – used by the web UI
 app.include_router(office_router)  # regulation requirements, visibility, AI switches (admin)
+app.include_router(wellbeing_router)  # burnout checklist at the review meeting (working material)
+app.include_router(rcp_router)  # working-time import (RCP) for the HR partner
+app.include_router(reports_router)  # progress, outcomes, training needs
+app.include_router(knowledge_router)  # "Pomoc": manual + regulations
+app.include_router(archive_router)  # frozen closed evaluations, retention review
+app.include_router(eakt_router)  # e-Akt export retry
+app.include_router(legacy_router)  # import of old evaluations (PDF)
 install_error_handlers(app)
 
 

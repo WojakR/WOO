@@ -94,6 +94,24 @@ def reevaluation_date(acknowledged: date, rules: RuleBook, cal: WorkingCalendar 
     return cal.next_working_day(add_months(acknowledged, rules.reevaluation_after_negative_months) + timedelta(days=1))
 
 
+def delivery_day(acknowledged: date, absences: Iterable[Absence], cal: WorkingCalendar | None = None) -> date:
+    """The day the evaluation counts as delivered for the objection period (spec, use case "Pani X"): the
+    acknowledgement, or – if a justified absence of the evaluated person is going on that day – the first day
+    back at work (end of that absence + 1; absences that follow without a gap are joined). The period then runs
+    from that day like from an acknowledgement: the day itself is not counted."""
+    periods = sorted((a for a in absences if a.justified), key=lambda a: a.start)
+    end = None
+    for a in periods:
+        if end is None and a.start <= acknowledged <= a.end:
+            end = a.end
+        elif end is not None and a.start <= end + timedelta(days=1):
+            end = max(end, a.end)
+    if end is None:
+        return acknowledged
+    back = end + timedelta(days=1)
+    return cal.next_working_day(back) if cal else back  # back at work on the first working day
+
+
 def objection_deadline(acknowledged: date, rules: RuleBook, cal: WorkingCalendar) -> date:
     """Art. 83 ust. 1: objection within N days of acknowledging the evaluation.
 
