@@ -420,11 +420,11 @@ def _stage_review(api: Api, ev: dict, ai: bool, today: date) -> None:
         with st.expander("📅 Zaproszenie na rozmowę oceniającą"):
             _invite(ev, today, 3, "Rozmowa oceniająca", 60)
         st.markdown("#### Przygotowanie do rozmowy")
+        _talk_tips()
         if ai:
             _prep(api, ev, "OCENIAJACA")
         else:
-            st.caption("Asystent jest wyłączony – wskazówki do rozmowy są ukryte.")
-        _talk_tips()
+            st.caption("Asystent jest wyłączony – wskazówki asystenta do rozmowy są ukryte.")
         st.divider()
     _action(api, ev, "ROZPOCZNIJ_ROZMOWE",
             note=f"Jako datę rozmowy system zapisze dzisiejszą datę ({ui.fmt(today)}).")
@@ -565,11 +565,6 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
         if editable and drafts_on:
             btn.button("✨ Szkic od asystenta", key=f"dr_{tkey}", use_container_width=True,
                        on_click=request_draft, args=(kind, dkey))
-        # a negative result needs a justification: offer the assistant's draft straight away (once)
-        if (field == "uzasadnienie" and editable and drafts_on and ev["czesc_ii"].get("wynik") == "NEGATYWNA"
-                and not st.session_state[tkey].strip() and not st.session_state.get(f"auto_{eid}")):
-            st.session_state[f"auto_{eid}"] = True
-            request_draft(kind, dkey)
         d = st.session_state.get(dkey)
         if d and editable:
             with st.container(border=True):
