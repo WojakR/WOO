@@ -72,9 +72,12 @@ function pct(n, total) {
 }
 
 function renderStats(box, items) {
-  const total = items.length;
-  const done = items.filter((i) => i.status === "ZAKONCZONA").length;
-  const notStarted = items.filter((i) => !i.evaluation_id).length;
+  // one row per evaluation (a finished one + the cycle that followed it): the stage counters use each person's
+  // latest evaluation in the selected years, so they add up to the number of people
+  const latest = [...new Map(items.map((i) => [i.oceniany.id, i])).values()];
+  const total = latest.length;
+  const done = latest.filter((i) => i.status === "ZAKONCZONA").length;
+  const notStarted = latest.filter((i) => !i.evaluation_id).length;
   const running = total - done - notStarted;
   const overdue = items.filter((i) => i.pilnosc === "PO_TERMINIE").length;
   const negative = items.filter((i) => i.wynik === "NEGATYWNA").length;

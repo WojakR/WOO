@@ -281,30 +281,37 @@ def dashboard(x_user_id: str | None = Header(default=None), st: DemoState = Depe
     visible = st.policy().visible_employees(actor)  # HR: everyone; manager: subtree / direct reports (setting)
     people = [e for e in st.directory.all() if e.evaluator_id and e.id in visible]
     items = []
+    all_cycles = svc.cycles.list_all()
     for e in people:
-        c = svc.cycles.find_open_for(e.id) or next(
-            (x for x in svc.cycles.list_all() if x.employee_id == e.id), None)
-        if c is None:
+        # one row per evaluation: a finished one stays (its year, its result) next to the cycle that followed it
+        mine = sorted((x for x in all_cycles if x.employee_id == e.id), key=lambda x: (x.start_date, int(x.id)))
+        if not mine:
             items.append(s.DashboardItem(evaluation_id=None, oceniany=_osoba(st, e), arkusz=s.Arkusz(e.sheet),
                                          status=None, nastepny_krok="Rozpocznij cykl oceny", kto_dziala="KADRY",
                                          termin=None, dni_do_terminu=None, komorka=e.unit))
             continue
-        step, who = NEXT_STEP[c.status]
-        deadline = c.evaluation_deadline(svc.rules, svc.calendar)
-        if c.status in (Status.CYCLE_STARTED, Status.CRITERIA_SET):
-            due = c.criteria_deadline
-        elif c.status in (Status.CRITERIA_CONFIRMED, Status.MEETING_HELD):
-            due = deadline
-        else:
-            due = None
-        days = (due - today).days if due else None
-        done = c.status in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED)
-        items.append(s.DashboardItem(
-            evaluation_id=int(c.id), oceniany=_osoba(st, e), arkusz=s.Arkusz(c.sheet), status=STATUS_MAP[c.status],
-            nastepny_krok=step, kto_dziala=who, termin=due or deadline, dni_do_terminu=days, pilnosc=_urgency(days),
-            wynik=_wynik(_live_result(st, c)) if done else None, komorka=e.unit, termin_oceny=deadline,
-        ))
+        for c in mine:
+            items.append(_dashboard_item(st, e, c, today))
     return s.DashboardOut(pozycje=items, nieprzeczytane_powiadomienia=0)
+
+
+def _dashboard_item(st: DemoState, e: Employee, c: EvaluationCycle, today: date) -> s.DashboardItem:
+    svc = st.evaluations
+    step, who = NEXT_STEP[c.status]
+    deadline = c.evaluation_deadline(svc.rules, svc.calendar)
+    if c.status in (Status.CYCLE_STARTED, Status.CRITERIA_SET):
+        due = c.criteria_deadline
+    elif c.status in (Status.CRITERIA_CONFIRMED, Status.MEETING_HELD):
+        due = deadline
+    else:
+        due = None
+    days = (due - today).days if due else None
+    done = c.status in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED)
+    return s.DashboardItem(
+        evaluation_id=int(c.id), oceniany=_osoba(st, e), arkusz=s.Arkusz(c.sheet), status=STATUS_MAP[c.status],
+        nastepny_krok=step, kto_dziala=who, termin=due or deadline, dni_do_terminu=days, pilnosc=_urgency(days),
+        wynik=_wynik(_live_result(st, c)) if done else None, komorka=e.unit, termin_oceny=deadline,
+    )
 
 
 # ---------------------------------------------------------------- the evaluation sheet
