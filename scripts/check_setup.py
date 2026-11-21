@@ -19,12 +19,12 @@ def check(name, fn):
 
 check("Python >= 3.10", lambda: None if sys.version_info >= (3, 10) else (_ for _ in ()).throw(RuntimeError(sys.version)))
 check("Plik .env", lambda: None if (Path(__file__).parent.parent / ".env").exists() else (_ for _ in ()).throw(FileNotFoundError("skopiuj .env.example jako .env")))
-for mod in ("fastapi", "streamlit", "litellm", "pandas", "pypdf", "lxml", "faker"):
+for mod in ("fastapi", "streamlit", "litellm", "pandas", "pypdf", "lxml", "faker", "sqlmodel"):
     check(f"import {mod}", lambda m=mod: __import__(m) and None)
 
 from backend import config, db  # noqa: E402
 
-check("SQLite", lambda: str(config.DB_PATH))
+check("Baza danych", lambda: db.engine.url.render_as_string(hide_password=True))
 check("Lista modeli", lambda: ", ".join(config.LLM_MODELS) + (" (MOCK)" if config.LLM_MOCK else ""))
 
 

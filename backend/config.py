@@ -30,5 +30,7 @@ LLM_MODELS = [m.strip() for m in _secret("LLM_MODELS", "openai/gpt-4o-mini").spl
 LLM_MOCK = _secret("LLM_MOCK", "0") == "1"
 DB_PATH = ROOT / _secret("DB_PATH", "data/app.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+# SQLAlchemy URL; empty = SQLite file at DB_PATH. PostgreSQL: postgresql+psycopg://user:pass@host:5432/db
+DATABASE_URL = _secret("DATABASE_URL") or f"sqlite:///{DB_PATH.as_posix()}"
 # Domain data (KPRM: criteria, sheets, rules, sample employees, knowledge base) lives in the monorepo's server/
 KPRM_DATA_DIR = Path(_secret("KPRM_DATA_DIR", str(ROOT.parent / "server" / "data" / "kprm")))

@@ -2,6 +2,7 @@
 
 HackNation 2026 project (Python 3.11+). README.md (Polish) is the human guide.
 Task: KPRM "Cyfrowy Asystent Ocen Okresowych" – institution, demo scenario and MVP use cases in `docs/task.md`.
+Data model (entities, enums, computed values, 🟢/🟡 scope): `docs/model-danych.md` – read before changing `backend/db.py`.
 This is `projekt/` inside a monorepo; the agent-coordination toolkit is in `../server/` (do not edit it for app work).
 Run all commands below from `projekt/`.
 
@@ -13,7 +14,9 @@ Run all commands below from `projekt/`.
 ## Architecture
 - `backend/llm.py` – the ONLY place that calls an LLM: use `ask_llm()` / `ask_llm_json()`. Never import litellm/openai/anthropic elsewhere.
 - `backend/parsers.py` – file parsing (PDF/XML/CSV/XLSX/OCR). Add new formats here.
-- `backend/db.py` – SQLite access. Schema changes go in `init_db()`.
+- `backend/db.py` – database access via SQLModel; engine from `DATABASE_URL` (empty = SQLite at `DB_PATH`,
+  PostgreSQL = change the URL). Tables = SQLModel classes with `table=True` in this module; `init_db()` runs
+  `create_all()` (no Alembic: adding columns to an existing table needs a fresh DB). ORM only, no dialect-specific SQL.
 - `backend/main.py` – FastAPI endpoints. Keep them thin; logic lives in backend modules.
 - `frontend/app.py` – Streamlit demo; imports backend functions directly (no HTTP), so it deploys as one app.
 - `scripts/` – setup check, synthetic data generator.
