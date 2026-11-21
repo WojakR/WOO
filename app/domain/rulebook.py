@@ -68,6 +68,8 @@ class RuleBook:
     mandatory_grade_levels: frozenset[str] = frozenset({"powyżej oczekiwań", "znacznie powyżej oczekiwań"})
     mandatory_grade_basis: str = "art. 89 ust. 2 ustawy o służbie cywilnej"
     mandatory_grade_days: int = 30  # … the next grade within 30 days of acknowledging the evaluation
+    # criteria the office no longer offers as additional ones (a version of the regulation may withdraw them)
+    unavailable_additional: frozenset[str] = frozenset()
 
     @classmethod
     def from_kprm(cls, rules: dict, sheets: dict, criteria: dict[str, dict]) -> RuleBook:

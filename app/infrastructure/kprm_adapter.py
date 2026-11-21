@@ -29,9 +29,10 @@ def _employee(raw: dict) -> Employee:
         civil_servant=bool(raw.get("urzednik_mianowany", False)),
         grade=raw.get("stopien_sluzbowy"),
         grade_since=date.fromisoformat(raw["data_przyznania_stopnia"]) if raw.get("data_przyznania_stopnia") else None,
-        manages_people=raw.get("kieruje_zespolem"),
+        manages_people=raw.get("zarzadza_ludzmi", raw.get("kieruje_zespolem")),
         is_office_head=raw.get("kierownik_urzedu"),
         email=raw.get("email"),
+        employment_end=date.fromisoformat(raw["data_ustania_zatrudnienia"]) if raw.get("data_ustania_zatrudnienia") else None,
         previous_evaluation=PreviousEvaluation(
             outcome=prev.get("ocena"),
             level=prev.get("poziom"),

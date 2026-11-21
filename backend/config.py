@@ -63,3 +63,9 @@ SMTP_USER = _secret("SMTP_USER", "")
 SMTP_PASSWORD = _secret("SMTP_PASSWORD", "")
 SMTP_FROM = _secret("SMTP_FROM", "")
 SMTP_STARTTLS = _secret("SMTP_STARTTLS", "1") == "1"
+
+# e-Akt export (app/infrastructure/eakt.py): off | katalog | http
+EAKT_MODE = _secret("EAKT_MODE", "katalog").lower()
+EAKT_DIR = ROOT / _secret("EAKT_DIR", "data/eakt")
+EAKT_URL = _secret("EAKT_URL")
+EAKT_TOKEN = _secret("EAKT_TOKEN")

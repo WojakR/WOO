@@ -192,17 +192,24 @@ function renderTable(box, items, state, update) {
       : h("p", { class: "empty" }, "Brak pozycji spełniających wybrane filtry."));
 }
 
-// Start a new evaluation cycle (UC1). Sheet, criteria and deadlines are set by the server.
-function startCycle(i) {
+// Start a new evaluation cycle (UC1). Sheet (suggested from the position), criteria and deadlines: the server.
+async function startCycle(i, ctx) {
   const date = h("input", { type: "date", id: "start-date" });
   const err = h("div");
+  let sug = null;
+  try { sug = await api.sheetSuggestion(i.oceniany.id); } catch { /* the server still decides */ }
+  const sheetSel = h("select", { id: "start-sheet" }, ["A", "B", "C"].map((x) =>
+    h("option", { value: x, selected: x === (sug?.sugerowany || i.arkusz) }, `Arkusz ${x}`)));
+  const sheetWhy = h("input", { type: "text", id: "start-sheet-why", placeholder: "Uzasadnienie innego arkusza" });
   const go = h("button", { class: "btn btn-primary", type: "submit" }, icon("check"), "Rozpocznij ocenę");
   const dlg = h("dialog", { class: "modal", "aria-labelledby": "start-h" },
     h("form", { method: "dialog", onsubmit: async (e) => {
       e.preventDefault();
       go.disabled = true;
       try {
-        const ev = await api.startEvaluation({ oceniany_id: i.oceniany.id, data_poczatku_cyklu: date.value || null });
+        const other = sug && sug.mozna_zmienic && sheetSel.value !== sug.sugerowany;
+        const ev = await api.startEvaluation({ oceniany_id: i.oceniany.id, data_poczatku_cyklu: date.value || null,
+          ...(other ? { arkusz: sheetSel.value, uzasadnienie_arkusza: sheetWhy.value } : {}) });
         dlg.close();
         toast(`Rozpoczęto ocenę: ${personName(i.oceniany)}. Termin wyznaczenia kryteriów: ${fmtDate(ev.czesc_i.termin_wyznaczenia_kryteriow)}.`);
         location.hash = `#/ocena/${ev.id}`;
@@ -212,7 +219,14 @@ function startCycle(i) {
       }
     } },
     h("h2", { id: "start-h" }, `Rozpocznij ocenę okresową – ${personName(i.oceniany)}`),
-    h("p", { class: "small muted" }, `Arkusz ${i.arkusz}. Kryteria obowiązkowe, oceniający i terminy ustali system na podstawie danych kadrowych.`),
+    sug ? h("div", { class: "stack", style: { gap: "6px", marginTop: "8px" } },
+      h("p", {}, h("strong", {}, `Podpowiedź: arkusz ${sug.sugerowany}. `), sug.powod),
+      sug.ostrzezenie ? h("p", { class: "notice notice-bad" }, icon("alert"), sug.ostrzezenie) : null,
+      sug.mozna_zmienic ? h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap" } },
+        h("label", { for: "start-sheet", class: "sr-only" }, "Arkusz"), sheetSel,
+        h("label", { for: "start-sheet-why", class: "sr-only" }, "Uzasadnienie"), sheetWhy) : null)
+      : h("p", { class: "small muted" }, `Arkusz ${i.arkusz}.`),
+    h("p", { class: "small muted" }, "Kryteria obowiązkowe, oceniający i terminy ustali system na podstawie danych kadrowych."),
     h("label", { for: "start-date", class: "stack", style: { gap: "4px", margin: "14px 0" } },
       h("span", { style: { fontWeight: 650 } }, "Początek cyklu oceny (opcjonalnie)"),
       date,

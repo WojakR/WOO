@@ -106,8 +106,8 @@ def draft(
             f"Szkic {_DRAFT_LABEL[body.rodzaj]} można przygotować dopiero po rozmowie oceniającej, "
             f"gdy wpisuje się część II arkusza (teraz: {STATUS_LABELS[cycle.status]}).")
     if body.rodzaj == "UMOTYWOWANIE_STOPNIA":  # § 11 ust. 5: Part III only with a positive evaluation
-        ids = cycle.criteria_ids(st.evaluations.rules)
-        result = cycle.result or (compute_result([cycle.scores[c] for c in ids], st.evaluations.rules)
+        ids = cycle.criteria_ids(st.rules_for(cycle))
+        result = cycle.result or (compute_result([cycle.scores[c] for c in ids], st.rules_for(cycle))
                                   if ids and all(c in cycle.scores for c in ids) else None)
         if result is None or result.outcome is not Outcome.POSITIVE:
             raise FieldLocked("Wniosek o kolejny stopień służbowy można umotywować tylko przy ocenie pozytywnej "

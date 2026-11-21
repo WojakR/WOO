@@ -1,10 +1,10 @@
 """Database access (SQLModel). The engine comes from `config.DATABASE_URL`:
 SQLite locally, PostgreSQL by changing the URL only. Keep queries ORM-only (no dialect-specific SQL)."""
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Column, Text
+from sqlalchemy import JSON, Column, LargeBinary, Text
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from backend import config
@@ -51,6 +51,22 @@ class AuditEntry(SQLModel, table=True):
     field: str | None = None
     before: str | None = Field(default=None, sa_column=Column(Text))
     after: str | None = Field(default=None, sa_column=Column(Text))
+
+
+class ArchiveRecord(SQLModel, table=True):
+    """A closed evaluation frozen for the personnel file (app/application/archive.py): an immutable JSON snapshot
+    and the PDF of the sheet, each with its SHA-256. Written once, never updated; removed only after the
+    retention period with the administrator's approval."""
+    __tablename__ = "archiwum"
+
+    id: int | None = Field(default=None, primary_key=True)
+    cycle_id: str = Field(index=True, unique=True)
+    employee_id: str = Field(index=True)
+    frozen_on: date
+    snapshot: str = Field(sa_column=Column(Text, nullable=False))
+    snapshot_sha256: str
+    pdf: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    pdf_sha256: str
 
 
 @contextmanager

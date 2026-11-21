@@ -54,7 +54,42 @@
   },
   "sprzeciw": {
     "_opis": "Kto rozpatruje sprzeciwy (art. 83 ust. 1: dyrektor generalny urzędu). \"kadry\" = konto działu kadr / administratora; można wpisać id osoby z pracownicy.json.",
-    "rozpatruje": "kadry"
+    "rozpatruje": "kadry",
+    "urzad_ma_dyrektora_generalnego": true,
+    "_urzad_ma_dyrektora_generalnego": "false = w urzędzie nie ma stanowiska DG: sprzeciw rozpatruje kierownik urzędu (przypis 17 do wzoru arkusza; kierownik = osoba z kierownik_urzedu=true w tym urzędzie).",
+    "gdy_oceniany_jest_kierownikiem_urzedu": {
+      "_opis": "Przypadek brzegowy: oceniany jest kierownikiem urzędu (albo rozpatrywałby własny sprzeciw). ORGAN_NADRZEDNY = sprzeciw rozpatruje organ nadrzędny (konto w polu rozpatruje); PONOWNE_ROZPATRZENIE = oceniający rozpatruje sprawę ponownie.",
+      "tryb": "ORGAN_NADRZEDNY",
+      "rozpatruje": "kadry"
+    }
+  },
+  "dobrostan": {
+    "_opis": "Lista kontrolna wypalenia (8 objawów, server/data/kprm/wellbeing.json): tyle odpowiedzi „często” daje sygnał przeciążenia dla HR partnera.",
+    "prog_odpowiedzi_czesto": 3
+  },
+  "rcp": {
+    "_opis": "Wskaźniki z rejestracji czasu pracy (sygnały przeciążenia dla HR partnera): okno w tygodniach, norma dobowa, progi.",
+    "okno_tygodni": 8,
+    "norma_godzin_dziennie": 8,
+    "nadgodziny_od_minut": 30,
+    "prog_dni_z_nadgodzinami": 10,
+    "minimalna_przerwa_minut": 15,
+    "prog_dni_bez_przerwy": 10,
+    "prog_dni_aktywnosci_po_godzinach": 5
+  },
+  "raporty": {
+    "_opis": "Grupy mniejsze niż minimalna_grupa osób są ukrywane w raportach wyników, żeby nie dało się zidentyfikować pracowników.",
+    "minimalna_grupa": 5
+  },
+  "szkolenia": {
+    "_opis": "Analiza potrzeb szkoleniowych: ocena cząstkowa poniżej tej wartości (skala 1–9) oznacza potrzebę szkoleniową w obszarze kryterium (server/data/kprm/kryteria.json, obszar_szkoleniowy).",
+    "ocena_czastkowa_ponizej": 5
+  },
+  "archiwum": {
+    "_opis": "Okresy przechowywania. Arkusz oceny jest częścią akt osobowych (§ 6 ust. 3 i § 12 ust. 2 rozporządzenia z 4.04.2016) – dokumentacja pracownicza: 10 lat od końca roku kalendarzowego, w którym ustał stosunek pracy (art. 94 pkt 9b Kodeksu pracy, w brzmieniu od 1.01.2019). Notatki robocze przełożonego nie są dokumentacją pracowniczą – propozycja: 12 miesięcy od zakończenia oceny. Nic nie jest usuwane automatycznie: system wskazuje rekordy, decyzję zatwierdza administrator.",
+    "akta_lat_od_konca_roku_ustania_zatrudnienia": 10,
+    "podstawa": "art. 94 pkt 9b Kodeksu pracy",
+    "notatki_robocze_miesiecy_po_zakonczeniu": 12
   },
   "zmiana_terminu": {
     "_opis": "Zmiana terminu oceny (art. 81 ust. 8). Decyzję podejmuje oceniający: OCENIAJACY = zmiana działa od razu; KADRY = urząd wymaga dodatkowo zatwierdzenia przez dział kadr (procedura wewnętrzna). propozycja_dni_po_powrocie = podpowiadany nowy termin po zakończeniu nieobecności.",

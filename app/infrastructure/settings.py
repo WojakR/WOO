@@ -10,6 +10,7 @@ from pathlib import Path
 
 from app.domain.access import VisibilityScope
 from app.domain.errors import ValidationError
+from app.domain.objection import HeadMode, ObjectionPolicy
 from app.domain.reminder_schedule import ReminderRule, ReminderSchedule, RuleKind, Stage, WorkingHours
 
 DEFAULT_PATH = Path(__file__).resolve().parents[2] / "config" / "ustawienia_urzedu.json"
@@ -68,6 +69,17 @@ class OfficeSettings:
     # art. 81 ust. 8: OCENIAJACY = the evaluator's decision applies at once; KADRY = HR approves it first
     deadline_change_approver: str = "OCENIAJACY"
     deadline_days_after_return: int = 14  # proposed new deadline after an absence
+    objection: ObjectionPolicy = field(default_factory=ObjectionPolicy)  # edge cases (app/domain/objection.py)
+    # wellbeing checklist: this many "często" answers raise the HR partner's overload signal
+    wellbeing_often_threshold: int = 3
+    # working-time (RCP) indicators: window and thresholds (app/domain/worktime_signals.py)
+    rcp: dict = field(default_factory=dict)
+    # reports: groups smaller than this are hidden (no identifying individuals)
+    report_min_group: int = 5
+    # training needs: a partial score below this counts as a need
+    training_score_below: int = 5
+    # archive: retention periods (app/application/archive.py)
+    archive: dict = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, raw: dict) -> OfficeSettings:
@@ -82,14 +94,30 @@ class OfficeSettings:
         hours = WorkingHours(parse_time(hours_raw.get("od", "08:00"), "Godziny pracy"),
                              parse_time(hours_raw.get("do", "16:00"), "Godziny pracy"))
         schedule = parse_schedule(rem, DEFAULT_SCHEDULE).validated(hours)
-        reviewer = str((raw.get("sprzeciw") or {}).get("rozpatruje") or "kadry").strip()
+        objection_raw = raw.get("sprzeciw") or {}
+        reviewer = str(objection_raw.get("rozpatruje") or "kadry").strip()
+        head = objection_raw.get("gdy_oceniany_jest_kierownikiem_urzedu") or {}
+        try:
+            mode = HeadMode(head.get("tryb", HeadMode.SUPERIOR_BODY.value))
+        except ValueError:
+            raise ValidationError([f"Ustawienia urzędu: nieznany tryb sprzeciwu kierownika urzędu „{head.get('tryb')}” "
+                                   f"(dozwolone: {', '.join(m.value for m in HeadMode)})."]) from None
+        objection = ObjectionPolicy(reviewer, bool(objection_raw.get("urzad_ma_dyrektora_generalnego", True)), mode,
+                                    str(head.get("rozpatruje") or reviewer))
+        wellbeing = raw.get("dobrostan") or {}
+        reports = raw.get("raporty") or {}
+        training = raw.get("szkolenia") or {}
         dc = raw.get("zmiana_terminu") or {}
         approver = str(dc.get("zatwierdza") or "OCENIAJACY").upper()
         if approver not in ("OCENIAJACY", "KADRY"):
             raise ValidationError([f"Ustawienia urzędu: zmiana_terminu.zatwierdza „{approver}” – dozwolone OCENIAJACY, KADRY."])
         return cls(visibility_scope=visibility, working_hours=hours, reminders=schedule, objection_reviewer=reviewer,
                    deadline_change_approver=approver,
-                   deadline_days_after_return=int(dc.get("propozycja_dni_po_powrocie", 14)))
+                   deadline_days_after_return=int(dc.get("propozycja_dni_po_powrocie", 14)),
+                   objection=objection, wellbeing_often_threshold=int(wellbeing.get("prog_odpowiedzi_czesto", 3)),
+                   rcp=dict(raw.get("rcp") or {}), report_min_group=int(reports.get("minimalna_grupa", 5)),
+                   training_score_below=int(training.get("ocena_czastkowa_ponizej", 5)),
+                   archive=dict(raw.get("archiwum") or {}))
 
 
 def load_office_settings(path: str | Path | None = None) -> OfficeSettings:

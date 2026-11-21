@@ -47,6 +47,12 @@ def assistant_catalog() -> dict:
 
 
 @lru_cache
+def wellbeing() -> dict:
+    """wellbeing.json: the burnout checklist (8 symptoms) for the review meeting."""
+    return _load("wellbeing.json")
+
+
+@lru_cache
 def test_notes() -> dict:
     """notatki_testowe.json: hand-labelled notes for measuring classification accuracy."""
     return _load("notatki_testowe.json")

@@ -73,6 +73,9 @@ def validate_additional_criteria(sheet: str, additional: list[str], rules: RuleB
             problems.append(
                 f"Kryterium „{rules.criterion_name(cid)}” jest obowiązkowe w arkuszu {sheet} – nie może być dodatkowe."
             )
+        elif cid in rules.unavailable_additional:
+            problems.append(f"Kryterium „{rules.criterion_name(cid)}” nie jest dostępne jako kryterium dodatkowe "
+                            "(wersja przepisów obowiązująca dla tej oceny).")
     return problems
 
 

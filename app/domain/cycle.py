@@ -21,6 +21,7 @@ from .deadlines import (
     PositionChange,
     criteria_deadline,
     evaluation_deadline,
+    delivery_day,
     objection_deadline,
     position_change,
     reevaluation_date,
@@ -59,6 +60,9 @@ TRANSITIONS: dict[str, tuple[frozenset[Status], Status]] = {
     "record_review_meeting": (frozenset({Status.CRITERIA_CONFIRMED}), Status.MEETING_HELD),
     "submit_evaluation": (frozenset({Status.MEETING_HELD}), Status.EVALUATION_DONE),
     "acknowledge": (frozenset({Status.EVALUATION_DONE}), Status.ACKNOWLEDGED),
+    # paper flow: the evaluator records the signature date, or the refusal to sign (fikcja zapoznania)
+    "record_signature": (frozenset({Status.EVALUATION_DONE}), Status.ACKNOWLEDGED),
+    "refuse_acknowledgement": (frozenset({Status.EVALUATION_DONE}), Status.ACKNOWLEDGED),
     "file_objection": (frozenset({Status.ACKNOWLEDGED}), Status.OBJECTION),
     # not upheld -> ACKNOWLEDGED again; upheld -> back to the evaluator (MEETING_HELD) to change / redo it
     "decide_objection": (frozenset({Status.OBJECTION}), Status.ACKNOWLEDGED),
@@ -70,6 +74,8 @@ STEP_LABELS = {
     "record_review_meeting": "zapisanie rozmowy oceniającej",
     "submit_evaluation": "dokonanie oceny",
     "acknowledge": "zapoznanie się z oceną",
+    "record_signature": "zapisanie daty podpisu na papierze",
+    "refuse_acknowledgement": "odmowa podpisu (fikcja zapoznania)",
     "file_objection": "złożenie sprzeciwu",
     "decide_objection": "rozpatrzenie sprzeciwu",
 }
@@ -166,6 +172,19 @@ class EvaluationCycle:
     held_grade: int | None = None  # posiadany stopień (default: the HR data)
     # change of the evaluator during the period (§ 9 ust. 3): (day, previous evaluator, new evaluator)
     evaluator_changes: list[tuple[date, str, str]] = field(default_factory=list)
+    # sheet choice (§ 3): what the system suggested, why, and HR's changes (day, by, old, new, reason)
+    sheet_suggested: str | None = None
+    sheet_reason: str = ""
+    sheet_warning: str | None = None
+    sheet_changes: list[tuple[date, str, str, str, str]] = field(default_factory=list)
+    # paper flow (use case "Pani X"): the printed form and the day the employee signed it (= acknowledgement)
+    printed_on: date | None = None
+    signed_on: date | None = None
+    acknowledgement_refused: bool = False  # fikcja zapoznania: refused to sign, the evaluator's note below
+    refusal_note: str = ""
+    # version of the regulation the cycle follows (app/infrastructure/regulations.py; None = the current one)
+    rules_version: int | None = None
+    imported: bool = False  # legacy evaluation imported from a PDF (app/application/legacy_import.py)
 
     # ---- creation -------------------------------------------------------------------------------
     @classmethod
@@ -223,9 +242,19 @@ class EvaluationCycle:
             return reevaluation_date(self.negative_acknowledged_on or self.start_date, rules, cal)
         return evaluation_deadline(self.start_date, rules, cal, self.absences)
 
-    def objection_deadline(self, rules: RuleBook, cal: WorkingCalendar) -> date | None:
+    def objection_start(self, absences: list[Absence] | None = None,
+                        cal: WorkingCalendar | None = None) -> date | None:
+        """The day the 7 days run from: the acknowledgement, or – when the evaluated person was on a justified
+        absence that day – the day they came back to work (absences: the cycle's own + the employee's later ones)."""
+        if self.acknowledged_on is None:
+            return None
+        return delivery_day(self.acknowledged_on, [*self.absences, *(absences or [])], cal)
+
+    def objection_deadline(self, rules: RuleBook, cal: WorkingCalendar,
+                           absences: list[Absence] | None = None) -> date | None:
         """Art. 83 ust. 1: last day to object to the evaluation; None until the evaluation is acknowledged."""
-        return objection_deadline(self.acknowledged_on, rules, cal) if self.acknowledged_on else None
+        start = self.objection_start(absences, cal)
+        return objection_deadline(start, rules, cal) if start else None
 
     def objection_review_deadline(self, rules: RuleBook, cal: WorkingCalendar) -> date | None:
         """Art. 83 ust. 3: the objection is decided within 14 days of filing it."""
@@ -378,14 +407,79 @@ class EvaluationCycle:
         self.acknowledged_on = today
         self._move(target, today)
 
+    # ---- paper flow (§ 12: the form is printed, the employee signs it) ------------------------------
+    def record_paper(self, actor_id: str, today: date, printed_on: date | None, signed_on: date | None) -> None:
+        """The evaluator enters the print date and/or the signature date. The signature is the acknowledgement:
+        the objection period runs from it. Rules: no date from the future, drawn up <= printed <= signed."""
+        self._require_actor(actor_id, self.evaluator_id, "oceniający")
+        if self.status not in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED, Status.OBJECTION) or not self.evaluated_on:
+            raise InvalidTransition("Daty wydruku i podpisu wpisuje się po sporządzeniu oceny.")
+        printed = printed_on or self.printed_on
+        problems = []
+        for label, d in (("wydruku", printed_on), ("podpisu", signed_on)):
+            if d is not None and d > today:
+                problems.append(f"Data {label} ({d:%d.%m.%Y}) nie może być z przyszłości.")
+        if printed is not None and printed < self.evaluated_on:
+            problems.append(f"Data wydruku ({printed:%d.%m.%Y}) nie może być wcześniejsza niż data sporządzenia "
+                            f"oceny ({self.evaluated_on:%d.%m.%Y}).")
+        if signed_on is not None:
+            if printed is None:
+                problems.append("Najpierw wpisz datę wydruku arkusza – podpis jest na wydruku.")
+            elif signed_on < printed:
+                problems.append(f"Data podpisu ({signed_on:%d.%m.%Y}) nie może być wcześniejsza niż data wydruku "
+                                f"({printed:%d.%m.%Y}).")
+            if self.status is not Status.EVALUATION_DONE:
+                problems.append("Zapoznanie z oceną zostało już odnotowane – daty podpisu nie można zmienić.")
+        if problems:
+            raise ValidationError(problems)
+        self.printed_on = printed
+        if signed_on is not None:
+            target = self._require_step("record_signature")
+            self.signed_on = self.acknowledged_on = signed_on
+            self._move(target, today)
+
+    def refuse_acknowledgement(self, actor_id: str, today: date, note: str, delivered_on: date | None = None) -> None:
+        """Fikcja zapoznania: the evaluated person was shown the evaluation and refused to sign it. The evaluator
+        notes it on the form with the date; from that day the evaluation counts as acknowledged."""
+        target = self._require_step("refuse_acknowledgement")
+        self._require_actor(actor_id, self.evaluator_id, "oceniający")
+        day = delivered_on or today
+        problems = []
+        if not note.strip():
+            problems.append("Wpisz adnotację o odmowie podpisu (kto, kiedy, w czyjej obecności).")
+        if day > today:
+            problems.append("Data odmowy podpisu nie może być z przyszłości.")
+        if self.evaluated_on and day < self.evaluated_on:
+            problems.append("Data odmowy podpisu nie może być wcześniejsza niż data sporządzenia oceny.")
+        if problems:
+            raise ValidationError(problems)
+        self.acknowledgement_refused, self.refusal_note = True, note.strip()
+        self.acknowledged_on = day
+        self._move(target, today)
+
+    # ---- sheet (§ 3) --------------------------------------------------------------------------------
+    def change_sheet(self, sheet: str, reason: str, by: str, today: date, rules: RuleBook) -> None:
+        """HR changes the sheet with a reason – only before the evaluator approves the criteria."""
+        if self.status is not Status.CYCLE_STARTED:
+            raise InvalidTransition("Arkusz można zmienić tylko przed zatwierdzeniem kryteriów oceny.")
+        if not reason.strip():
+            raise ValidationError(["Podaj uzasadnienie zmiany arkusza."])
+        mandatory = set(rules.mandatory(sheet))  # validates the sheet
+        if sheet == self.sheet:
+            return
+        self.sheet_changes.append((today, by, self.sheet, sheet, reason.strip()))
+        self.sheet = sheet
+        self.additional_criteria = [c for c in self.additional_criteria if c not in mandatory]
+
     # ---- objection (art. 83) ----------------------------------------------------------------------
-    def file_objection(self, actor_id: str, today: date, text: str, rules: RuleBook, cal: WorkingCalendar) -> None:
+    def file_objection(self, actor_id: str, today: date, text: str, rules: RuleBook, cal: WorkingCalendar,
+                       absences: list[Absence] | None = None) -> None:
         """The evaluated person objects within 7 days of acknowledging the evaluation (art. 83 ust. 1)."""
         target = self._require_step("file_objection")
         self._require_actor(actor_id, self.employee_id, "oceniany")
         if self.objection_filed_on and self.acknowledged_on and self.objection_filed_on >= self.acknowledged_on:
             raise InvalidTransition("Sprzeciw od tej oceny został już złożony i rozpatrzony.")
-        deadline = self.objection_deadline(rules, cal)
+        deadline = self.objection_deadline(rules, cal, absences)
         if deadline is None or today > deadline:
             raise InvalidTransition(f"Termin na sprzeciw minął {deadline:%d.%m.%Y} (7 dni od zapoznania się z oceną, "
                                     "art. 83 ust. 1 ustawy)." if deadline else "Ocena nie została jeszcze zapoznana.")
@@ -468,17 +562,6 @@ class EvaluationCycle:
             raise ValidationError(["To jest już oceniający tego pracownika."])
         self.evaluator_changes.append((on, self.evaluator_id, new_evaluator))
         self.evaluator_id = new_evaluator
-
-    def change_sheet(self, sheet: str, rules: RuleBook) -> None:
-        """A different sheet (A/B/C) for the new position – only before the criteria are set again
-        (the mandatory criteria come from the sheet). Additional criteria that are mandatory now are dropped."""
-        if sheet not in rules.sheets:
-            raise ValidationError([f"Nieznany arkusz „{sheet}”."])
-        if self.status is not Status.CYCLE_STARTED:
-            raise InvalidTransition("Arkusz można zmienić tylko przed wyznaczeniem kryteriów.")
-        mandatory = set(rules.mandatory(sheet))
-        self.sheet = sheet
-        self.additional_criteria = [c for c in self.additional_criteria if c not in mandatory]
 
     @property
     def is_negative(self) -> bool:

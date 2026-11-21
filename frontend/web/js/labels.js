@@ -54,6 +54,7 @@ export const ACTION_DONE = {
   POTWIERDZ_ZAPOZNANIE: "Potwierdzono zapoznanie się z oceną.",
   ZLOZ_SPRZECIW: "Sprzeciw złożony. Rozpatruje go dyrektor generalny w ciągu 14 dni.",
   ROZPATRZ_SPRZECIW: "Sprzeciw rozpatrzony.",
+  FIKCJA_ZAPOZNANIA: "Odnotowano odmowę podpisu – ocena uznana za zapoznaną.",
 };
 
 export const WHO_LABEL = { OCENIAJACY: "oceniający", OCENIANY: "oceniany", KADRY: "kadry", NIKT: "–" };
