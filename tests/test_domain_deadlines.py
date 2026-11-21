@@ -9,6 +9,8 @@ from app.domain.deadlines import (
     evaluation_deadline,
     is_longer_than,
     merge_absences,
+    objection_deadline,
+    reevaluation_date,
 )
 from app.domain.errors import ValidationError
 from app.infrastructure.kprm_adapter import kprm_rulebook
@@ -99,6 +101,46 @@ def test_criteria_deadline_30_days_or_7_after_negative():
     assert criteria_deadline(date(2024, 6, 12), R, CAL) == date(2024, 7, 12)
     assert criteria_deadline(date(2024, 6, 12), R, CAL, after_negative=True) == date(2024, 6, 19)
     assert criteria_deadline(date(2026, 11, 14), R, CAL, after_negative=True) == date(2026, 11, 23)  # Sat -> Mon
+
+
+@pytest.mark.parametrize(
+    "acknowledged, expected",
+    [
+        (date(2015, 2, 15), date(2015, 8, 16)),  # KPRM guide example (16.08.2015 is a Sunday – kept as is)
+        (date(2025, 8, 31), date(2026, 3, 1)),  # 6 months -> 28.02 (end-of-month rule), re-evaluation the day after
+        (date(2024, 8, 31), date(2025, 3, 1)),
+        (date(2026, 11, 23), date(2027, 5, 24)),
+    ],
+)
+def test_reevaluation_after_negative_day_after_six_months(acknowledged, expected):
+    assert reevaluation_date(acknowledged, R) == expected
+
+
+def test_reevaluation_ignores_absences_by_design():
+    # art. 81 ust. 7 extends only the 24-month deadline, so the function takes no absences at all
+    import inspect
+
+    assert "absences" not in inspect.signature(reevaluation_date).parameters
+
+
+@pytest.mark.parametrize(
+    "acknowledged, expected",
+    [
+        (date(2026, 11, 23), date(2026, 11, 30)),  # Mon -> Mon, acknowledgement day not counted
+        (date(2026, 11, 6), date(2026, 11, 13)),  # Fri -> Fri
+        (date(2026, 11, 14), date(2026, 11, 23)),  # 21.11 is a Saturday -> Monday
+        (date(2026, 11, 4), date(2026, 11, 12)),  # 11.11 Independence Day -> next day
+        (date(2026, 12, 17), date(2026, 12, 28)),  # 24.12 (since 2025), 25–26.12, 27.12 Sunday -> 28.12
+    ],
+)
+def test_objection_deadline_seven_days(acknowledged, expected):
+    assert objection_deadline(acknowledged, R, CAL) == expected
+
+
+def test_new_terms_come_from_kprm_rules():
+    terms = kprm.rules()["terminy"]
+    assert R.reevaluation_after_negative_months == terms["ponowna_ocena_po_negatywnej_miesiecy"] == 6
+    assert R.objection_days == terms["sprzeciw_dni_od_zapoznania"] == 7
 
 
 def test_absence_end_before_start_rejected():

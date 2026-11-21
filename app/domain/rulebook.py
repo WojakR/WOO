@@ -44,6 +44,8 @@ class RuleBook:
     criteria_days: int
     criteria_days_after_negative: int
     absence_extends_after_months: int
+    reevaluation_after_negative_months: int
+    objection_days: int
     max_additional_criteria: int
     additional_criteria_unique: bool
     sheets: dict[str, tuple[str, ...]]  # sheet -> mandatory criterion ids, in form order
@@ -73,6 +75,8 @@ class RuleBook:
             criteria_days=terms["wyznaczenie_kryteriow_dni_od_poprzedniej_oceny_lub_zatrudnienia"],
             criteria_days_after_negative=terms["wyznaczenie_kryteriow_dni_po_negatywnej"],
             absence_extends_after_months=terms["nieobecnosc_przedluzajaca_termin_powyzej_miesiecy"],
+            reevaluation_after_negative_months=terms["ponowna_ocena_po_negatywnej_miesiecy"],
+            objection_days=terms["sprzeciw_dni_od_zapoznania"],
             max_additional_criteria=sheets["max_kryteriow_dodatkowych"],
             additional_criteria_unique=sheets["kryteria_dodatkowe_bez_powtorzen"],
             sheets={k: tuple(v["kryteria_obowiazkowe"]) for k, v in sheets["arkusze"].items()},
