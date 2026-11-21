@@ -129,23 +129,47 @@ export const api = {
   setMyAssistant: (body) => request("PUT", "/me/asystent", body),
   readNotification: (id) => request("POST", `/notifications/${id}/read`),
   importRcp: (file) => upload("/admin/rcp/import", file),
+  legacyImports: () => request("GET", "/legacy-import"),
+  legacyImport: (id) => request("GET", `/legacy-import/${id}`),
+  uploadLegacyImport: (file) => upload("/legacy-import", file),
+  fixLegacyImport: (id, body) => request("PUT", `/legacy-import/${id}`, body),
+  approveLegacyImport: (id, body) => request("POST", `/legacy-import/${id}/approve`, body),
+  archive: () => request("GET", "/archive"),
+  archiveReview: () => request("GET", "/archive/review"),
+  archiveRun: () => request("POST", "/archive/run"),
+  archiveDelete: (recordId) => request("POST", `/archive/${recordId}/delete`, { zatwierdzam: true }),
+  archiveDeleteNotes: (evaluationId) => request("POST", `/archive/notes/${evaluationId}/delete`, { zatwierdzam: true }),
+  eaktRetry: () => request("POST", "/admin/eakt/retry"),
 };
 
-async function upload(path, file) {
+function upload(path, file) {
   const form = new FormData();
   form.append("file", file);
-  const headers = { Accept: "application/json" };
-  const uid = currentUserId();
+  return request("POST", path, form);
+}
+
+// File download (PDF, CSV, original of an import) with the same identity as `request`; returns the saved name.
+async function download(path, fallbackName) {
+  const headers = {};
+  const uid = isSessionMode() ? null : currentUserId();
   if (uid) headers["X-User-Id"] = uid;
   let res;
   try {
-    res = await fetch(`/api${path}`, { method: "POST", headers, body: form });
+    res = await fetch(`/api${path}`, { headers, credentials: "same-origin" });
   } catch {
     throw new ApiError(0, { komunikat: "Brak połączenia z serwerem." });
   }
-  const data = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, data);
-  return data;
+  if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null));
+  const cd = res.headers.get("Content-Disposition") || "";
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1];
+  const name = (star && decodeURIComponent(star)) || /filename="([^"]+)"/.exec(cd)?.[1] || fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return name;
 }
 
-export { upload };
+export { upload, download };

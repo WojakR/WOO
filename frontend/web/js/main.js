@@ -11,6 +11,8 @@ import { renderSettings } from "./views/settings.js";
 import { renderEmployees } from "./views/employees.js";
 import { renderReports } from "./views/reports.js";
 import { renderHelp } from "./views/help.js";
+import { renderImport } from "./views/import.js";
+import { renderArchive } from "./views/archive.js";
 
 export const ctx = { me: null, meta: null, users: [], year: "all", auth: null };
 
@@ -20,6 +22,8 @@ const NAV = [
   { href: "#/terminy", label: "Terminy i przypomnienia", icon: "bell", match: (p) => p.startsWith("/terminy") },
   { href: "#/nieobecnosci", label: "Nieobecności", icon: "calendar", match: (p) => p.startsWith("/nieobecnosci") },
   { href: "#/raporty", label: "Raporty", icon: "chart", match: (p) => p.startsWith("/raporty") },
+  { href: "#/import", label: "Import starych ocen", icon: "upload", match: (p) => p.startsWith("/import"), hr: true },
+  { href: "#/archiwum", label: "Archiwum", icon: "archive", match: (p) => p.startsWith("/archiwum"), hr: true },
   { href: "#/ustawienia", label: "Ustawienia", icon: "sliders", match: (p) => p.startsWith("/ustawienia") },
   { href: "#/pomoc", label: "Pomoc", icon: "help", match: (p) => p.startsWith("/pomoc") },
 ];
@@ -32,7 +36,7 @@ function renderNav() {
   const p = path();
   replace(
     document.getElementById("nav"),
-    NAV.map((n) =>
+    NAV.filter((n) => !n.hr || ctx.me?.rola === "KADRY").map((n) =>
       h("a", { href: n.href, "aria-current": n.match(p) ? "page" : false }, icon(n.icon, "icon-lg"), h("span", { class: "nav-label" }, n.label))
     )
   );
@@ -133,6 +137,8 @@ async function route() {
     else if (p.startsWith("/pracownicy")) await renderEmployees(view, ctx, Number(p.split("/")[2]) || null);
     else if (p.startsWith("/raporty")) await renderReports(view, ctx);
     else if (p.startsWith("/pomoc")) await renderHelp(view, p);
+    else if (p.startsWith("/import")) await renderImport(view, ctx, Number(p.split("/")[2]) || null);
+    else if (p.startsWith("/archiwum")) await renderArchive(view, ctx);
     else if (p.startsWith("/ustawienia")) await renderSettings(view, ctx);
     else await renderOverview(view, ctx);
   } catch (e) {

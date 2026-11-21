@@ -1,6 +1,6 @@
 // Import of old evaluations (HR): upload a sheet, check and correct what the server read, approve.
 // The server reads the form, recomputes § 11 and lists discrepancies – this view only shows and sends fields.
-import { api, upload } from "../api.js";
+import { api, download } from "../api.js";
 import { h, icon, replace, fmtDate, fmtNumber, toast, loading } from "../ui.js";
 
 function errorText(err) {
@@ -14,8 +14,7 @@ export async function renderImport(view, ctx, draftId = null) {
     return;
   }
   const R = { list: h("div"), draft: h("div") };
-  const people = (await api.dashboard()).pozycje.map((p) => p.oceniany)
-    .filter((p, i, all) => all.findIndex((x) => x.id === p.id) === i)
+  const people = (await api.employees("na_strone=200")).pozycje.map((p) => p.pracownik)
     .sort((a, b) => a.nazwisko.localeCompare(b.nazwisko, "pl"));
 
   const file = h("input", { type: "file", accept: ".pdf,.md,.txt", "aria-label": "Arkusz oceny (PDF lub tekst)" });
@@ -27,7 +26,7 @@ export async function renderImport(view, ctx, draftId = null) {
       h("button", { class: "btn btn-primary", type: "button", onclick: async () => {
         if (!file.files[0]) { toast("Wybierz plik."); return; }
         try {
-          const d = await upload("/legacy-import", file.files[0]);
+          const d = await api.uploadLegacyImport(file.files[0]);
           location.hash = `#/import/${d.id}`;
         } catch (err) { toast(errorText(err), "bad"); }
       } }, icon("upload"), "Wczytaj arkusz")),
@@ -75,11 +74,8 @@ export async function renderImport(view, ctx, draftId = null) {
     replace(R.draft, h("section", { class: "card card-pad stack", "aria-labelledby": "imp-h" },
       h("div", { class: "row", style: { justifyContent: "space-between", flexWrap: "wrap", gap: "8px" } },
         h("h2", { id: "imp-h" }, `Weryfikacja: ${d.plik}`),
-        h("a", { class: "btn btn-sm", href: `/api/legacy-import/${d.id}/file`, onclick: async (e) => {
-          e.preventDefault();
-          const res = await fetch(`/api/legacy-import/${d.id}/file`, { headers: { "X-User-Id": "kadry" } });
-          const a = h("a", { href: URL.createObjectURL(await res.blob()), download: d.plik }); a.click(); URL.revokeObjectURL(a.href);
-        } }, icon("download"), "Oryginał")),
+        h("button", { class: "btn btn-sm", type: "button", onclick: () => download(`/legacy-import/${d.id}/file`, d.plik)
+          .catch((err) => toast(errorText(err), "bad")) }, icon("download"), "Oryginał")),
       d.evaluation_id ? h("p", { class: "notice notice-ok" }, icon("check"), "Zaimportowano – ",
         h("a", { href: `#/ocena/${d.evaluation_id}` }, "otwórz ocenę")) : null,
       d.rozbieznosci.length ? h("ul", { class: "stack", style: { gap: "6px", listStyle: "none", padding: 0 } }, d.rozbieznosci.map((x) =>

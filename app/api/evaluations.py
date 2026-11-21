@@ -317,6 +317,7 @@ def _evaluation_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.Evaluati
         edytowalne_pola=_editable(c, as_evaluator, emp.civil_servant),
         dobor_arkusza=_sheet_out(st, c, actor),
         eksport_eakt=_eakt_out(st, c, actor),
+        zaimportowana=c.imported,
         rozpatrujacy_sprzeciw=s.RozpatrujacySprzeciw(id=reviewer.id, nazwa=_person_name(st, reviewer.id),
                                                      podstawa=reviewer.basis),
         walidacje=_validations(st, c), updated_at=ver.updated_at,

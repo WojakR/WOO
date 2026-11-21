@@ -58,7 +58,7 @@ class EmployeeListOut(BaseModel):
 
 class HistoryItem(BaseModel):
     evaluation_id: int | None = None
-    zrodlo: str  # SYSTEM | DANE_KADROWE
+    zrodlo: str  # SYSTEM | IMPORT (old evaluation imported from a PDF) | DANE_KADROWE
     status: s.StatusOceny | None = None
     arkusz: s.Arkusz | None = None
     oceniajacy: s.OsobaRef | None = None
@@ -183,7 +183,7 @@ def employee_history(employee_id: int, x_user_id: str | None = Header(default=No
     for c in cycles:
         r = c.result
         out.append(HistoryItem(
-            evaluation_id=int(c.id), zrodlo="SYSTEM", status=STATUS_MAP[c.status], arkusz=s.Arkusz(c.sheet),
+            evaluation_id=int(c.id), zrodlo="IMPORT" if c.imported else "SYSTEM", status=STATUS_MAP[c.status], arkusz=s.Arkusz(c.sheet),
             oceniajacy=_osoba(st, st.directory.get(c.evaluator_id)), okres_od=c.period_from, okres_do=c.period_to,
             data_sporzadzenia=c.evaluated_on, data_zapoznania=c.acknowledged_on,
             srednia=r.average_display if r else None, poziom=m.level(r.level) if r else None,

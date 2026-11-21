@@ -474,3 +474,7 @@ table.data.compact { min-width: 0; }
 .md-table td, .md-table th { vertical-align: top; }
 .toc { columns: 2 260px; }
 .toc li { display: block; padding: 3px 0; border: 0; }
+
+/* archive: the second click of a deletion (no browser dialogs) */
+.btn-danger { color: var(--bad); border-color: var(--bad-border); background: var(--bad-bg); }
+.btn-danger:hover, .btn-danger:focus-visible { border-color: var(--bad); }

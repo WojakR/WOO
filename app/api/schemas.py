@@ -348,6 +348,7 @@ class EvaluationOut(_Out):
     dobor_arkusza: DoborArkusza | None = None
     rozpatrujacy_sprzeciw: RozpatrujacySprzeciw | None = None
     eksport_eakt: EksportEakt | None = None     # only for HR
+    zaimportowana: bool = False                 # legacy evaluation imported from a PDF (history only)
     updated_at: datetime                        # send back as If-Unmodified-Since / `updated_at` to avoid lost updates
 
 

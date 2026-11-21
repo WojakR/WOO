@@ -47,9 +47,14 @@ def run(st: DemoState) -> list:
         lambda c: is_closed(c, ev.rules_for(c), ev.calendar, today, ev.employee_absences(c.employee_id)), today)
 
 
-def _out(r) -> dict:
+def _name(st: DemoState, employee_id: str) -> str:
+    e = st.directory.get(employee_id)
+    return e.full_name if e else employee_id
+
+
+def _out(r, st: DemoState) -> dict:
     return {"id": r.id, "evaluation_id": int(r.cycle_id) if r.cycle_id.isdigit() else r.cycle_id,
-            "pracownik_id": r.employee_id, "zamrozono": r.frozen_on.isoformat(), "sha256_pdf": r.pdf_sha256,
+            "pracownik_id": r.employee_id, "pracownik": _name(st, r.employee_id), "zamrozono": r.frozen_on.isoformat(), "sha256_pdf": r.pdf_sha256,
             "sha256_dane": r.snapshot_sha256, "zgodny": r.intact(), "rozmiar_pdf": len(r.pdf)}
 
 
@@ -63,20 +68,20 @@ def _review(st: DemoState):
 @router.post("/run")
 def archive_run(x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)) -> dict:
     _admin(st, x_user_id)
-    return {"zamrozono": [_out(r) for r in run(st)]}
+    return {"zamrozono": [_out(r, st) for r in run(st)]}
 
 
 @router.get("")
 def archive_list(x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)) -> list[dict]:
     _admin(st, x_user_id)
-    return [_out(r) for r in st.archive_store().all()]
+    return [_out(r, st) for r in st.archive_store().all()]
 
 
 @router.get("/review")
 def archive_review(x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)) -> list[dict]:
     _admin(st, x_user_id)
     return [{"rodzaj": i.kind, "id": i.record_id, "evaluation_id": int(i.cycle_id) if i.cycle_id.isdigit() else None,
-             "pracownik_id": i.employee_id, "termin_przechowywania": i.due.isoformat(), "powod": i.reason}
+             "pracownik_id": i.employee_id, "pracownik": _name(st, i.employee_id), "termin_przechowywania": i.due.isoformat(), "powod": i.reason}
             for i in _review(st)]
 
 
@@ -95,7 +100,7 @@ def archive_delete(record_id: int, body: Approval, x_user_id: str | None = Heade
                    st: DemoState = Depends(get_state)) -> dict:
     _admin(st, x_user_id)
     r = service(st).delete(record_id, body.zatwierdzam, _review(st))
-    return {"usunieto": _out(r)}
+    return {"usunieto": _out(r, st)}
 
 
 @router.post("/notes/{evaluation_id}/delete")

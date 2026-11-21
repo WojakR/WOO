@@ -105,7 +105,10 @@ def test_verification_and_approval_through_the_api():
     original = client.get(f"{url}/file", headers=ADMIN)
     assert original.status_code == 200 and "Adam" in original.text
     # the imported evaluation is history: shown to HR, not counted in the progress report
-    assert client.get(f"/api/evaluations/{c.id}", headers=ADMIN).json()["status"] == "ZAKONCZONA"
+    ev = client.get(f"/api/evaluations/{c.id}", headers=ADMIN).json()
+    assert ev["status"] == "ZAKONCZONA" and ev["zaimportowana"] is True
+    hist = client.get(f"/api/employees/{st.employee_number(c.employee_id)}/evaluations", headers=ADMIN).json()
+    assert [x["zrodlo"] for x in hist if x["evaluation_id"] == int(c.id)] == ["IMPORT"]
     progress = client.get("/api/reports/progress", headers=ADMIN).json()
     assert progress["cykle"] == len([x for x in st.evaluations.cycles.list_all() if not x.imported])
 

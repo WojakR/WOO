@@ -169,7 +169,8 @@ async function renderCard(view, ctx, id) {
           h("td", {}, x.poziom ? LEVEL_LABEL[x.poziom] : "–"),
           h("td", {}, resultBadge(x.wynik)),
           h("td", {}, x.sprzeciw ? OBJECTION[x.sprzeciw] : "–"),
-          h("td", {}, x.zrodlo === "DANE_KADROWE" ? h("span", { class: "small muted" }, "z danych kadrowych") : STATUS_LABEL[x.status]),
+          h("td", {}, x.zrodlo === "DANE_KADROWE" ? h("span", { class: "small muted" }, "z danych kadrowych")
+            : x.zrodlo === "IMPORT" ? h("span", { class: "badge badge-idle" }, "zaimportowana") : STATUS_LABEL[x.status]),
           h("td", {}, x.evaluation_id ? h("a", { class: "btn btn-sm", href: `#/ocena/${x.evaluation_id}` }, "Otwórz") : null))))))
         : h("p", { class: "empty" }, "Brak ocen.")),
       absences ? h("section", { class: "card card-pad" }, h("h2", {}, "Nieobecności"),

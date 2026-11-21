@@ -94,7 +94,9 @@ export async function renderEvaluation(view, id, ctx) {
         h("div", { class: "title" },
           h("h1", {}, `Ocena okresowa – ${personName(ev.oceniany)}`),
           h("span", { class: "badge badge-sheet" }, `Arkusz ${ev.arkusz}`),
-          ev.status === "ZAKONCZONA" ? h("span", { class: "badge badge-ok" }, icon("check"), "Zakończona") : null),
+          ev.status === "ZAKONCZONA" ? h("span", { class: "badge badge-ok" }, icon("check"), "Zakończona") : null,
+          ev.zaimportowana ? h("span", { class: "badge badge-idle", title: "Ocena sprzed systemu, zaimportowana z arkusza PDF" },
+            icon("upload"), "Zaimportowana") : null),
         done
           ? h("div", { class: "deadline" }, "Ocena sporządzona",
             h("span", { class: "badge badge-ok" }, icon("circleCheck"), fmtDate(ev.czesc_ii.data_sporzadzenia)))
@@ -774,12 +776,42 @@ export async function renderEvaluation(view, id, ctx) {
         checks.length ? h("ul", { class: "checklist" }, checks)
           : h("ul", { class: "checklist" }, h("li", {}, h("span", { class: "ok" }, icon("circleCheck")), "Wszystko gotowe do zatwierdzenia."))) : null);
 
-    const parts = [progress, deadlinesCard()];
+    const parts = [progress, deadlinesCard(), eaktCard()];
     if (isEvaluator() && ctx.meta.funkcje_ai?.hr_partner && !["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"].includes(ev.status)) {
       parts.push(hrCard());
     }
     parts.push(h("p", { class: "aside-note" }, icon("info"), "Asystent tylko podpowiada. Ocenę wystawia przełożony."));
     replace(R.aside, parts);
+  }
+
+  // e-Akt export of the sheet (HR only – the server sends `eksport_eakt` to HR alone)
+  function eaktCard() {
+    const x = s.ev.eksport_eakt;
+    if (!x) return null;
+    const ok = x.status === "WYSLANO";
+    const event = x.zdarzenie === "ROZPATRZENIE_SPRZECIWU" ? "po rozpatrzeniu sprzeciwu" : "po zapoznaniu się z oceną";
+    async function retry(e) {
+      e.currentTarget.disabled = true;
+      try {
+        const r = await api.eaktRetry();
+        const mine = r.ponowiono.find((p) => String(p.evaluation_id) === String(id));
+        toast(mine?.status === "WYSLANO" ? "Wysłano do e-Akt." : mine ? `Eksport nieudany: ${mine.blad}` : "Brak eksportu do ponowienia.",
+          mine && mine.status !== "WYSLANO" ? "bad" : "");
+        await refreshEvaluation();
+        renderAside();
+      } catch (err) {
+        toast(err.message, "bad");
+      }
+    }
+    return h("section", { class: "card card-pad", "aria-labelledby": "eakt-h" },
+      h("h2", { id: "eakt-h", class: "row", style: { gap: "8px", marginBottom: "10px" } }, icon("archive"), "e-Akt (akta osobowe)"),
+      h("p", {}, h("span", { class: `badge ${ok ? "badge-ok" : "badge-bad"}` }, icon(ok ? "check" : "alert"), ok ? "wysłano" : "błąd eksportu"),
+        " ", h("span", { class: "small muted" }, event)),
+      h("p", { class: "small muted" }, `Ostatnia próba: ${new Date(x.ostatnia_proba).toLocaleString("pl-PL")} · prób: ${x.proby}`),
+      x.miejsce ? h("p", { class: "small muted", style: { overflowWrap: "anywhere" } }, `Miejsce: ${x.miejsce}`) : null,
+      x.sha256 ? h("p", { class: "small muted" }, "SHA-256: ", h("code", { title: x.sha256 }, `${x.sha256.slice(0, 16)}…`)) : null,
+      ok ? null : h("p", { class: "notice notice-bad small" }, icon("alert"), x.blad || "Nieznany błąd."),
+      ok ? null : h("button", { class: "btn btn-sm", type: "button", onclick: retry }, icon("reset"), "Ponów eksport"));
   }
 
   // every deadline, computed by the server from what has happened (app/domain/timeline.py)

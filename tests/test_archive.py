@@ -95,6 +95,7 @@ def test_review_lists_records_past_retention_and_old_notes(st):
     items = client.get("/api/archive/review", headers=ADMIN).json()
     assert [(i["rodzaj"], i["id"], i["termin_przechowywania"]) for i in items] == [("AKTA", rec["id"], "2025-12-31")]
     assert "art. 94 pkt 9b" in items[0]["powod"]
+    assert items[0]["pracownik"] == rec["pracownik"] == st.directory.get(EMP).full_name  # names for the HR view
     st.directory._by_id[EMP] = dataclasses.replace(emp, employment_end=None)
     from app.domain.notes import Note
 
