@@ -296,6 +296,17 @@ class CzescIII(_Out):
     stopien_obligatoryjny: bool = False         # computed (art. 89 ust. 2)
 
 
+class TerminOut(_Out):
+    """One deadline of the evaluation, computed by the server (app/domain/timeline.py) from what has happened."""
+    rodzaj: str                                 # KRYTERIA | OCENA | ZAPOZNANIE | SPRZECIW | KOLEJNA_OCENA | KRYTERIA_NASTEPNE
+    nazwa: str
+    data: date | None = None                    # null = "niezwłocznie" (no fixed day)
+    podstawa: str                               # legal basis
+    stan: Literal["SPELNIONY", "AKTUALNY", "PO_TERMINIE", "NASTEPNY_OKRES"]
+    spelniony_at: date | None = None
+    opis: str = ""
+
+
 class EvaluationOut(_Out):
     """GET /api/evaluations/{id} – the whole sheet + what the current user may do with it."""
     id: int
@@ -315,6 +326,7 @@ class EvaluationOut(_Out):
     dozwolone_akcje: list[Akcja]
     edytowalne_pola: list[str] = Field(examples=[["kryteria_dodatkowe", "termin_oceny"]])
     walidacje: list[Walidacja] = []             # current problems; BLAD ones block the next action
+    terminy: list[TerminOut] = []               # every deadline so far and the ones it starts (server-computed)
     updated_at: datetime                        # send back as If-Unmodified-Since / `updated_at` to avoid lost updates
 
 
@@ -654,3 +666,75 @@ class PlanowanePrzypomnienie(_Out):
     tresc: str
     termin: date
     minelo: bool                                # already sent (on the server clock)
+
+
+# ---------------------------------------------------------------- office settings (administrator = HR)
+
+class RegulaOut(_Out):
+    """One editable requirement of the regulation (e.g. after an amendment the administrator changes it)."""
+    klucz: str
+    nazwa: str
+    wartosc: int
+    domyslna: int                               # value from reguly.json (the regulation as published)
+    jednostka: str
+    podstawa: str
+    min: int
+    max: int
+
+
+class WymaganieOut(_Out):
+    tytul: str
+    tresc: str
+    podstawa: str
+
+
+class ZmianaRegulyOut(_Out):
+    klucz: str
+    nazwa: str
+    stara: int
+    nowa: int
+    podstawa_zmiany: str
+    kto: str
+    kiedy: date
+
+
+class RegulyOut(_Out):
+    """GET /api/ustawienia/reguly – what the system enforces, with the administrator's changes and their log."""
+    parametry: list[RegulaOut]
+    wymagania: list[WymaganieOut]
+    zmiany: list[ZmianaRegulyOut]
+    zmienione: bool                             # any value differs from the published regulation
+    moze_edytowac: bool
+
+
+class RegulyIn(BaseModel):
+    """PUT /api/ustawienia/reguly (administrator). Only the keys sent are changed."""
+    wartosci: dict[str, int]
+    podstawa_zmiany: str = Field(min_length=3, examples=["nowelizacja rozporządzenia, Dz. U. 2027 poz. 123"])
+
+
+class UstawieniaUrzeduOut(_Out):
+    zakres_widocznosci: Literal["PODDRZEWO", "BEZPOSREDNI"]
+    asystent_ai: bool                           # office-wide switch of the language model
+    hr_partner: bool                            # office-wide switch of the virtual HR partner
+    tryb_ai_serwera: TrybAI                     # AI_MODE of the server (OFF = no model configured at all)
+    moze_edytowac: bool
+
+
+class UstawieniaUrzeduIn(BaseModel):
+    zakres_widocznosci: Literal["PODDRZEWO", "BEZPOSREDNI"] | None = None
+    asystent_ai: bool | None = None
+    hr_partner: bool | None = None
+
+
+class MojAsystentOut(_Out):
+    """GET/PUT /api/me/asystent – my own switch; the office switch wins when it is off."""
+    asystent_ai: bool
+    hr_partner: bool
+    asystent_ai_w_urzedzie: bool
+    hr_partner_w_urzedzie: bool
+
+
+class MojAsystentIn(BaseModel):
+    asystent_ai: bool | None = None
+    hr_partner: bool | None = None

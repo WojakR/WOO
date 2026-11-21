@@ -508,12 +508,33 @@ export async function renderEvaluation(view, id, ctx) {
         checks.length ? h("ul", { class: "checklist" }, checks)
           : h("ul", { class: "checklist" }, h("li", {}, h("span", { class: "ok" }, icon("circleCheck")), "Wszystko gotowe do zatwierdzenia."))) : null);
 
-    const parts = [progress];
+    const parts = [progress, deadlinesCard()];
     if (isEvaluator() && ctx.meta.funkcje_ai?.hr_partner && !["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"].includes(ev.status)) {
       parts.push(hrCard());
     }
     parts.push(h("p", { class: "aside-note" }, icon("info"), "Asystent tylko podpowiada. Ocenę wystawia przełożony."));
     replace(R.aside, parts);
+  }
+
+  // every deadline, computed by the server from what has happened (app/domain/timeline.py)
+  function deadlinesCard() {
+    const items = s.ev.terminy || [];
+    if (!items.length) return null;
+    const badge = (t) => {
+      if (t.stan === "SPELNIONY") return h("span", { class: "badge badge-ok" }, icon("check"), t.spelniony_at ? fmtDate(t.spelniony_at) : "tak");
+      if (t.stan === "NASTEPNY_OKRES") return h("span", { class: "badge badge-idle" }, t.data ? fmtDate(t.data) : "–");
+      if (!t.data) return h("span", { class: "badge badge-warn" }, "niezwłocznie");
+      const days = daysBetween(ctx.meta.dzis, t.data);
+      return h("span", { class: `badge ${t.stan === "PO_TERMINIE" ? "badge-bad" : days <= 7 ? "badge-warn" : "badge-idle"}` },
+        fmtDate(t.data), " · ", daysLeftText(days));
+    };
+    return h("section", { class: "card card-pad", "aria-labelledby": "terms-h" },
+      h("h2", { id: "terms-h", class: "row", style: { gap: "8px", marginBottom: "10px" } }, icon("clock"), "Terminy"),
+      h("ul", { class: "deadlines" }, items.map((t) => h("li", {},
+        h("div", {}, h("div", {}, t.nazwa), h("div", { class: "small muted" }, `${t.opis}${t.opis ? " · " : ""}${t.podstawa}`)),
+        h("div", { class: "when" }, badge(t))))),
+      h("p", { class: "small muted", style: { marginTop: "8px" } },
+        "Liczone automatycznie: dni wolne przesuwają termin na najbliższy dzień roboczy."));
   }
 
   function hrCard() {

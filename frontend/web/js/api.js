@@ -72,5 +72,12 @@ export const api = {
   setOfficeReminders: (body) => request("PUT", "/ustawienia/przypomnienia", body),
   reminderPlan: (id) => request("GET", `/evaluations/${id}/przypomnienia`),
   notifications: () => request("GET", "/notifications"),
+  rules: () => request("GET", "/ustawienia/reguly"),
+  setRules: (body) => request("PUT", "/ustawienia/reguly", body),
+  resetRules: () => request("DELETE", "/ustawienia/reguly"),
+  office: () => request("GET", "/ustawienia/urzad"),
+  setOffice: (body) => request("PUT", "/ustawienia/urzad", body),
+  myAssistant: () => request("GET", "/me/asystent"),
+  setMyAssistant: (body) => request("PUT", "/me/asystent", body),
   readNotification: (id) => request("POST", `/notifications/${id}/read`),
 };

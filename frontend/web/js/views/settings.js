@@ -2,6 +2,7 @@
 // The server validates: hour inside office working hours, values in range; dates never fall on days off.
 import { api } from "../api.js";
 import { h, icon, replace, toast, fmtDate } from "../ui.js";
+import { renderOfficeSections } from "./office.js";
 
 const STAGES = [
   ["WYZNACZENIE_KRYTERIOW", "Wyznaczenie kryteriów (do 30 dni)", "np. co 7 dni: „wyznacz kryteria”"],
@@ -27,7 +28,7 @@ function halfHours(from, to) {
 export async function renderSettings(view, ctx) {
   const isHr = ctx.me.rola === "KADRY";
   const s = { data: null, rules: {}, at: "11:00", notes: [] };
-  const R = { form: h("div"), notes: h("div") };
+  const R = { office: h("div"), form: h("div"), notes: h("div") };
 
   async function load() {
     s.data = isHr ? await api.officeReminders() : await api.myReminders();
@@ -110,8 +111,9 @@ export async function renderSettings(view, ctx) {
   replace(view,
     h("div", { class: "page-head" }, h("div", {},
       h("h1", {}, "Ustawienia"),
-      h("p", {}, isHr ? "Domyślny harmonogram przypomnień urzędu – każdy pracownik może ustawić własny."
-        : "Twoje przypomnienia na poszczególnych etapach oceny – możesz ustawić jedno albo kilkanaście."))),
-    R.form, R.notes);
+      h("p", {}, isHr ? "Asystent AI, widoczność ocen, wymagania z rozporządzenia i domyślny harmonogram przypomnień urzędu."
+        : "Twój asystent AI i Twoje przypomnienia na poszczególnych etapach oceny."))),
+    R.office, h("h2", { style: { margin: "8px 0 10px" } }, "Przypomnienia"), R.form, R.notes);
   renderAll();
+  await renderOfficeSections(R.office, ctx);
 }
