@@ -43,3 +43,11 @@ AI_LOCAL_MODEL_TEXT = _secret("AI_LOCAL_MODEL_TEXT", _BIELIK)  # drafts, convers
 AI_LOCAL_MODEL_FAST = _secret("AI_LOCAL_MODEL_FAST", AI_LOCAL_MODEL_TEXT)  # note classification; a smaller model is fine
 AI_TIMEOUT_S = float(_secret("AI_TIMEOUT_S", "60"))
 AI_MIN_CONFIDENCE = float(_secret("AI_MIN_CONFIDENCE", "0.6"))
+
+# Identity (app/api/auth.py): demo = X-User-Id from the top-bar switcher, session = login + signed cookie
+AUTH_MODE = _secret("AUTH_MODE", "demo").lower()
+SECRET_KEY = _secret("SECRET_KEY")  # signs the session cookie; empty = random per process (sessions end on restart)
+SESSION_HOURS = float(_secret("SESSION_HOURS", "8"))
+SESSION_COOKIE_SECURE = _secret("SESSION_COOKIE_SECURE", "0") == "1"  # 1 behind HTTPS
+# session mode, empty accounts table: create one account per employee + `kadry` with this password (demo only)
+AUTH_DEMO_PASSWORD = _secret("AUTH_DEMO_PASSWORD")

@@ -122,6 +122,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 main.content { padding: 24px 28px 40px; max-width: 1480px; width: 100%; }
 
+/* Login screen (AUTH_MODE=session): no navigation, one centred card (docs/design.md – Komponenty) */
+body[data-auth="login"] .sidebar, body[data-auth="login"] .topbar { display: none; }
+body[data-auth="login"] .page { margin-left: 0; }
+body[data-auth="login"] main.content { max-width: none; }
+.login { min-height: calc(100vh - 64px); display: grid; place-items: center; }
+.login-card { width: 100%; max-width: 380px; }
+.login-card .form-grid { grid-template-columns: minmax(0, 1fr); }
+.login-card .btn-primary { width: 100%; }
+
 /* ---------------------------------------------------------------- primitives */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
 .card-pad { padding: 18px 20px; }
@@ -145,7 +154,7 @@ main.content { padding: 24px 28px 40px; max-width: 1480px; width: 100%; }
 .btn-ai:hover { background: var(--ai-bg); border-color: var(--ai); }
 .btn[disabled], .btn[aria-disabled="true"] { opacity: 1; cursor: not-allowed; background: var(--idle-bg); border-color: var(--idle-border); color: var(--text-3); }
 
-select, input[type="search"], input[type="text"], input[type="date"] {
+select, input[type="search"], input[type="text"], input[type="date"], input[type="password"] {
   min-height: 36px; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface);
 }
 textarea {
