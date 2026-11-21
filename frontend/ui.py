@@ -258,7 +258,7 @@ html {{ font-size: {px}px; }}
 """
 LIGHT_VARS = """--ink:#1f2328; --muted:#59636e; --line:#d1d9e0; --blue:#0b57d0; --blue-bg:#e8f0fe;
   --green:#1a7f37; --green-bg:#e6f4ea; --amber:#9a6700; --amber-bg:#fff8c5; --red:#b42318; --red-bg:#fdecea;
-  --violet:#6d28d9; --violet-bg:#f1eafe; --ai:#6d28d9; --ai-bg:#f3edfe; --grey-bg:#f3f5f8; --surface:#ffffff; --date-bg:#ffffff;
+  --violet:#6d28d9; --violet-bg:#e6dafb; --ai:#6d28d9; --ai-bg:#e9defb; --grey-bg:#f3f5f8; --surface:#ffffff; --date-bg:#ffffff;
   --navy:#1c3460; --navy-hover:#142748; --navy-ink:#ffffff; --band:#1c3460; --band-ink:#ffffff;
   --band-muted:#c8d3e6; --band-line:rgba(255,255,255,.22); --tile-line:#b4bfcd; --tile-bg:#ffffff;"""
 DARK_VARS = """--ink:#e6edf3; --muted:#9198a1; --line:#3d444d; --blue:#79b8ff; --blue-bg:rgba(56,139,253,.16);
