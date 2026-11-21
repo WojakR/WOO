@@ -1,34 +1,19 @@
 """Identity and access checks shared by all routers – every endpoint asks the same policy
 (app/domain/access.py, built in DemoState.policy() from the supervisor tree, office settings and deputies).
 
-Identity – `actor()` is the ONE place every router gets the user from:
-- AUTH_MODE=demo: `X-User-Id` = employee id from pracownicy.json, or `kadry` (HR / administrator).
-  Without the header the caller is treated as HR (reads everything, acts as nobody's evaluator).
-- AUTH_MODE=session: the account of the session cookie (app/api/auth.py); `X-User-Id` is ignored, no session = 401.
-"""
+Identity comes from `auth.current_user` (app/api/auth.py) – the only source of "who":
+AUTH_MODE=demo: `X-User-Id` = employee id from pracownicy.json, or `kadry` (HR / administrator); without the
+header the caller is treated as HR. AUTH_MODE=session: the signed session cookie; `X-User-Id` is ignored."""
 from __future__ import annotations
 
 from app.domain.cycle import EvaluationCycle
 from app.domain.errors import NotAuthorized
 
-from . import auth
-from .errors import ApiProblem
-from .state import HR, DemoState
+from .auth import current_user
+from .state import DemoState
 
-
-def actor(st: DemoState, x_user_id: str | None) -> str:
-    if auth.session_mode():
-        who = auth.session_employee_id()
-        if who is None:
-            raise ApiProblem(401, "BRAK_SESJI", "Zaloguj się, aby kontynuować.")
-        if who != HR and st.directory.get(who) is None:
-            raise ApiProblem(403, "NIEZNANY_UZYTKOWNIK", "Konto nie jest powiązane z pracownikiem urzędu.")
-        return who
-    if x_user_id is None or x_user_id == HR:
-        return HR
-    if st.directory.get(x_user_id) is None:
-        raise ApiProblem(403, "NIEZNANY_UZYTKOWNIK", "Nieznany użytkownik (nagłówek X-User-Id).")
-    return x_user_id
+# Routers call `actor(st, x_user_id)`; it is `current_user` – never resolve identity anywhere else.
+actor = current_user
 
 
 def require_read(st: DemoState, who: str, c: EvaluationCycle) -> None:

@@ -17,12 +17,50 @@ def _my_evaluation_id(me: dict) -> int | None:
     return mine[0]["evaluation_id"] if mine else None
 
 
+def _my_evaluations(api: Api, me: dict) -> list[dict]:
+    """All my evaluations, newest first. No list endpoint yet, so read ids up to the newest one in the office list
+    as the user – the server returns only what I may see (403 for the others)."""
+    top = max((i["evaluation_id"] or 0 for i in as_hr().dashboard()["pozycje"]), default=0)
+    out = []
+    for eid in range(top + 3, 0, -1):
+        try:
+            ev = api.evaluation(eid)
+        except ApiError:
+            continue
+        if ev["oceniany"]["id"] == me["pracownik"]["id"]:
+            out.append(ev)
+    return out
+
+
+def _open_requests() -> None:
+    st.session_state.emp_view = "wnioski"
+
+
+def _requests(api: Api, me: dict) -> None:
+    from frontend.views.evaluation import objection_panel
+
+    evs = _my_evaluations(api, me)
+    shown = False
+    for ev in evs:
+        if ev.get("sprzeciw") or "ZLOZ_SPRZECIW" in ev["dozwolone_akcje"]:
+            st.markdown(f"**Ocena sporządzona {ui.fmt(ev['czesc_ii'].get('data_sporzadzenia'))}** – "
+                        f"{(ev['czesc_ii'].get('wynik') or '').lower()}")
+            objection_panel(api, ev)
+            shown = True
+    if not shown:
+        st.info("Sprzeciw od oceny możesz złożyć w ciągu 7 dni od zapoznania się z oceną – teraz nie masz oceny, "
+                "od której przysługuje sprzeciw.")
+    st.caption("Wniosek o zmianę terminu oceny: w API jest już podgląd zmian terminu, ale nie ma jeszcze składania "
+               "wniosku przez pracownika – pojawi się tutaj, gdy koledzy go dodadzą.")
+
+
 def render(api: Api, me: dict, page: str = "ocena") -> None:
     person = me["pracownik"]
     st.subheader(f"Moje wnioski – {name(person)}" if page == "wnioski" else f"Moja ocena okresowa – {name(person)}")
+    for kind, text in st.session_state.pop("flash", []):
+        (st.error if kind == "error" else st.success)(text)
     if page == "wnioski":
-        st.info("Wnioski pracownika (zmiana terminu oceny, sprzeciw) czekają na obsługę w backendzie – w API nie ma "
-                "jeszcze endpointów do ich składania. Gdy koledzy je dodadzą, pojawią się tutaj.")
+        _requests(api, me)
         return
     eid = _my_evaluation_id(me)
     if eid is None:
@@ -33,9 +71,6 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
     except ApiError as e:
         st.error(e.komunikat)
         return
-    for kind, text in st.session_state.pop("flash", []):
-        (st.error if kind == "error" else st.success)(text)
-
     left, right = st.columns([1.7, 1.3], gap="large")
     with left:
         with st.container(border=True):
@@ -48,7 +83,7 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
                            ("Ocena", c2["wynik"].lower() if c2.get("wynik") and c2.get("data_sporzadzenia")
                             else "w trakcie")]))
 
-        for akcja in ev["dozwolone_akcje"]:
+        for akcja in [a for a in ev["dozwolone_akcje"] if a != "ZLOZ_SPRZECIW"]:  # objection: own page
             with st.container(border=True):
                 if akcja == "POTWIERDZ_KRYTERIA":
                     st.markdown("**✍️ Do potwierdzenia: rozmowa i kryteria oceny**")
@@ -86,20 +121,19 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
                     st.session_state[key] = True
                     st.rerun()
 
-        if ev["status"] == "ZAKONCZONA" and ev["czesc_ii"].get("termin_sprzeciwu"):
-            st.info(f"Jeśli nie zgadzasz się z oceną, możesz złożyć sprzeciw do dyrektora generalnego do "
-                    f"**{ui.fmt(ev['czesc_ii']['termin_sprzeciwu'])}**.")
+        # an objection can be filed against the evaluation just acknowledged, even if the next cycle is open
+        objectable = [e for e in _my_evaluations(api, me) if "ZLOZ_SPRZECIW" in e["dozwolone_akcje"]]
+        for e in objectable[:1]:
+            with st.container(border=True):
+                st.markdown(f"**⚖️ Nie zgadzasz się z oceną?** Sprzeciw do dyrektora generalnego możesz złożyć do "
+                            f"**{ui.fmt(e['czesc_ii'].get('termin_sprzeciwu'))}**.")
+                st.button("Złóż sprzeciw", type="primary", key=f"to_objection_{e['id']}", on_click=_open_requests)
 
     with right:
         with st.container(border=True):
             st.markdown("**Moje kryteria**")
             ui.html(ui.ul(k["nazwa"] for k in ev["kryteria"]))
         if ev["status"] in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"):
-            if st.button("🖨️ Przygotuj PDF arkusza", key=f"emp_pdf_{eid}"):
-                try:
-                    st.session_state[f"emp_pdf_{eid}_data"] = api.pdf(eid)
-                except ApiError as e:
-                    st.error(e.komunikat)
-            data = st.session_state.get(f"emp_pdf_{eid}_data")
-            if data:
-                st.download_button("⬇️ Pobierz arkusz oceny (PDF)", data[0], file_name=data[1], mime="application/pdf")
+            from frontend.views.evaluation import pdf_button
+
+            pdf_button(api, ev, key="emp_pdf")

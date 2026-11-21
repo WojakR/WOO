@@ -1,10 +1,14 @@
-// API client (contract: docs/api.md). Identity: demo = X-User-Id header chosen in the top bar;
-// session mode (AUTH_MODE=session) = the HttpOnly session cookie, the header is not sent.
+// API client (contract: docs/api.md). Identity: AUTH_MODE=demo – X-User-Id header chosen in the top bar;
+// AUTH_MODE=session – HttpOnly session cookie set by POST /api/auth/login (the header is not sent).
 const USER_KEY = "asystent.userId";
-let sessionMode = false;
+let authMode = "DEMO";
 
-export function setSessionMode(on) {
-  sessionMode = Boolean(on);
+export function setAuthMode(mode) {
+  authMode = mode;
+}
+
+export function isSessionMode() {
+  return authMode === "SESSION";
 }
 
 export function currentUserId() {
@@ -34,22 +38,28 @@ export class ApiError extends Error {
 
 async function request(method, path, body) {
   const headers = { Accept: "application/json" };
-  const uid = sessionMode ? null : currentUserId();
+  const uid = isSessionMode() ? null : currentUserId();
   if (uid) headers["X-User-Id"] = uid;
   const isForm = body instanceof FormData;  // file upload: the browser sets the multipart header
   if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
   let res;
   try {
-    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : isForm ? body : JSON.stringify(body) });
+    res = await fetch(`/api${path}`, {
+      method, headers, credentials: "same-origin",
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
+    });
   } catch {
     throw new ApiError(0, { komunikat: "Brak połączenia z serwerem." });
   }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => null);
-  if (res.status === 401 && sessionMode && !path.startsWith("/auth/")) {
-    window.dispatchEvent(new CustomEvent("session-expired"));
+  if (!res.ok) {
+    // session expired mid-work: the shell shows the login screen (main.js)
+    if (res.status === 401 && isSessionMode() && !path.startsWith("/auth/")) {
+      window.dispatchEvent(new CustomEvent("auth:required"));
+    }
+    throw new ApiError(res.status, data);
   }
-  if (!res.ok) throw new ApiError(res.status, data);
   return data;
 }
 
@@ -73,9 +83,9 @@ export const api = {
     form.append("file", file);
     return request("POST", `/admin/employees/import?podglad=${podglad}&uruchom_cykle=${uruchom_cykle}`, form);
   },
-  positionChange: (employeeId, body) => request("POST", `/employees/${employeeId}/position-changes`, body),
   hrTasks: () => request("GET", "/kadry/zadania"),
   audit: (id) => request("GET", `/evaluations/${id}/audit`),
+  positionChange: (employeeId, body) => request("POST", `/employees/${employeeId}/position-changes`, body),
   requestDeadlineChange: (id, body) => request("POST", `/evaluations/${id}/deadline-changes`, body),
   allDeadlineChanges: (status = "") => request("GET", `/deadline-changes${status ? `?status=${status}` : ""}`),
   decideDeadlineChange: (id, body) => request("POST", `/deadline-changes/${id}/decision`, body),

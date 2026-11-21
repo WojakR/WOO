@@ -10,16 +10,6 @@ from frontend.process import DONE, STAGES, stage_date, stage_state, to_date
 
 CSS = """
 <style>
-:root { --ink:#1f2328; --muted:#59636e; --line:#d1d9e0; --blue:#0b57d0; --blue-bg:#e8f0fe;
-        --green:#1a7f37; --green-bg:#e6f4ea; --amber:#9a6700; --amber-bg:#fff8c5;
-        --red:#b42318; --red-bg:#fdecea; --violet:#6f42c1; --violet-bg:#f1eafe; --grey-bg:#f6f8fa;
-        --surface:#ffffff; }
-@media (prefers-color-scheme: dark) {
-  :root { --ink:#e6edf3; --muted:#9198a1; --line:#3d444d; --blue:#79b8ff; --blue-bg:rgba(56,139,253,.16);
-          --green:#56d364; --green-bg:rgba(46,160,67,.16); --amber:#e3b341; --amber-bg:rgba(187,128,9,.18);
-          --red:#ff7b72; --red-bg:rgba(248,81,73,.16); --violet:#d2a8ff; --violet-bg:rgba(163,113,247,.18);
-          --grey-bg:rgba(110,118,129,.14); --surface:transparent; }
-}
 .block-container { padding: 3.6rem 2.5rem 2rem; max-width: 1800px; }
 @media (max-width: 900px) { .block-container { padding-left: 1rem; padding-right: 1rem; } }
 /* toasts (bottom-right notifications): big, high-contrast, easy to notice */
@@ -44,6 +34,27 @@ div[data-testid="stToast"] p { font-size: 1.2rem; font-weight: 600; line-height:
 section[data-testid="stSidebar"] .stButton button { justify-content: flex-start; min-height: 2.8rem; }
 section[data-testid="stSidebar"] .stButton button div,
 section[data-testid="stSidebar"] .stButton button p { justify-content: flex-start; text-align: left; font-weight: 600; }
+/* loading: a spinner in the middle of the screen while the page works (shown after a short delay) */
+.stApp[data-test-script-state="running"]::after {
+  content: ""; position: fixed; top: 50%; left: 50%; width: 64px; height: 64px; margin: -32px 0 0 -32px;
+  border: 7px solid rgba(127,127,127,.25); border-top-color: var(--blue); border-radius: 50%; z-index: 100000;
+  opacity: 0; animation: aoo-spin .8s linear infinite, aoo-show .01s linear .35s forwards; pointer-events: none; }
+@keyframes aoo-spin { to { transform: rotate(360deg); } }
+@keyframes aoo-show { to { opacity: 1; } }
+/* team list: the whole row opens the evaluation (an invisible full-size button over the row) */
+[class*="st-key-row_"] { position: relative; }
+[class*="st-key-row_"]:hover { background: var(--grey-bg); cursor: pointer; }
+[class*="st-key-rowbtn_"] { position: absolute !important; inset: 0; z-index: 3; margin: 0 !important; width: auto !important; }
+/* every wrapper between the row and the <button> must fill the row, or clicks land on an empty wrapper */
+[class*="st-key-rowbtn_"] div, [class*="st-key-rowbtn_"] button { width: 100% !important; height: 100% !important; }
+[class*="st-key-rowbtn_"] button { background: transparent !important; border: none !important; color: transparent !important;
+                                   cursor: pointer; }
+/* communication tips table (review meeting) */
+.tips { width: 100%; border-collapse: collapse; margin: 4px 0 8px; font-size: .92rem; }
+.tips th { text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--line); color: var(--ink); }
+.tips th:first-child { color: var(--red); } .tips th:last-child { color: var(--green); }
+.tips td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; width: 50%; }
+.tips td:first-child { color: var(--muted); }
 /* overview: stat cards */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 8px 0 12px; }
 .stat .v { font-size: 2rem; font-weight: 700; line-height: 1.2; }
@@ -56,6 +67,47 @@ section[data-testid="stSidebar"] .stButton button p { justify-content: flex-star
 .person-card { display: flex; gap: 14px; align-items: flex-start; }
 .avatar { flex: 0 0 auto; width: 52px; height: 52px; border-radius: 50%; background: var(--blue-bg); color: var(--blue);
           display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; }
+/* ---- identity: navy side band, navy primary actions (instead of Streamlit's default red) ---- */
+section[data-testid="stSidebar"] { background: var(--band) !important; }
+section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] b,
+section[data-testid="stSidebar"] .app-title, section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary { color: var(--band-ink) !important; }
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p { color: var(--band-muted) !important; }
+section[data-testid="stSidebar"] hr { border-color: var(--band-line) !important; }
+section[data-testid="stSidebar"] [data-testid="stExpander"] details { border-color: var(--band-line) !important;
+  background: rgba(255,255,255,.04); }
+section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg,
+section[data-testid="stSidebar"] [data-testid="stExpander"] svg { color: var(--band-ink) !important; fill: var(--band-ink); }
+/* menu items: quiet list on the band; the current page is white with navy text and a bar on the left */
+section[data-testid="stSidebar"] button[data-testid="stBaseButton-secondary"] {
+  background: transparent !important; border: 1px solid transparent !important; color: var(--band-ink) !important; }
+section[data-testid="stSidebar"] button[data-testid="stBaseButton-secondary"]:hover {
+  background: rgba(255,255,255,.08) !important; border-color: var(--band-line) !important; }
+section[data-testid="stSidebar"] button[data-testid="stBaseButton-secondary"] p { color: var(--band-ink) !important; }
+section[data-testid="stSidebar"] button[data-testid="stBaseButton-primary"] {
+  background: #ffffff !important; border: none !important; box-shadow: inset 5px 0 0 #c9a227 !important; }
+section[data-testid="stSidebar"] button[data-testid="stBaseButton-primary"] p { color: #1c3460 !important; }
+/* demo / accessibility expanders keep readable inputs on the band */
+section[data-testid="stSidebar"] [data-testid="stExpander"] button[data-testid="stBaseButton-secondary"] {
+  border-color: var(--band-line) !important; }
+/* primary actions in the content: navy */
+[data-testid="stMain"] button[data-testid="stBaseButton-primary"], [data-testid="stMain"] button[kind="primaryFormSubmit"],
+[data-testid="stMain"] button[data-testid="stBaseButton-primaryFormSubmit"] {
+  background: var(--navy) !important; border-color: var(--navy) !important; color: var(--navy-ink) !important; }
+[data-testid="stMain"] button[data-testid="stBaseButton-primary"]:hover,
+[data-testid="stMain"] button[data-testid="stBaseButton-primaryFormSubmit"]:hover { background: var(--navy-hover) !important; }
+[data-testid="stMain"] button[data-testid="stBaseButton-primary"] p,
+[data-testid="stMain"] button[data-testid="stBaseButton-primaryFormSubmit"] p { color: var(--navy-ink) !important; }
+/* switches (e.g. Asystent AI) when on: navy instead of the default red */
+[data-testid="stCheckbox"] label:has(input:checked) > div:first-of-type { background-color: var(--navy) !important; }
+section[data-testid="stSidebar"] [data-testid="stCheckbox"] label:has(input:checked) > div:first-of-type {
+  background-color: #c9a227 !important; }
+/* headings: calm hierarchy, sentence case */
+[data-testid="stMain"] h3 { font-weight: 650; letter-spacing: -0.005em; }
+[data-testid="stMain"] h4 { font-weight: 650; color: var(--ink); }
+.step.sel { outline: 2px solid var(--navy) !important; }
+.deadline { border-left-color: var(--navy); }
 /* link-like buttons (schedule, notifications, names, column headers): left-aligned */
 button[data-testid="stBaseButton-tertiary"] { justify-content: flex-start; text-align: left; }
 button[data-testid="stBaseButton-tertiary"] div, button[data-testid="stBaseButton-tertiary"] p { text-align: left; justify-content: flex-start; }
@@ -69,12 +121,22 @@ button[data-testid="stBaseButton-tertiary"] div, button[data-testid="stBaseButto
 .b-red { color: var(--red); background: var(--red-bg); }
 .b-violet { color: var(--violet); background: var(--violet-bg); }
 .b-grey { color: var(--muted); background: var(--grey-bg); border-color: var(--line); }
-.step { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 66px; background: var(--surface); }
+.stepper { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1rem; margin-bottom: 6px; }
+.step { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--surface);
+        display: flex; flex-direction: column; box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
+.step .d { margin-top: auto !important; }
 .step.sel { outline: 2px solid var(--blue); outline-offset: -1px; }
-.step .n { font-size: .7rem; color: var(--muted); font-weight: 600; letter-spacing: .02em; }
+.step .n { font-size: .78rem; color: var(--muted); font-weight: 600; }
+.step .num { width: 1.9rem; height: 1.9rem; border-radius: 50%; display: flex; align-items: center;
+             justify-content: center; font-weight: 700; font-size: .9rem; border: 2px solid var(--line);
+             color: var(--muted); background: var(--surface); margin-bottom: 6px; }
+.step.done .num { background: var(--green); border-color: var(--green); color: #fff; }
+.step.active .num { background: var(--navy); border-color: var(--navy); color: var(--navy-ink); }
+.step.waiting .num { background: var(--amber); border-color: var(--amber); color: #fff; }
 .step .t { font-weight: 650; font-size: .9rem; line-height: 1.2; }
 .step { position: relative; }
-.step .d { font-size: .72rem; color: var(--ink); font-weight: 600; margin-top: 2px; }
+.step .d { align-self: flex-start; font-size: .82rem; color: var(--ink); font-weight: 700; margin-top: 6px;
+           padding: 2px 7px; border-radius: 6px; background: var(--date-bg); border: 1px solid var(--line); }
 /* the line between steps: the process is one sequence */
 .step:not(.last)::after { content: ""; position: absolute; top: 50%; right: calc(-1rem - 1px); width: calc(1rem + 1px);
                           height: 3px; background: var(--line); z-index: 0; }
@@ -114,7 +176,7 @@ SOURCE_TEXT = {
     "SZABLON": "przygotowane z gotowego szablonu i danych oceny – bez udziału AI",
     "REGULY": "wyliczone z reguł (słowa kluczowe, terminy, notatki) – bez udziału AI",
 }
-FONT_SCALES = {"Standardowa": 1.0, "Duża": 1.2, "Bardzo duża": 1.4}
+FONT_SCALES = {"Standardowa": 1.2, "Duża": 1.4, "Bardzo duża": 1.6}
 URGENCY = {"late": ("Po terminie", "b-red"), "soon": ("Wkrótce", "b-amber"),
            "ok": ("W terminie", "b-green"), "none": ("Zakończona", "b-grey")}
 
@@ -124,10 +186,23 @@ html {{ font-size: {px}px; }}
 {contrast}
 </style>
 """
+LIGHT_VARS = """--ink:#1f2328; --muted:#59636e; --line:#d1d9e0; --blue:#0b57d0; --blue-bg:#e8f0fe;
+  --green:#1a7f37; --green-bg:#e6f4ea; --amber:#9a6700; --amber-bg:#fff8c5; --red:#b42318; --red-bg:#fdecea;
+  --violet:#6f42c1; --violet-bg:#f1eafe; --grey-bg:#f3f5f8; --surface:#ffffff; --date-bg:#ffffff;
+  --navy:#1c3460; --navy-hover:#142748; --navy-ink:#ffffff; --band:#1c3460; --band-ink:#ffffff;
+  --band-muted:#c8d3e6; --band-line:rgba(255,255,255,.22);"""
+DARK_VARS = """--ink:#e6edf3; --muted:#9198a1; --line:#3d444d; --blue:#79b8ff; --blue-bg:rgba(56,139,253,.16);
+  --green:#56d364; --green-bg:rgba(46,160,67,.16); --amber:#e3b341; --amber-bg:rgba(187,128,9,.18);
+  --red:#ff7b72; --red-bg:rgba(248,81,73,.16); --violet:#d2a8ff; --violet-bg:rgba(163,113,247,.18);
+  --grey-bg:rgba(110,118,129,.14); --surface:transparent; --date-bg:rgba(0,0,0,.35);
+  --navy:#4a72c4; --navy-hover:#5c82d0; --navy-ink:#ffffff; --band:#13233f; --band-ink:#f2f5fa;
+  --band-muted:#aebbd3; --band-line:rgba(255,255,255,.16);"""
+# high contrast: secondary text as dark/bright as the main text, strong borders – explicit colours per theme
+HC_LIGHT = "--ink:#000000; --muted:#1f2328; --line:#424a53; --blue:#0a3d91; --green:#0f5323; --red:#8a1c12; --amber:#6b4700;"
+HC_DARK = "--ink:#ffffff; --muted:#f0f3f6; --line:#c9d1d9; --blue:#a5d6ff; --green:#7ee787; --red:#ffa198; --amber:#f2cc60;"
 HIGH_CONTRAST = """
-:root { --muted: var(--ink) !important; --line: #57606a !important; }
-@media (prefers-color-scheme: dark) { :root { --line: #8b949e !important; } }
-[data-testid="stCaptionContainer"], .lock, .app-sub, .note .d { color: inherit !important; opacity: 1 !important; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p, .lock, .app-sub, .note .d, .step .n {
+  color: var(--muted) !important; opacity: 1 !important; }
 .badge { border: 1px solid currentColor !important; }
 .card, .step, div[data-testid="stVerticalBlockBorderWrapper"] { border-width: 2px !important; }
 a, button[data-testid="stBaseButton-tertiary"] p { text-decoration: underline; }
@@ -136,8 +211,26 @@ SENTIMENT = {"POZYTYWNY": ("b-green", "+ pozytywna"), "NEUTRALNY": ("b-grey", "n
              "NEGATYWNY": ("b-red", "− negatywna")}
 
 
+def _theme_type() -> str | None:
+    try:
+        return st.context.theme.type  # "light" / "dark" – the theme the app really shows (not the OS setting)
+    except Exception:  # noqa: BLE001 – older Streamlit or first load: fall back to the OS preference
+        return None
+
+
 def inject_css(font_scale: float = 1.0, high_contrast: bool = False) -> None:
-    """Base styles + accessibility settings (WCAG 2.1: 1.4.4 resize text, 1.4.3/1.4.6 contrast)."""
+    """Base styles + accessibility settings (WCAG 2.1: 1.4.4 resize text, 1.4.3/1.4.6 contrast).
+    Colours follow the app's own theme, so light text never lands on a light background."""
+    theme = _theme_type()
+    light = LIGHT_VARS + (HC_LIGHT if high_contrast else "")
+    dark = DARK_VARS + (HC_DARK if high_contrast else "")
+    if theme == "dark":
+        tokens = f":root {{ {dark} }}"
+    elif theme == "light":
+        tokens = f":root {{ {light} }}"
+    else:
+        tokens = f":root {{ {light} }} @media (prefers-color-scheme: dark) {{ :root {{ {dark} }} }}"
+    st.markdown(f"<style>{tokens}</style>", unsafe_allow_html=True)
     st.markdown(CSS, unsafe_allow_html=True)
     st.markdown(ACCESSIBILITY_CSS.format(px=round(17 * font_scale), contrast=HIGH_CONTRAST if high_contrast else ""),
                 unsafe_allow_html=True)
@@ -205,21 +298,24 @@ def stage_label(stage: int) -> str:
 
 
 def stepper(ev: dict, selected: int, key: str) -> int:
-    """Clickable process steps with dates from the server; returns the stage the user selected."""
-    cols = st.columns(len(STAGES))
-    for i, (col, name) in enumerate(zip(cols, STAGES), start=1):
+    """Process steps with dates from the server, drawn as one grid so every box has the same height;
+    the buttons below select the stage to show."""
+    boxes = []
+    for i, name in enumerate(STAGES, start=1):
         st_state, st_label = stage_state(ev, i)
-        with col:
-            sel = " sel" if i == selected else ""
-            last = " last" if i == len(STAGES) else ""
-            when = stage_date(ev, i)
-            html(f'<div class="step {st_state}{sel}{last}"><div class="n">ETAP {i}</div><div class="t">{escape(name)}</div>'
-                 f'<div class="n">{STATE_ICON[st_state]} {escape(st_label)}</div>'
-                 + (f'<div class="d">📅 {escape(when)}</div>' if when else "") + "</div>")
-            if st.button("Pokaż" if i != selected else "Wybrany", key=f"{key}_{i}", use_container_width=True,
-                         type="primary" if i == selected else "secondary", disabled=i == selected):
-                st.session_state[key] = i
-                st.rerun()
+        sel = " sel" if i == selected else ""
+        last = " last" if i == len(STAGES) else ""
+        when = stage_date(ev, i)
+        num = "✓" if st_state == "done" else str(i)
+        boxes.append(f'<div class="step {st_state}{sel}{last}"><div class="num" aria-label="Etap {i}">{num}</div>'
+                     f'<div class="t">{escape(name)}</div><div class="n">{escape(st_label)}</div>'
+                     + (f'<div class="d">📅 {escape(when)}</div>' if when else "") + "</div>")
+    html('<div class="stepper">' + "".join(boxes) + "</div>")
+    for i, col in enumerate(st.columns(len(STAGES)), start=1):
+        if col.button("Pokaż" if i != selected else "Wybrany", key=f"{key}_{i}", use_container_width=True,
+                      type="primary" if i == selected else "secondary", disabled=i == selected):
+            st.session_state[key] = i
+            st.rerun()
     return selected
 
 

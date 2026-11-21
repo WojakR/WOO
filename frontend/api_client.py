@@ -31,6 +31,31 @@ class ApiError(Exception):
         return [self.komunikat] + [w.get("komunikat", "") for w in self.walidacje if w.get("komunikat")]
 
 
+def _skip_unreachable_local_model() -> None:
+    """In-process mode only, before the backend reads its config. With AI_MODE=local but no local model server
+    running, every assistant call waited 2–4 s for the connection to fail before using templates/rules.
+    Check once (0.5 s); if nothing listens, start the backend with AI_MODE=off – the same templates and rules,
+    instantly. Restart the app after starting Ollama to use the model again."""
+    import socket
+    from urllib.parse import urlparse
+
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+    if os.environ.get("AI_MODE", "local").lower() != "local" or os.environ.get("LLM_MOCK") == "1":
+        return
+    url = urlparse(os.environ.get("OLLAMA_API_BASE") or "http://localhost:11434")
+    host = "127.0.0.1" if url.hostname in (None, "localhost") else url.hostname
+    try:
+        with socket.create_connection((host, url.port or 11434), timeout=0.5):
+            pass
+    except OSError:
+        os.environ["AI_MODE"] = "off"
+        return
+    if url.hostname in (None, "localhost"):  # "localhost" tries IPv6 first on Windows: 2 s lost per call
+        os.environ["OLLAMA_API_BASE"] = f"{url.scheme or 'http'}://127.0.0.1:{url.port or 11434}"
+
+
 @st.cache_resource(show_spinner=False)
 def _transport():
     url = os.environ.get("API_URL", "").rstrip("/")
@@ -43,6 +68,7 @@ def _transport():
             return session.request(method, url + path, headers=headers, timeout=120, **kw)
 
         return call
+    _skip_unreachable_local_model()
     from fastapi.testclient import TestClient
 
     from backend.main import app
@@ -110,8 +136,61 @@ class Api:
     def scores(self, eid: int, points: dict[str, int | None]) -> dict:
         return self._req("PUT", f"/evaluations/{eid}/scores", {"punkty": points})
 
-    def action(self, eid: int, akcja: str, komentarz: str | None = None) -> dict:
-        return self._req("POST", f"/evaluations/{eid}/actions/{akcja}", {"komentarz": komentarz})
+    def action(self, eid: int, akcja: str, komentarz: str | None = None, uwzglednij: bool | None = None) -> dict:
+        return self._req("POST", f"/evaluations/{eid}/actions/{akcja}",
+                         {"komentarz": komentarz, "uwzglednij": uwzglednij})
+
+    def reminder_plan(self, eid: int) -> list[dict]:
+        return self._req("GET", f"/evaluations/{eid}/przypomnienia")
+
+    # ---- absences ----------------------------------------------------------------------------------
+    def absences(self, employee_number: int) -> list[dict]:
+        return self._req("GET", f"/employees/{employee_number}/absences")
+
+    def add_absence(self, employee_number: int, od: date, do: date, typ: str) -> dict:
+        return self._req("POST", f"/employees/{employee_number}/absences",
+                         {"od": od.isoformat(), "do": do.isoformat(), "typ": typ})
+
+    # ---- settings: my assistant, office, regulation, reminders, deputies --------------------------
+    def my_assistant(self) -> dict:
+        return self._req("GET", "/me/asystent")
+
+    def set_my_assistant(self, **fields) -> dict:
+        return self._req("PUT", "/me/asystent", fields)
+
+    def office(self) -> dict:
+        return self._req("GET", "/ustawienia/urzad")
+
+    def set_office(self, **fields) -> dict:
+        return self._req("PUT", "/ustawienia/urzad", fields)
+
+    def rules(self) -> dict:
+        return self._req("GET", "/ustawienia/reguly")
+
+    def set_rules(self, values: dict[str, int], basis: str) -> dict:
+        return self._req("PUT", "/ustawienia/reguly", {"wartosci": values, "podstawa_zmiany": basis})
+
+    def reset_rules(self) -> None:
+        self._req("DELETE", "/ustawienia/reguly")
+
+    def reminders(self, office: bool = False) -> dict:
+        return self._req("GET", "/ustawienia/przypomnienia" if office else "/me/przypomnienia")
+
+    def set_reminders(self, body: dict, office: bool = False) -> dict:
+        return self._req("PUT", "/ustawienia/przypomnienia" if office else "/me/przypomnienia", body)
+
+    def reset_reminders(self) -> None:
+        self._req("DELETE", "/me/przypomnienia")
+
+    def deputies(self) -> list[dict]:
+        return self._req("GET", "/zastepstwa")
+
+    def add_deputy(self, evaluator_number: int, deputy_number: int, od: date, do: date) -> dict:
+        return self._req("POST", "/zastepstwa", {"oceniajacy_id": evaluator_number, "zastepca_id": deputy_number,
+                                                 "od": od.isoformat(), "do": do.isoformat()})
+
+    def delete_deputy(self, did: int) -> None:
+        self._req("DELETE", f"/zastepstwa/{did}")
 
     def pdf(self, eid: int) -> tuple[bytes, str]:
         r = self._req("GET", f"/evaluations/{eid}/pdf", raw=True)

@@ -1,0 +1,28 @@
+# Asystent Ocen Okresowych – serwer urzędu jednym poleceniem (z katalogu projekt/):
+#   docker compose up -d      -> http://localhost:8000
+#   docker compose down       (dane zostają w wolumenie "oceny-dane")
+# Ustawienia: plik .env obok (opcjonalny, wzór w .env.example); port: PORT=9000 docker compose up -d
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: projekt/Dockerfile
+    image: asystent-ocen:latest
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_PATH: /data/app.db
+      # AI is optional: off = templates and rules. Local model: AI_MODE=local and Ollama on this machine.
+      AI_MODE: ${AI_MODE:-off}
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - oceny-dane:/data
+
+volumes:
+  oceny-dane:

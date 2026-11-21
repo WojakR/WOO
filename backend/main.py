@@ -7,19 +7,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app.api.errors import install_error_handlers
 from app.api.admin import router as admin_router
-from app.api.auth import router as auth_router
-from app.api.auth import session_middleware
 from app.api.audit import audit_middleware
 from app.api.audit import router as audit_router
+from app.api.auth import AuthMiddleware
+from app.api.auth import router as auth_router
+from app.api.deadline_requests import router as deadline_requests_router
 from app.api.employees import router as employees_router
+from app.api.errors import install_error_handlers
 from app.api.evaluations import router as evaluations_router
 from app.api.evaluator_changes import router as evaluator_changes_router
 from app.api.history import router as hr_tasks_router
 from app.api.routes import router as api_router
 from app.api.notes import router as notes_router
-from app.api.deadline_requests import router as deadline_requests_router
 from app.api.deputies import router as deputies_router
 from app.api.office import router as office_router
 from app.api.reminders import router as reminders_router
@@ -30,7 +30,7 @@ from backend.parsers import parse_file, to_llm_text
 
 app = FastAPI(title="HackNation 2026 – API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-app.include_router(auth_router)  # login / logout (AUTH_MODE=session)
+app.include_router(auth_router)  # login / logout / mode (AUTH_MODE)
 app.include_router(api_router)  # contract endpoints /api/... (docs/api.md)
 app.include_router(notes_router)
 app.include_router(deputies_router)  # zastępstwa
@@ -60,10 +60,12 @@ async def persist_after_changes(request, call_next):
     return response
 
 
-# dziennik zmian – inside the session middleware (needs the user), around the state change itself
+# dziennik zmian – inside the auth middleware (needs the user), around the state change itself
 app.middleware("http")(audit_middleware)
-# registered after persist_after_changes = runs first (outermost): the session is known before anything else
-app.middleware("http")(session_middleware)
+
+
+# Added last = outermost: the session is known before any other middleware or router runs (app/api/auth.py)
+app.add_middleware(AuthMiddleware)
 
 
 class AskIn(BaseModel):

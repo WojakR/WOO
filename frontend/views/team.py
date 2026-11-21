@@ -7,7 +7,7 @@ from html import escape
 import streamlit as st
 
 from frontend import ui
-from frontend.api_client import Api
+from frontend.api_client import Api, ApiError
 from frontend.process import DONE, STAGE_OF_STATUS, STAGES, STATUS_LABEL, WHO_LABEL, name
 
 URGENCY_KEY = {"PO_TERMINIE": "late", "PILNE": "soon", "WKROTCE": "soon", "OK": "ok"}
@@ -15,6 +15,20 @@ FUNNEL = [("KRYTERIA", "Wyznaczenie kryteriów", "#9fb4d6"), ("KRYTERIA_DO_POTWI
           ("OKRES_OCENY", "Okres oceny", "#3f6db3"), ("ROZMOWA_OCENIAJACA", "Sporządzenie oceny", "#1f5fbf"),
           ("OCENA_DO_ZAPOZNANIA", "Zapoznanie z oceną", "#163f80"), ("ZAKONCZONA", "Zakończone", "#1d7444")]
 WYNIK = {"POZYTYWNA": ("pozytywna", "b-green"), "NEGATYWNA": ("negatywna", "b-red")}
+SIGNAL_SHORT = {"PRZECIAZENIE": "⚠️ przeciążenie", "DLUGA_NIEOBECNOSC": "🏥 nieobecność",
+                "ZMIANA_OBOWIAZKOW": "🔄 nowe obowiązki", "SPADEK_OCEN": "📉 spadek ocen", "DO_DOCENIENIA": "👏 docenić"}
+
+
+def _signals(api: Api, item: dict) -> list[str]:
+    """HR partner signals of one evaluation from the server (GET /api/evaluations/{id}/hr-partner).
+    The dashboard has a `sygnaly_hr` count, but the server does not fill it yet."""
+    if not item["evaluation_id"] or item["status"] in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"):
+        return []
+    try:
+        report = api.hr_partner(item["evaluation_id"])
+    except ApiError:
+        return []
+    return [SIGNAL_SHORT.get(sg["typ"], sg["typ"]) for sg in report["sygnaly"] if sg["status"] != "ODRZUCONY"]
 
 
 def open_evaluation(evaluation_id: int, stage: int | None = None) -> None:
@@ -122,7 +136,7 @@ def _attention(items: list[dict]) -> None:
                     st.caption(label)
 
 
-def render(api: Api, me: dict) -> None:
+def render(api: Api, me: dict, ai: bool = True) -> None:
     items = api.dashboard()["pozycje"]
     hr = me["rola"] == "KADRY"
     st.subheader("Oceny okresowe – cały urząd" if hr else "Mój zespół")
@@ -167,10 +181,10 @@ def render(api: Api, me: dict) -> None:
 
     main, side = st.columns([2.7, 1.3], gap="large")
     with main:
-        widths = [1.1, 2.2, 1.5, 0.5, 1.8, 1.2, 1.0]
+        widths = [1.1, 2.0, 1.3, 0.5, 1.7, 1.2, 1.0] + ([1.4] if ai else [])
         head = st.columns(widths, vertical_alignment="center")
         headers = [("pilnosc", "Pilność"), ("pracownik", "Pracownik"), ("komorka", "Komórka"), (None, "Ark."),
-                   ("etap", "Etap · kto działa"), ("termin", "Termin"), ("wynik", "Wynik")]
+                   ("etap", "Etap · kto działa"), ("termin", "Termin"), ("wynik", "Wynik")] +             ([(None, "Sygnały HR")] if ai else [])
         for col, (key, label) in zip(head, headers):
             if key is None:
                 col.markdown(f"<span class='lock'><b>{label}</b></span>", unsafe_allow_html=True)
@@ -180,14 +194,14 @@ def render(api: Api, me: dict) -> None:
                        help=("Po terminie / Wkrótce (do 30 dni) / W terminie – termin bieżącego etapu. "
                              if key == "pilnosc" else "") + "Kliknij, aby posortować; ponownie – odwrotnie.")
         for i in view:
-            with st.container(border=True):
+            eid = i["evaluation_id"]
+            with st.container(border=True, key=f"row_{eid}" if eid else None):
+                if eid:  # the whole row is one button (CSS stretches it over the row)
+                    st.button(f"Otwórz ocenę: {name(i['oceniany'])}", key=f"rowbtn_{eid}", on_click=open_evaluation,
+                              args=(eid,))
                 c = st.columns(widths, vertical_alignment="center")
                 c[0].markdown(ui.urgency_badge(_urgency(i)), unsafe_allow_html=True)
-                if i["evaluation_id"]:
-                    c[1].button(f"**{name(i['oceniany'])}** →", key=f"open_{i['evaluation_id']}", type="tertiary",
-                                on_click=open_evaluation, args=(i["evaluation_id"],), help="Otwórz ocenę")
-                else:
-                    c[1].markdown(f"**{name(i['oceniany'])}**")
+                c[1].markdown(f"**{name(i['oceniany'])}**" + (" →" if eid else ""))
                 c[1].caption(i["oceniany"].get("stanowisko") or "")
                 c[2].markdown(i.get("komorka") or "—")
                 c[3].markdown(i["arkusz"])
@@ -196,6 +210,9 @@ def render(api: Api, me: dict) -> None:
                               unsafe_allow_html=True)
                 days = "" if _urgency(i) == "none" else f"<br><span class='lock'>{ui.days_text(i['dni_do_terminu'])}</span>"
                 c[5].markdown(f"{ui.fmt(i['termin'])}{days}", unsafe_allow_html=True)
+                if ai:
+                    sig = _signals(api, i)
+                    c[7].markdown("<br>".join(sig) if sig else "<span class='lock'>—</span>", unsafe_allow_html=True)
                 w = WYNIK.get(i.get("wynik"))
                 c[6].markdown(ui.badge(*w) if w else "<span class='lock'>—</span>", unsafe_allow_html=True)
         if not view:

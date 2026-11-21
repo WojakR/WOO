@@ -1,19 +1,16 @@
-// App shell: navigation, top bar (year, AI mode, demo identity and clock) and a hash router.
-import { api, currentUserId, setCurrentUserId, setSessionMode } from "./api.js";
+// App shell: login screen (AUTH_MODE=session), navigation, top bar (year, AI mode; demo identity and clock
+// in AUTH_MODE=demo, log-out in session mode) and a hash router.
+import { api, currentUserId, setCurrentUserId, setAuthMode, isSessionMode } from "./api.js";
 import { h, icon, replace, fmtDate, avatar, toast, loading } from "./ui.js";
 import { renderOverview } from "./views/overview.js";
 import { renderEvaluation } from "./views/evaluation.js";
 import { renderDeadlines } from "./views/deadlines.js";
 import { renderAbsences } from "./views/absences.js";
 import { renderPlaceholder } from "./views/placeholder.js";
-import { renderEmployees } from "./views/employees.js";
 import { renderSettings } from "./views/settings.js";
-import { renderLogin } from "./views/login.js";
+import { renderEmployees } from "./views/employees.js";
 
 export const ctx = { me: null, meta: null, users: [], year: "all", auth: null };
-
-const isSession = () => ctx.auth?.tryb_logowania === "SESJA";
-const isDemoApp = () => ctx.meta?.tryb_aplikacji !== "PRODUKCJA";
 
 const NAV = [
   { href: "#/", label: "Moje oceny", icon: "clipboard", match: (p) => p === "/" || p.startsWith("/ocena") },
@@ -70,6 +67,18 @@ function renderTopbar() {
   const years = ["all", "2026", "2027"];
   const yearSel = h("select", { id: "year", onchange: (e) => { ctx.year = e.target.value; route(); } },
     years.map((y) => h("option", { value: y, selected: ctx.year === y }, y === "all" ? "Wszystkie" : y)));
+  if (isSessionMode()) {
+    replace(
+      document.getElementById("topbar"),
+      h("label", {}, "Rok oceny", yearSel),
+      aiChip(),
+      h("span", { class: "spacer" }),
+      h("span", { class: "small muted", title: "Data z zegara serwera, nie z przeglądarki" },
+        icon("calendar"), " ", ctx.meta ? fmtDate(ctx.meta.dzis) : "–"),
+      h("button", { class: "btn btn-sm", type: "button", onclick: logout }, "Wyloguj się")
+    );
+    return;
+  }
   const userSel = h("select", {
     id: "demo-user",
     onchange: async (e) => {
@@ -86,30 +95,25 @@ function renderTopbar() {
     renderTopbar();
     route();
   };
-  const logout = h("button", {
-    class: "btn btn-sm", type: "button", title: "Wyloguj",
-    onclick: async () => { await api.logout(); ctx.me = null; await boot(); },
-  }, icon("logOut"), "Wyloguj");
   replace(
     document.getElementById("topbar"),
     h("label", {}, "Rok oceny", yearSel),
     aiChip(),
     h("span", { class: "spacer" }),
-    !isDemoApp() && h("span", { class: "small muted", title: "Data z zegara serwera" },
-      icon("calendar"), " ", ctx.meta ? fmtDate(ctx.meta.dzis) : "–"),
-    isSession() && logout,
-    isDemoApp() && h("div", { class: "demo-tools", "aria-label": "Narzędzia demonstracyjne" },
+    h("div", { class: "demo-tools", "aria-label": "Narzędzia demonstracyjne" },
       h("span", { class: "demo-tag" }, "Demo"),
       h("span", { class: "small muted", title: "Data z zegara serwera, nie z przeglądarki" },
         icon("calendar"), " ", ctx.meta ? fmtDate(ctx.meta.dzis) : "–"),
-      h("button", { class: "btn btn-sm", type: "button", onclick: shift(7), title: "Przewiń czas o tydzień" },
-        icon("forward"), "+7 dni"),
-      h("button", { class: "btn btn-sm", type: "button", onclick: shift(30), title: "Przewiń czas o 30 dni" }, "+30 dni"),
-      h("button", {
-        class: "btn btn-sm", type: "button", title: "Przywróć dane przykładowe",
-        onclick: async () => { await api.reset(); await boot(); toast("Przywrócono dane przykładowe."); },
-      }, icon("reset"), h("span", { class: "sr-only" }, "Przywróć dane przykładowe")),
-      !isSession() && h("label", {}, h("span", { class: "sr-only" }, "Zalogowany jako"), userSel))
+      // APP_MODE=production: the server clock cannot be moved and there is no demo data to restore
+      ctx.meta?.tryb_aplikacji === "PRODUKCJA" ? null : [
+        h("button", { class: "btn btn-sm", type: "button", onclick: shift(7), title: "Przewiń czas o tydzień" },
+          icon("forward"), "+7 dni"),
+        h("button", { class: "btn btn-sm", type: "button", onclick: shift(30), title: "Przewiń czas o 30 dni" }, "+30 dni"),
+        h("button", {
+          class: "btn btn-sm", type: "button", title: "Przywróć dane przykładowe",
+          onclick: async () => { await api.reset(); await boot(); toast("Przywrócono dane przykładowe."); },
+        }, icon("reset"), h("span", { class: "sr-only" }, "Przywróć dane przykładowe"))],
+      h("label", {}, h("span", { class: "sr-only" }, "Zalogowany jako"), userSel))
   );
 }
 
@@ -133,15 +137,76 @@ async function route() {
   view.focus({ preventScroll: true });
 }
 
+function showShell(visible) {
+  if (visible) delete document.body.dataset.auth;
+  else document.body.dataset.auth = "login";
+}
+
+// AUTH_MODE=session: the only screen without a session. The server decides who may log in.
+function renderLogin(message) {
+  ctx.me = null;
+  showShell(false);
+  const error = h("div", { class: "notice notice-bad", role: "alert", hidden: !message },
+    icon("alert"), h("span", {}, message || ""));
+  const showError = (text) => {
+    error.lastChild.textContent = text;
+    error.hidden = false;
+  };
+  const login = h("input", {
+    type: "text", name: "username", id: "login-user", autocomplete: "username", required: true,
+    spellcheck: "false", autocapitalize: "none", placeholder: "np. jan.kowalski…",
+  });
+  const password = h("input", {
+    type: "password", name: "password", id: "login-password", autocomplete: "current-password", required: true,
+  });
+  const submit = h("button", { class: "btn btn-primary", type: "submit" }, "Zaloguj się");
+  const form = h("form", {
+    class: "card login-card", "aria-labelledby": "login-title",
+    onsubmit: async (e) => {
+      e.preventDefault();
+      submit.disabled = true;
+      submit.textContent = "Logowanie…";
+      try {
+        await api.login(login.value.trim(), password.value);
+        await boot();
+      } catch (err) {
+        showError(err.message || "Nie udało się zalogować.");
+        password.value = "";
+        password.focus();
+        submit.disabled = false;
+        submit.textContent = "Zaloguj się";
+      }
+    },
+  },
+    h("div", { class: "card-head" }, h("div", {},
+      h("h1", { id: "login-title" }, "Zaloguj się"),
+      h("p", {}, "Asystent Ocen Okresowych – konto nadaje dział kadr."))),
+    h("div", { class: "form-grid" },
+      h("label", { class: "wide", for: "login-user" }, "Login", login),
+      h("label", { class: "wide", for: "login-password" }, "Hasło", password),
+      h("div", { class: "wide" }, error),
+      h("div", { class: "wide" }, submit))
+  );
+  replace(document.getElementById("view"), h("div", { class: "login" }, form));
+  (login.value ? password : login).focus();
+}
+
+async function logout() {
+  try {
+    await api.logout();
+  } catch {
+    /* the cookie is gone or the server is down – show the login screen anyway */
+  }
+  location.hash = "#/";
+  renderLogin();
+}
+
 async function boot() {
   ctx.auth = await api.authStatus();
-  setSessionMode(isSession());
-  if (isSession()) {
+  setAuthMode(ctx.auth.tryb);
+  if (isSessionMode()) {
     if (!ctx.auth.zalogowany) {
-      replace(document.getElementById("topbar"));
-      replace(document.getElementById("nav"));
-      replace(document.getElementById("nav-user"));
-      renderLogin(document.getElementById("view"), boot);
+      renderLogin();
       return;
     }
   } else {
@@ -152,13 +217,18 @@ async function boot() {
     }
   }
   [ctx.me, ctx.meta] = await Promise.all([api.me(), api.meta()]);
+  showShell(true);
   renderTopbar();
   await route();
 }
 
 document.getElementById("brand-icon").append(icon("landmark", "icon-lg"));
-window.addEventListener("hashchange", () => { if (!isSession() || ctx.auth?.zalogowany) route(); });
-window.addEventListener("session-expired", () => { if (ctx.auth?.zalogowany) boot(); });
+window.addEventListener("hashchange", () => {
+  if (ctx.me) route();
+});
+window.addEventListener("auth:required", () => {
+  if (ctx.me) renderLogin("Sesja wygasła. Zaloguj się ponownie.");
+});
 boot().catch((e) => {
   replace(document.getElementById("view"),
     h("div", { class: "card card-pad notice notice-bad" }, icon("alert"), `Nie udało się uruchomić aplikacji: ${e.message}`));

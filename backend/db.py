@@ -29,14 +29,13 @@ class Document(SQLModel, table=True):
 
 
 class Account(SQLModel, table=True):
-    """A login (AUTH_MODE=session). `employee_id` = id from the employee directory, or `kadry` (HR)."""
-    __tablename__ = "konto"
+    """Login account (app/api/auth.py). `employee_id` = id from pracownicy.json or `kadry` (HR)."""
+    __tablename__ = "accounts"
 
     login: str = Field(primary_key=True)
-    password_hash: str
+    password_hash: str  # scrypt$n$r$p$salt_hex$hash_hex (auth.hash_password)
     employee_id: str
     admin: bool = False
-    active: bool = True
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -48,7 +47,7 @@ class AuditEntry(SQLModel, table=True):
     at: datetime = Field(default_factory=_utcnow, index=True)  # UTC
     user_id: str = Field(index=True)
     evaluation_id: int | None = Field(default=None, index=True)
-    action: str  # e.g. AKCJA_ZATWIERDZ_OCENE, EDYCJA_POLA, NOTATKA_DODANA, POBRANIE_PDF
+    action: str  # e.g. AKCJA_ZATWIERDZ_OCENE, ZMIANA_POLA, NOTATKA_DODANA, POBRANIE_PDF
     field: str | None = None
     before: str | None = Field(default=None, sa_column=Column(Text))
     after: str | None = Field(default=None, sa_column=Column(Text))
@@ -81,6 +80,36 @@ def list_documents(limit: int = 50):
              "created_at": d.created_at.isoformat(sep=" ", timespec="seconds")}
             for d in docs
         ]
+
+
+def get_account(login: str) -> Account | None:
+    with session() as s:
+        return s.get(Account, login)
+
+
+def count_accounts() -> int:
+    with session() as s:
+        return len(s.exec(select(Account.login)).all())
+
+
+def save_account(login: str, password_hash: str, employee_id: str, admin: bool = False) -> Account:
+    """Creates or replaces the account `login`."""
+    with session() as s:
+        acc = s.get(Account, login) or Account(login=login, password_hash=password_hash, employee_id=employee_id)
+        acc.password_hash, acc.employee_id, acc.admin = password_hash, employee_id, admin
+        s.add(acc)
+        s.commit()
+        return acc
+
+
+def delete_account(login: str) -> bool:
+    with session() as s:
+        acc = s.get(Account, login)
+        if acc is None:
+            return False
+        s.delete(acc)
+        s.commit()
+        return True
 
 
 init_db()

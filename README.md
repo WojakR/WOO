@@ -5,7 +5,20 @@
 
 Python + FastAPI (API i aplikacja webowa) + SQLite + asystent AI (model lokalny przez Ollamę, z wersją bez AI).
 
-**Szybki start** (po instalacji z punktu 1, w katalogu `projekt/`):
+**Najprościej (mały urząd, jeden komputer, bez Dockera i bez IT):** zainstaluj
+[Pythona 3.10+](https://www.python.org/downloads/) (Windows: zaznacz „Add python.exe to PATH”), pobierz repozytorium
+(`git clone` albo „Code → Download ZIP” i rozpakuj) i uruchom:
+
+- **Windows:** dwuklik w `projekt\Uruchom.bat`
+- **macOS / Linux:** `sh projekt/uruchom.sh`
+
+Za pierwszym razem skrypt tworzy środowisko `.venv`, instaluje biblioteki (kilka minut, potrzebny internet) i plik
+ustawień `.env`; potem start trwa kilka sekund. Aplikacja otwiera się w przeglądarce (http://localhost:8000; gdy port
+jest zajęty – następny wolny). Zatrzymanie: zamknij okno albo Ctrl+C. Dane zostają w `projekt/data/app.db`.
+Opcje: `--port 9000`, `--siec` (dostęp z innych komputerów w sieci urzędu), `--bez-przegladarki`.
+Asystent AI nie jest potrzebny – bez modelu działają szablony i reguły.
+
+**Dla programistów** (po instalacji z punktu 1, w katalogu `projekt/`):
 ```bash
 uvicorn backend.main:app --reload
 ```
@@ -26,7 +39,9 @@ app/
   api/          # endpointy /api (routes.py), dane demo (demo_state.py), schematy kontraktu
 frontend/web/   # interfejs webowy (HTML/CSS/JS, bez budowania i bez CDN)
 frontend/app.py # stare demo Streamlit (wgrywanie plików, pytania do LLM)
+Uruchom.bat / uruchom.sh # start jednym poleceniem (wywołują scripts/uruchom.py)
 scripts/
+  uruchom.py       # .venv + biblioteki + .env + wolny port + przeglądarka
   check_setup.py   # sprawdza instalację i klucze
   gen_fake_data.py # dane syntetyczne
 data/              # dane testowe (bazy .db nie są commitowane)
@@ -77,11 +92,28 @@ python -m pytest -q                      # testy (bez kluczy i bez modelu AI)
 Port zajęty? `uvicorn backend.main:app --reload --port 8765` i otwórz http://localhost:8765.
 Dostęp z innych komputerów w sieci urzędu: dodaj `--host 0.0.0.0` (i otwórz port w zaporze).
 
+### Serwer urzędu w Dockerze
+
+Na serwerze z Dockerem, w katalogu `projekt/`:
+
+```bash
+docker compose up -d          # buduje obraz i startuje -> http://<serwer>:8000
+docker compose logs -f        # dziennik
+docker compose down           # zatrzymanie; dane zostają w wolumenie "oceny-dane"
+```
+
+- Baza SQLite jest w wolumenie (`/data/app.db`), więc przetrwa restart i aktualizację obrazu
+  (`git pull` + `docker compose up -d --build`). `docker compose down -v` usuwa też dane.
+- Ustawienia: opcjonalny plik `.env` obok (wzór w `.env.example`). Inny port: `PORT=9000 docker compose up -d`.
+- AI domyślnie wyłączone (szablony i reguły). Model lokalny: Ollama na tym samym serwerze i `AI_MODE=local`
+  (kontener łączy się z `host.docker.internal:11434`).
+- Obraz jest sprawdzany w CI (zadanie `docker`: budowa, start, odpowiedź API, dane po restarcie).
+
 ### Co zobaczysz
 
 Aplikacja startuje z danymi przykładowymi (osoby z `server/data/kprm/pracownicy.json`, notatki z
-`notatki_testowe.json`) i zegarem demo ustawionym na **25.05.2026**. Dane są w pamięci – restart serwera
-albo przycisk ⟲ w górnym pasku przywraca stan początkowy.
+`notatki_testowe.json`) i zegarem demo ustawionym na **25.05.2026**. Dane są zapisywane w bazie
+(`data/app.db`) i przetrwają restart; przycisk ⟲ w górnym pasku przywraca stan początkowy.
 
 - **Moje oceny** – przegląd: liczby, etapy procesu, tabela pracowników, panel „Wymaga uwagi”.
 - **Otwórz** przy pracowniku – arkusz oceny: etapy, kryteria ze skalą 1–9, dowody z notatek i sugestie,
