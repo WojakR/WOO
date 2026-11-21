@@ -194,6 +194,7 @@ button[data-testid="stBaseButton-tertiary"] div, button[data-testid="stBaseButto
 .b-red { color: var(--red); background: var(--red-bg); }
 .b-violet { color: var(--violet); background: var(--violet-bg); }
 .b-grey { color: var(--muted); background: var(--grey-bg); border-color: var(--line); }
+.stage-sep { height: 4px; border-radius: 2px; background: var(--navy); opacity: .85; margin: 10px 0 14px; }
 .stepper { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1rem; margin-bottom: 6px; }
 .step { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--surface);
         display: flex; flex-direction: column; box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
@@ -403,6 +404,7 @@ def stepper(ev: dict, selected: int, key: str) -> int:
                       type="primary" if i == selected else "secondary", disabled=i == selected):
             st.session_state[key] = i
             st.rerun()
+    html('<div class="stage-sep" role="separator"></div>')
     return selected
 
 
