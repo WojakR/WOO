@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any, Callable, Mapping
 
 from app.domain.calendar import WorkingCalendar
@@ -16,6 +16,7 @@ from app.domain.deadlines import Absence, PositionChange
 from app.domain.employee import Employee
 from app.domain.errors import InvalidTransition, NotFound, ValidationError
 from app.domain.meeting_prep import MeetingPrep, build_meeting_prep
+from app.domain.reminder_schedule import ReminderSchedule, Stage, at_time, reminder_dates
 from app.domain.rulebook import RuleBook
 from app.domain.scoring import EvaluationResult
 
@@ -31,6 +32,22 @@ class Reminder:
     due: date
     days_left: int  # negative = overdue
     message: str  # Polish, shown to the user
+
+
+@dataclass(frozen=True)
+class PlannedReminder:
+    """One reminder from the configurable schedule (office default or the recipient's own)."""
+    key: str  # stable id: cycle, stage, recipient, day
+    cycle_id: str
+    employee_id: str
+    recipient_id: str
+    stage: Stage
+    when: datetime
+    deadline: date
+    message: str
+
+
+ACKNOWLEDGEMENT_WINDOW_DAYS = 30  # how long to keep reminding about acknowledging ("niezwłocznie", § 12 ust. 1)
 
 
 class EvaluationService:
@@ -212,6 +229,46 @@ class EvaluationService:
                                 f"Po ocenie negatywnej {self._name(c.employee_id)} podlega ponownej ocenie "
                                 f"od {due:%d.%m.%Y} (6 miesięcy od zapoznania się z oceną)."))
         return out
+
+    # ---- configurable reminder schedule -----------------------------------------------------------
+    def _stage(self, c: EvaluationCycle) -> tuple[Stage, date, date, str, str] | None:
+        """(stage, start, deadline, recipient, what) of the stage the cycle is in now; None = nothing to remind."""
+        if c.status is Status.CYCLE_STARTED:
+            return Stage.CRITERIA, c.start_date, c.criteria_deadline, c.evaluator_id,                 "wyznacz kryteria oceny i przeprowadź rozmowę rozpoczynającą"
+        if c.status is Status.CRITERIA_SET:
+            return Stage.CRITERIA, c.criteria_set_on or c.start_date, c.criteria_deadline, c.employee_id,                 "potwierdź kryteria oceny"
+        if c.status in (Status.CRITERIA_CONFIRMED, Status.MEETING_HELD):
+            start = c.criteria_confirmed_on or c.criteria_set_on or c.start_date
+            return Stage.PERIOD, start, c.evaluation_deadline(self.rules, self.calendar), c.evaluator_id,                 "przeprowadź rozmowę oceniającą i sporządź ocenę"
+        if c.status is Status.EVALUATION_DONE and c.evaluated_on:
+            return Stage.ACKNOWLEDGEMENT, c.evaluated_on,                 c.evaluated_on + timedelta(days=ACKNOWLEDGEMENT_WINDOW_DAYS), c.employee_id, "zapoznaj się z oceną"
+        return None
+
+    def reminder_plan(self, cycle: EvaluationCycle,
+                      schedule_for: Callable[[str], ReminderSchedule]) -> list[PlannedReminder]:
+        """All reminders of the current stage (past and future), per the recipient's schedule."""
+        stage = self._stage(cycle)
+        if stage is None:
+            return []
+        kind, start, deadline, who, what = stage
+        schedule = schedule_for(who)
+        name = self._name(cycle.employee_id)
+        out = []
+        for day in reminder_dates(schedule.rules.get(kind, ()), start, deadline, self.calendar):
+            left = (deadline - day).days
+            msg = (f"Przypomnienie: {what} ({name}) – termin {deadline:%d.%m.%Y}, zostało {left} dni."
+                   if kind is not Stage.ACKNOWLEDGEMENT else
+                   f"Przypomnienie: {what} – ocena czeka od {start:%d.%m.%Y}.")
+            out.append(PlannedReminder(f"{cycle.id}:{kind.value}:{who}:{day.isoformat()}", cycle.id,
+                                       cycle.employee_id, who, kind, at_time(day, schedule), deadline, msg))
+        return out
+
+    def reminders_between(self, after: date, until: date,
+                          schedule_for: Callable[[str], ReminderSchedule]) -> list[PlannedReminder]:
+        """Reminders that go out on days in (after, until] – e.g. when the demo clock moves forward."""
+        out = [r for c in self.cycles.list_all() for r in self.reminder_plan(c, schedule_for)
+               if after < r.when.date() <= until]
+        return sorted(out, key=lambda r: r.when)
 
     def _name(self, employee_id: str) -> str:
         emp = self.employees.get(employee_id)

@@ -97,6 +97,24 @@ Ustawienia urzędu: `projekt/config/ustawienia_urzedu.json` (`PODDRZEWO` albo `B
 | `POST /api/zastepstwa` | `ZastepstwoIn` | `ZastepstwoOut` 201 | kadry albo sam oceniający; 422: ktoś, kto nikogo nie ocenia, sam siebie, `do < od` |
 | `DELETE /api/zastepstwa/{id}` | – | 204 | kadry albo oceniający |
 
+### Przypomnienia (konfigurowalne)
+
+Harmonogram na etap: `WYZNACZENIE_KRYTERIOW`, `OKRES_OCENY`, `ZAPOZNANIE`; dowolna liczba reguł (do 30 na etap):
+`CO_DNI`, `DNI_PRZED`, `TYGODNIE_PRZED`, `MIESIACE_PRZED`, `PROCENT_OKRESU`. Domyślnie (urząd, `config/ustawienia_urzedu.json`):
+kryteria co 7 dni; okres oceny po 50 % i 75 % okresu, 2 miesiące i 2 tygodnie przed terminem; zapoznanie co 3 dni; godz. 11:00.
+Przypomnienia tylko w dni robocze (termin w dzień wolny → poprzedni dzień roboczy) i w godzinach pracy urzędu
+(godzina spoza → 422).
+
+| Metoda i ścieżka | Wejście | Wyjście | Uwagi |
+|---|---|---|---|
+| `GET /api/me/przypomnienia` | – | `UstawieniaPrzypomnienOut` | własne albo domyślne urzędu (`wlasne`) |
+| `PUT /api/me/przypomnienia` | `UstawieniaPrzypomnienIn` | `UstawieniaPrzypomnienOut` | niewysłane etapy bez zmian |
+| `DELETE /api/me/przypomnienia` | – | 204 | powrót do domyślnych urzędu |
+| `GET/PUT /api/ustawienia/przypomnienia` | `UstawieniaPrzypomnienIn` | `UstawieniaPrzypomnienOut` | domyślne urzędu; zmienia tylko kadry |
+| `GET /api/evaluations/{id}/przypomnienia` | – | `PlanowanePrzypomnienie[]` | plan bieżącego etapu (wysłane i przyszłe) |
+| `GET /api/notifications` | – | `NotificationOut[]` | moje wysłane przypomnienia (zegar serwera) |
+| `POST /api/notifications/{id}/read` | – | 204 | |
+
 ### Asystent i HR partner: UC1, UC4, UC5, UC7
 
 | Metoda i ścieżka | Wejście | Wyjście | Uwagi |

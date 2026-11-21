@@ -623,3 +623,34 @@ class ZastepstwoOut(_Out):
     od: date
     do: date
     aktywne: bool                               # on the server's today
+
+
+# ---------------------------------------------------------------- configurable reminders
+
+class RegulaPrzypomnienia(BaseModel):
+    rodzaj: Literal["CO_DNI", "DNI_PRZED", "TYGODNIE_PRZED", "MIESIACE_PRZED", "PROCENT_OKRESU"]
+    wartosc: int
+    opis: str = ""                              # filled by the server, e.g. "po 50 % okresu"
+
+
+class UstawieniaPrzypomnienIn(BaseModel):
+    """PUT /api/me/przypomnienia (own) or /api/ustawienia/przypomnienia (office default, HR). Stages not sent
+    stay as they were. The hour must be inside office working hours; dates never fall on days off."""
+    godzina: str | None = Field(None, examples=["11:00"])
+    etapy: dict[Literal["WYZNACZENIE_KRYTERIOW", "OKRES_OCENY", "ZAPOZNANIE"], list[RegulaPrzypomnienia]] = {}
+
+
+class UstawieniaPrzypomnienOut(_Out):
+    godzina: str
+    godziny_pracy: tuple[str, str]              # ("08:00", "16:00") – reminders only inside, only on working days
+    etapy: dict[str, list[RegulaPrzypomnienia]]
+    wlasne: bool                                # true = the user's own schedule, false = office default
+
+
+class PlanowanePrzypomnienie(_Out):
+    kiedy: datetime
+    etap: str
+    do_kogo: OsobaRef
+    tresc: str
+    termin: date
+    minelo: bool                                # already sent (on the server clock)

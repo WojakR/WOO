@@ -6,6 +6,7 @@ import { renderEvaluation } from "./views/evaluation.js";
 import { renderDeadlines } from "./views/deadlines.js";
 import { renderAbsences } from "./views/absences.js";
 import { renderPlaceholder } from "./views/placeholder.js";
+import { renderSettings } from "./views/settings.js";
 
 export const ctx = { me: null, meta: null, users: [], year: "all" };
 
@@ -112,7 +113,7 @@ async function route() {
     else if (p.startsWith("/nieobecnosci")) await renderAbsences(view, ctx, Number(p.split("/")[2]) || null);
     else if (p.startsWith("/pracownicy")) renderPlaceholder(view, "Pracownicy", "Lista pracowników z danymi kadrowymi i historią ocen.");
     else if (p.startsWith("/raporty")) renderPlaceholder(view, "Raporty", "Zestawienia dla kadr i dyrektora generalnego.");
-    else if (p.startsWith("/ustawienia")) renderPlaceholder(view, "Ustawienia", "Konfiguracja urzędu, terminów przypomnień i asystenta.");
+    else if (p.startsWith("/ustawienia")) await renderSettings(view, ctx);
     else await renderOverview(view, ctx);
   } catch (e) {
     replace(view, h("div", { class: "card card-pad notice notice-bad" }, icon("alert"), e.message || String(e)));

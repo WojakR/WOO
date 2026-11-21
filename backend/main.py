@@ -12,6 +12,7 @@ from app.api.evaluations import router as evaluations_router
 from app.api.routes import router as api_router
 from app.api.notes import router as notes_router
 from app.api.deputies import router as deputies_router
+from app.api.reminders import router as reminders_router
 from app.api.state import save_state
 from backend import config, db
 from backend.llm import ask_llm
@@ -22,6 +23,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.include_router(api_router)  # contract endpoints /api/... (docs/api.md)
 app.include_router(notes_router)
 app.include_router(deputies_router)  # zastępstwa
+app.include_router(reminders_router)  # przypomnienia
 app.include_router(evaluations_router)  # sheet, dashboard, HR partner, demo – used by the web UI
 install_error_handlers(app)
 
