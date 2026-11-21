@@ -1,7 +1,11 @@
-"""Frontend demo (Streamlit). Uruchom z głównego folderu: streamlit run frontend/app.py
+"""Cyfrowy Asystent Ocen Okresowych – Streamlit app. Run from projekt/: streamlit run frontend/app.py
 
-Woła funkcje backendu bezpośrednio (bez HTTP) – dzięki temu całość deployuje się
-jednym kliknięciem na Streamlit Cloud. FastAPI jest obok, jeśli zadanie wymaga API.
+Everything goes through the backend's /api contract (frontend/api_client.py): the server keeps the data in
+the database and decides rules, permissions and allowed steps. Set API_URL=http://localhost:8000 to share
+a running `uvicorn backend.main:app` with the web UI; without it the API runs inside this process.
+
+Pages (side menu): evaluator / HR – Mój zespół (views/team.py), Ocena pracownika (views/evaluation.py), Terminy;
+evaluated person – Moja ocena, Moje wnioski (views/employee.py). Wireframes: frontend/design/wireframes.drawio
 """
 import sys
 from pathlib import Path
@@ -10,47 +14,167 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
 
-from backend import config, db
-from backend.llm import ask_llm
-from backend.parsers import parse_file, to_llm_text
+from frontend import ui
+from frontend.api_client import Api, ApiError
+from frontend.process import name, to_date
+from frontend.views import employee, evaluation, team
 
-st.set_page_config(page_title="HackNation 2026", page_icon="🏛️", layout="wide")
-st.title("🏛️ Nazwa projektu")
-st.caption("Jedno zdanie: dla kogo i jaki problem rozwiązujemy.")
+st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide",
+                   initial_sidebar_state="expanded")
+st.session_state.setdefault("a11y_font", "Duża")  # larger text by default – easier to read
+st.session_state.setdefault("ai_on", True)
+st.session_state.setdefault("user_id", "henryk.pryncypal")
+st.session_state.setdefault("view", "team")
+st.session_state.setdefault("emp_view", "ocena")
+ui.inject_css(ui.FONT_SCALES.get(st.session_state.a11y_font, 1.0), st.session_state.get("a11y_contrast", False))
 
+api = Api(st.session_state.user_id)
+try:
+    me, meta, users = api.me(), api.meta(), api.users()
+except ApiError as e:
+    st.error(f"Nie udało się połączyć z serwerem: {e.komunikat}")
+    st.stop()
+evaluator_ui = me["rola"] == "KADRY" or me["czy_oceniajacy"]
+ai = bool(st.session_state.ai_on)
+
+
+def go(view: str) -> None:
+    st.session_state.view = view
+
+
+def go_employee(view: str) -> None:
+    st.session_state.emp_view = view
+
+
+def open_current() -> None:
+    eid = st.session_state.get("eval_id")
+    if not eid:
+        first = next((i for i in api.dashboard()["pozycje"] if i["evaluation_id"]), None)
+        eid = first["evaluation_id"] if first else None
+    if eid:
+        team.open_evaluation(eid)
+
+
+def switch_user() -> None:
+    for k in [k for k in st.session_state if k.startswith(("sel_", "tx_", "sc_", "add_", "draft_", "confirm_",
+                                                            "emp_", "pdf_", "auto_"))]:
+        del st.session_state[k]
+    st.session_state.pop("ai_cache", None)
+    st.session_state.pop("eval_id", None)
+    st.session_state.view = "team"
+    st.session_state.emp_view = "ocena"
+
+
+def open_notification(nid: int, eid: int | None) -> None:
+    try:
+        api.read_notification(nid)
+    except ApiError:
+        pass
+    if eid and evaluator_ui:
+        team.open_evaluation(eid)
+
+
+def menu_item(label: str, active: bool, on_click, args=()) -> None:
+    st.button(label, use_container_width=True, type="primary" if active else "secondary", on_click=on_click, args=args)
+
+
+# ---------------------------------------------------------------- side menu
 with st.sidebar:
-    st.subheader("Status")
-    st.write("Modele:", ", ".join(config.LLM_MODELS))
-    if config.LLM_MOCK:
-        st.warning("Tryb MOCK – LLM zwraca atrapy")
-    st.subheader("Ostatnie dokumenty")
-    for d in db.list_documents(10):
-        st.write(f"#{d['id']} {d['filename']}")
+    ui.html('<p class="app-title">🏛️ Asystent Ocen Okresowych</p>')
+    st.caption("Ocena okresowa w służbie cywilnej")
+    st.markdown("**Menu**")
+    if evaluator_ui:
+        view = st.session_state.view
+        menu_item("👥 Mój zespół" if me["rola"] != "KADRY" else "👥 Oceny w urzędzie", view == "team", go, ("team",))
+        menu_item("📝 Ocena pracownika", view == "eval", open_current)
+        menu_item("🗓️ Terminy", view == "schedule", go, ("schedule",))
+    else:
+        menu_item("📄 Moja ocena", st.session_state.emp_view == "ocena", go_employee, ("ocena",))
+        menu_item("📨 Moje wnioski", st.session_state.emp_view == "wnioski", go_employee, ("wnioski",))
 
-tab1, tab2 = st.tabs(["📄 Dokument", "💬 Zapytaj"])
+    st.divider()
+    with st.expander("⚙️ Ustawienia", expanded=False):
+        st.toggle("🤖 Asystent AI", key="ai_on",
+                  help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: wskazówki do rozmów, propozycje "
+                       "przypisania notatek, sugerowane oceny, szkice tekstów i HR partnera. Proces oceny działa bez zmian.")
+        st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font")
+        st.toggle("Wysoki kontrast", key="a11y_contrast",
+                  help="Ciemniejszy tekst pomocniczy, grubsze obramowania i podkreślone odnośniki.")
+        st.caption("Dostępność zgodnie z WCAG 2.1: powiększenie tekstu (1.4.4), kontrast (1.4.3), widoczny fokus "
+                   "przy obsłudze klawiaturą (2.4.7). Stronę można też powiększyć skrótem Ctrl i +.")
 
-with tab1:
-    up = st.file_uploader("Wrzuć plik (PDF, XML, CSV, XLSX, TXT, obraz)")
-    if up:
-        kind, content = parse_file(up.getvalue(), up.name)
-        text = to_llm_text(kind, content)
-        if kind == "table":
-            st.dataframe(content, use_container_width=True)
-        elif kind == "xml":
-            st.json(content, expanded=False)
-        else:
-            st.text_area("Treść", text[:5000], height=250)
+    with st.expander("🎬 Tryb demo", expanded=False):
+        ids = [u["id"] for u in users]
+        labels = {u["id"]: f"{u['nazwa']} – {u['opis']}" for u in users}
+        st.selectbox("Zalogowany jako", ids, key="user_id", format_func=labels.get, on_change=switch_user,
+                     help="Bez logowania: wybierz osobę. Uprawnienia (kto co widzi i może zrobić) wylicza serwer.")
+        st.markdown(f"**⏩ Data w aplikacji (zegar serwera): {ui.fmt(meta['dzis'])}**")
+        st.caption("Na prezentacji nie poczekamy 24 miesięcy – przesuwasz zegar serwera, a system wysyła "
+                   "przypomnienia z tego okresu. W prawdziwym wdrożeniu tej opcji nie ma.")
+        a, b, c = st.columns(3)
+        for col, label, days in ((a, "+1 dz.", 1), (b, "+7 dni", 7), (c, "+30 dni", 30)):
+            if col.button(label, use_container_width=True, key=f"adv_{days}"):
+                try:
+                    r = api.clock(days=days)
+                    st.toast(f"Zegar: {ui.fmt(r.get('dzis'))}. Nowe przypomnienia: {r.get('nowe_powiadomienia', 0)}.")
+                except ApiError as e:
+                    st.toast(e.komunikat)
+                st.session_state.pop("ai_cache", None)
+                st.rerun()
+        new = st.date_input("Ustaw datę", to_date(meta["dzis"]), format="DD.MM.YYYY")
+        if st.button("Ustaw datę", use_container_width=True, disabled=new is None):
+            try:
+                api.clock(set_to=new)
+            except ApiError as e:
+                st.toast(e.komunikat)
+            st.session_state.pop("ai_cache", None)
+            st.rerun()
+        if st.button("↺ Przywróć dane przykładowe", use_container_width=True):
+            api.reset()
+            switch_user()
+            st.toast("Przywrócono dane przykładowe.")
+            st.rerun()
 
-        task = st.text_input("Co zrobić z dokumentem?", "Streść najważniejsze informacje w 5 punktach.")
-        if st.button("Analizuj", type="primary"):
-            with st.spinner("Myślę..."):
-                answer = ask_llm(f"Dokument:\n{text}\n\nZadanie: {task}")
-            st.markdown(answer)
-            db.save_document(up.name, kind, text, {"task": task, "answer": answer})
+    mode = meta["tryb_ai"]
+    available = meta.get("funkcje_ai", {}).get("model_dostepny")
+    chip = ("wyłączony w aplikacji" if not ai else "wyłączony na serwerze (szablony)" if mode == "OFF"
+            else "usługa zewnętrzna" if mode == "API" else "model lokalny" if available
+            else "model lokalny niedostępny – szablony")
+    st.caption(f"Data: {ui.fmt(meta['dzis'])} · Asystent AI: {chip}")
 
-with tab2:
-    q = st.chat_input("Zadaj pytanie")
-    if q:
-        st.chat_message("user").write(q)
-        with st.spinner("Myślę..."):
-            st.chat_message("assistant").write(ask_llm(q))
+# ---------------------------------------------------------------- header: who + notifications
+who, bell_col = st.columns([5, 1], vertical_alignment="center")
+role = "kadry" if me["rola"] == "KADRY" else "oceniający" if me["czy_oceniajacy"] else "oceniany"
+who.markdown(f"<span class='lock'>Zalogowano jako (demo):</span> **{name(me['pracownik'])}** · {role} · "
+             f"<span class='lock'>{me['urzad']}</span>", unsafe_allow_html=True)
+try:
+    notes = sorted(api.notifications(), key=lambda n: n["zaplanowane_na"], reverse=True)
+except ApiError:
+    notes = []
+unread = [n for n in notes if not n["przeczytane"]]
+with bell_col.popover(f"🔔 {len(unread)}" if unread else "🔔", use_container_width=True):
+    st.markdown("**Powiadomienia**")
+    if not notes:
+        st.caption("Brak powiadomień do dziś (zegar serwera).")
+    for n in notes[:15]:
+        when = ui.fmt(n["zaplanowane_na"])
+        label = f"{'🔵 ' if not n['przeczytane'] else ''}{when} · {n['tresc']}"
+        st.button(label, key=f"notif_{n['id']}", type="tertiary", on_click=open_notification,
+                  args=(n["id"], n.get("evaluation_id")),
+                  help="Kliknij, aby oznaczyć jako przeczytane" + (" i otworzyć ocenę" if evaluator_ui else ""))
+if not ai:
+    st.info("Asystent AI jest wyłączony – aplikacja działa bez podpowiedzi. Włączysz go w menu: ⚙️ Ustawienia.")
+
+# ---------------------------------------------------------------- routing
+if not evaluator_ui:
+    employee.render(api, me, st.session_state.emp_view)
+elif st.session_state.view == "eval" and st.session_state.get("eval_id"):
+    evaluation.render(api, me, meta, st.session_state.eval_id, ai)
+elif st.session_state.view == "schedule":
+    team.render_schedule(api, me)
+else:
+    team.render(api, me)
+
+st.divider()
+st.caption("Dane i reguły pochodzą z serwera (API i baza danych). Asystent tylko proponuje – decyzje podejmuje "
+           "oceniający. Dane osobowe są pseudonimizowane przed wysłaniem do modelu. Dane w demo są fikcyjne.")
