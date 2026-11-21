@@ -801,7 +801,7 @@ def _summary(ev: dict) -> None:
 def _hr_partner(api: Api, ev: dict) -> None:
     hr_key = ("hr", ev["id"], ev["updated_at"], _notes_mark(api, ev))
     report = _cached(hr_key, lambda: api.hr_partner(ev["id"]))
-    with st.container(border=True):
+    with st.container(border=True, key="hrpanel"):
         if isinstance(report, ApiError):
             st.markdown("**🤝 HR partner**")
             st.caption(report.komunikat)

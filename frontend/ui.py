@@ -92,6 +92,9 @@ section[data-testid="stSidebar"] .stButton button p { justify-content: flex-star
 [class*="st-key-aibox"] { border: 2px solid var(--ai) !important; border-radius: 10px; background: var(--ai-bg) !important; }
 [class*="st-key-aiprep"] [data-testid="stExpander"] details { border-color: var(--ai) !important; }
 [class*="st-key-aiprep"] [data-testid="stExpander"] summary p { color: var(--ai) !important; font-weight: 650; }
+/* HR partner window: light violet background in the light theme */
+html:not([data-aoo-theme="dark"]) [data-testid="stPopoverBody"]:has(.st-key-hrpanel) { background: #ece3fb !important; }
+html:not([data-aoo-theme="dark"]) .st-key-hrpanel { background: #f6f1fe !important; border-color: #cdb8f4 !important; }
 /* HR partner: violet round button with a robot, bottom-right */
 .st-key-hrfab button { background: var(--ai) !important; display: flex !important; align-items: center;
   justify-content: center; padding: 0 !important; }
