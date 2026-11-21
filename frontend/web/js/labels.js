@@ -64,6 +64,14 @@ export const SIGNAL_LABEL = {
   DO_DOCENIENIA: "Warto docenić",
 };
 
+export const ABSENCE_LABEL = {
+  L4: "Zwolnienie lekarskie (L4)",
+  URLOP_WYPOCZYNKOWY: "Urlop wypoczynkowy",
+  URLOP_RODZICIELSKI: "Urlop rodzicielski / macierzyński",
+  INNA_USPRAWIEDLIWIONA: "Inna usprawiedliwiona",
+  NIEUSPRAWIEDLIWIONA: "Nieusprawiedliwiona",
+};
+
 export function personName(o) {
   return o ? `${o.imie} ${o.nazwisko}`.trim() : "–";
 }

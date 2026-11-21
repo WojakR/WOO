@@ -148,6 +148,9 @@ export async function renderEvaluation(view, id, ctx) {
             fact("Okres oceny", from ? `${fmtDate(from)} – ${fmtDate(to)}` : "od wyznaczenia kryteriów"),
             fact("Poprzednia ocena", prevText()),
             fact("Oceniający", personName(ev.oceniajacy))),
+          (isEvaluator() || ctx.me.rola === "KADRY") && !["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"].includes(ev.status)
+            ? h("a", { class: "btn btn-sm", href: `#/nieobecnosci/${o.id}`, style: { marginTop: "10px" } },
+              icon("calendar"), "Zgłoś nieobecność") : null,
           confirmed ? h("p", { class: "locked", style: { marginTop: "10px" } }, icon("lock"),
             `Kryteria i termin zatwierdził(a) ${personName(ev.czesc_i.potw_oceniajacy.osoba)} ${fmtDate(ev.czesc_i.potw_oceniajacy.at)}, ` +
             `oceniany potwierdził(a) ${fmtDate(confirmed)}.`) : null))));
@@ -603,7 +606,8 @@ export async function renderEvaluation(view, id, ctx) {
         throw new Error(body?.komunikat || "Nie udało się pobrać PDF.");
       }
       const blob = await res.blob();
-      const a = h("a", { href: URL.createObjectURL(blob), download: `ocena-${id}.pdf` });
+      const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || `ocena-${id}.pdf`;
+      const a = h("a", { href: URL.createObjectURL(blob), download: name });
       a.click();
       URL.revokeObjectURL(a.href);
     } catch (e) {

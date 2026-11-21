@@ -532,14 +532,6 @@ class AbsenceIn(BaseModel):
     typ: TypNieobecnosci
 
 
-class AbsenceOut(_Out):
-    id: int
-    od: date
-    do: date
-    typ: TypNieobecnosci
-    usprawiedliwiona: bool
-
-
 class DeadlineChangeIn(BaseModel):
     powod: PowodZmianyTerminu
     nowy_termin: date | None = None             # null for WNIOSEK_OCENIANEGO (evaluator decides)
@@ -570,6 +562,18 @@ class PositionChangeOut(_Out):
     termin: date
     najwczesniej: date | None = None
     ocena: "EvaluationOut | None" = None  # the cycle after the change
+
+
+class AbsenceOut(_Out):
+    id: int
+    od: date
+    do: date
+    typ: TypNieobecnosci
+    usprawiedliwiona: bool
+    dni: int                                    # calendar days, inclusive
+    evaluation_id: int | None = None            # the cycle it was registered against
+    termin_oceny: date | None = None            # evaluation deadline after this absence (server-computed)
+    zmiana_terminu: DeadlineChangeOut | None = None  # set when this absence moved the deadline (AUTO)
 
 
 class NotificationOut(_Out):

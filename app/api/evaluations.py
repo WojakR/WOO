@@ -13,8 +13,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, Response
 
 from app.domain.cycle import EDITABLE_IN, TRANSITIONS, EvaluationCycle, Status
+from app.domain.deadlines import Absence
 from app.domain.employee import Employee
-from app.domain.errors import NotAuthorized, NotFound
+from app.domain.errors import NotAuthorized, NotFound, ValidationError
 from app.domain.evidence_hint import suggest_points
 from app.domain.notes import Note, evidence_by_criterion
 from app.domain.scoring import EvaluationResult, Outcome, compute_result
@@ -22,7 +23,7 @@ from app.domain.scoring import EvaluationResult, Outcome, compute_result
 from . import assistant_mapping as m
 from . import schemas as s
 from .errors import ApiProblem
-from .state import DemoState, get_state, reset_state
+from .state import AbsenceRecord, DeadlineChangeRecord, DemoState, get_state, reset_state
 
 router = APIRouter(prefix="/api")
 
@@ -309,6 +310,31 @@ def dashboard(x_user_id: str | None = Header(default=None), st: DemoState = Depe
 
 # ---------------------------------------------------------------- the evaluation sheet
 
+def _employee(st: DemoState, number: int) -> Employee:
+    e = st.employee_by_number(number)
+    if e is None:
+        raise NotFound(f"Nie ma pracownika o identyfikatorze {number}.")
+    return e
+
+
+@router.post("/evaluations", response_model=s.EvaluationOut, status_code=201, tags=["ocena"])
+def create_evaluation(body: s.EvaluationCreate, x_user_id: str | None = Header(default=None),
+                      st: DemoState = Depends(get_state)) -> s.EvaluationOut:
+    """Start a cycle (UC1). Sheet, evaluator, mandatory criteria and deadlines come from the server.
+    Allowed for HR and for the employee's own evaluator; one open cycle per person (else 409)."""
+    actor = _actor(st, x_user_id)
+    emp = _employee(st, body.oceniany_id)
+    if actor not in (HR, emp.evaluator_id):
+        raise NotAuthorized("Cykl oceny może rozpocząć dział kadr albo oceniający pracownika.")
+    if not emp.evaluator_id:
+        raise ApiProblem(409, "BRAK_OCENIAJACEGO", f"{emp.full_name} nie ma przypisanego oceniającego.")
+    if st.evaluations.cycles.find_open_for(emp.id) is not None:
+        raise ApiProblem(409, "CYKL_OTWARTY", f"{emp.full_name} ma już otwarty cykl oceny.")
+    c = st.evaluations.start_cycle(emp.id, start_date=body.data_poczatku_cyklu)
+    st.touch(c.id)
+    return _evaluation_out(st, c, actor)
+
+
 @router.get("/evaluations/{evaluation_id}", response_model=s.EvaluationOut, tags=["ocena"])
 def get_evaluation(evaluation_id: int, x_user_id: str | None = Header(default=None),
                    st: DemoState = Depends(get_state)) -> s.EvaluationOut:
@@ -390,10 +416,59 @@ def action(evaluation_id: int, akcja: s.Akcja, body: s.ActionIn | None = None,
     return _evaluation_out(st, svc.cycles.get(c.id), actor)
 
 
-@router.get("/evaluations/{evaluation_id}/pdf", tags=["ocena"])
+def _range_text(band, low: int) -> str:
+    def n(x) -> str:
+        return f"{float(x):g}".replace(".", ",")
+    if band.lower_exclusive is None:
+        return f"od {n(low)} do {n(band.upper_inclusive)} pkt"
+    return f"powyżej {n(band.lower_exclusive)} do {n(band.upper_inclusive)} pkt"
+
+
+def _sheet_pdf_data(st: DemoState, c: EvaluationCycle):
+    from backend import kprm
+    from backend.sheet_pdf import Person, SheetPdf
+
+    rules = st.evaluations.rules
+
+    def person(e: Employee) -> Person:
+        return Person(e.first_name, e.last_name, e.unit, e.position)
+
+    emp = st.directory.get(c.employee_id)
+    boss = st.directory.get(c.evaluator_id)
+    mandatory = set(rules.mandatory(c.sheet))
+    crit = [(rules.criterion_name(cid), c.scores.get(cid), cid in mandatory) for cid in c.criteria_ids(rules)]
+    result = _live_result(st, c)
+    return SheetPdf(
+        sheet=c.sheet, office=emp.office, employee=person(emp),
+        evaluator=person(boss) if boss else Person(c.evaluator_id, ""),
+        scale=sorted(rules.scale.items()),
+        levels=[(b.level, _range_text(b, min(rules.scale))) for b in rules.level_bands],
+        mandatory=[(n, p) for n, p, mand in crit if mand], additional=[(n, p) for n, p, mand in crit if not mand],
+        max_additional=rules.max_additional_criteria,
+        deadline=st.evaluations.evaluation_deadline(c.id),
+        criteria_set_on=c.criteria_set_on, criteria_confirmed_on=c.criteria_confirmed_on,
+        meeting_date=c.meeting_date, period_from=c.period_from, period_to=c.period_to,
+        average=result.average_display if result else None, level=result.level if result else None,
+        positive=(result.outcome is Outcome.POSITIVE) if result else None,
+        justification=c.justification, iprz=c.iprz_conclusions,
+        civil_servant=False,  # pracownicy.json has no civil-servant status (demo assumes PRACOWNIK)
+        evaluated_on=c.evaluated_on, acknowledged_on=c.acknowledged_on,
+        objection_days=kprm.rules()["terminy"]["sprzeciw_dni_od_zapoznania"],
+        draft=c.status not in (Status.EVALUATION_DONE, Status.ACKNOWLEDGED),
+    )
+
+
+@router.get("/evaluations/{evaluation_id}/pdf", response_class=Response, tags=["ocena"],
+            responses={200: {"content": {"application/pdf": {}}}})
 def pdf(evaluation_id: int, x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)):
-    _cycle(st, evaluation_id, _actor(st, x_user_id))
-    raise ApiProblem(501, "NIEDOSTEPNE", "Wydruk arkusza (PDF) nie jest jeszcze dostępny.")
+    """Sheet A/B/C as PDF, laid out after the KPRM form (UC6). Before submission it is marked as a draft."""
+    from backend.sheet_pdf import render_sheet_pdf
+
+    c = _cycle(st, evaluation_id, _actor(st, x_user_id))
+    data = render_sheet_pdf(_sheet_pdf_data(st, c))
+    name = f"ocena-okresowa-{c.employee_id.replace('.', '-')}-{c.id}.pdf"
+    return Response(data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @router.get("/evaluations/{evaluation_id}/evidence", response_model=s.EvidenceOut, tags=["notatki"])
@@ -454,6 +529,85 @@ def hr_decision(signal_id: int, body: s.HrSignalDecision, st: DemoState = Depend
 
 
 # ---------------------------------------------------------------- demo only
+
+# ---------------------------------------------------------------- absences and deadline changes (UC8)
+
+ABSENCE_KIND = {  # API enum -> Polish label kept on the domain Absence (merged periods, HR partner texts)
+    s.TypNieobecnosci.L4: "zwolnienie lekarskie",
+    s.TypNieobecnosci.URLOP_WYPOCZYNKOWY: "urlop wypoczynkowy",
+    s.TypNieobecnosci.URLOP_RODZICIELSKI: "urlop rodzicielski",
+    s.TypNieobecnosci.INNA_USPRAWIEDLIWIONA: "inna usprawiedliwiona nieobecność",
+    s.TypNieobecnosci.NIEUSPRAWIEDLIWIONA: "nieobecność nieusprawiedliwiona",
+}
+
+
+def _change_out(r: DeadlineChangeRecord) -> s.DeadlineChangeOut:
+    return s.DeadlineChangeOut(id=r.id, powod=s.PowodZmianyTerminu(r.reason), stary_termin=r.old,
+                               nowy_termin=r.new, status=s.StatusWniosku(r.status), uzasadnienie=r.justification,
+                               decyzja_at=r.decided_at)
+
+
+def _absence_out(st: DemoState, r: AbsenceRecord) -> s.AbsenceOut:
+    change = next((x for x in st.deadline_changes if x.id == r.change_id), None)
+    return s.AbsenceOut(id=r.id, od=r.absence.start, do=r.absence.end, typ=s.TypNieobecnosci(r.typ),
+                        usprawiedliwiona=r.absence.justified, dni=r.absence.days, evaluation_id=int(r.cycle_id),
+                        termin_oceny=r.deadline_after, zmiana_terminu=_change_out(change) if change else None)
+
+
+@router.get("/employees/{employee_id}/absences", response_model=list[s.AbsenceOut], tags=["nieobecności"])
+def list_absences(employee_id: int, x_user_id: str | None = Header(default=None),
+                  st: DemoState = Depends(get_state)) -> list[s.AbsenceOut]:
+    actor = _actor(st, x_user_id)
+    e = _employee(st, employee_id)
+    if actor not in (HR, e.id, e.evaluator_id):
+        raise NotAuthorized("Nie masz dostępu do nieobecności tego pracownika.")
+    mine = [r for r in st.absences if r.employee_id == e.id]
+    return [_absence_out(st, r) for r in sorted(mine, key=lambda r: r.absence.start, reverse=True)]
+
+
+@router.post("/employees/{employee_id}/absences", response_model=s.AbsenceOut, status_code=201,
+             tags=["nieobecności"])
+def add_absence(employee_id: int, body: s.AbsenceIn, x_user_id: str | None = Header(default=None),
+                st: DemoState = Depends(get_state)) -> s.AbsenceOut:
+    """Register an absence of the evaluated person (UC8). A justified continuous absence longer than the
+    threshold in reguly.json moves the evaluation deadline automatically (DeadlineChange AUTO, art. 81 ust. 7)."""
+    actor = _actor(st, x_user_id)
+    e = _employee(st, employee_id)
+    if actor not in (HR, e.evaluator_id):
+        raise NotAuthorized("Nieobecność może zgłosić dział kadr albo oceniający pracownika.")
+    if body.do < body.od:
+        raise ValidationError(["Koniec nieobecności nie może być wcześniejszy niż jej początek."])
+    c = st.evaluations.cycles.find_open_for(e.id)
+    if c is None:
+        raise ApiProblem(409, "BRAK_CYKLU", f"{e.full_name} nie ma otwartego cyklu oceny.")
+    absence = Absence(body.od, body.do, ABSENCE_KIND[body.typ],
+                      justified=body.typ is not s.TypNieobecnosci.NIEUSPRAWIEDLIWIONA)
+    before = st.evaluations.evaluation_deadline(c.id)
+    after = st.evaluations.register_absence(c.id, absence)
+    st.touch(c.id)
+    change_id = None
+    if after != before:
+        change_id = len(st.deadline_changes) + 1
+        months = st.evaluations.rules.absence_extends_after_months
+        st.deadline_changes.append(DeadlineChangeRecord(
+            id=change_id, cycle_id=c.id, reason=s.PowodZmianyTerminu.NIEOBECNOSC_OCENIANEGO_AUTO.value,
+            old=before, new=after, status=s.StatusWniosku.AUTO.value,
+            justification=(f"Usprawiedliwiona nieobecność dłuższa niż {months} mies. przedłuża termin oceny "
+                           "o czas jej trwania (art. 81 ust. 7 ustawy o służbie cywilnej)."),
+            decided_at=datetime.now(timezone.utc)))
+    r = AbsenceRecord(id=len(st.absences) + 1, employee_id=e.id, cycle_id=c.id, absence=absence,
+                      typ=body.typ.value, deadline_after=after, change_id=change_id)
+    st.absences.append(r)
+    return _absence_out(st, r)
+
+
+@router.get("/evaluations/{evaluation_id}/deadline-changes", response_model=list[s.DeadlineChangeOut],
+            tags=["nieobecności"])
+def deadline_changes(evaluation_id: int, x_user_id: str | None = Header(default=None),
+                     st: DemoState = Depends(get_state)) -> list[s.DeadlineChangeOut]:
+    c = _cycle(st, evaluation_id, _actor(st, x_user_id))
+    return [_change_out(r) for r in st.deadline_changes if r.cycle_id == c.id]
+
 
 @router.get("/demo/clock", response_model=s.ClockOut, tags=["demo"])
 def get_clock(st: DemoState = Depends(get_state)) -> s.ClockOut:

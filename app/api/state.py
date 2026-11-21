@@ -17,6 +17,8 @@ from typing import Iterator
 
 from app.application.assistant import AiSuggestionService, HrReport, NoteClassification
 from app.application.use_cases import EvaluationService
+from app.domain.deadlines import Absence
+from app.domain.employee import Employee
 from app.domain.notes import Note
 from app.infrastructure.assistant_factory import build_assistant
 from app.infrastructure.kprm_adapter import KprmEmployeeDirectory, kprm_rulebook
@@ -49,6 +51,30 @@ class RecordVersion:
 
 
 @dataclass
+class AbsenceRecord:
+    """A registered absence (UC8) + what only the API needs."""
+    id: int
+    employee_id: str
+    cycle_id: str
+    absence: Absence
+    typ: str  # TypNieobecnosci
+    deadline_after: date  # evaluation deadline right after registering it (server-computed)
+    change_id: int | None = None  # the DeadlineChangeRecord this absence caused (AUTO), if any
+
+
+@dataclass
+class DeadlineChangeRecord:
+    id: int
+    cycle_id: str
+    reason: str  # PowodZmianyTerminu
+    old: date
+    new: date | None
+    status: str  # StatusWniosku
+    justification: str
+    decided_at: datetime | None
+
+
+@dataclass
 class DemoState:
     clock: FixedClock  # the server's own clock (contract rule 7: never the browser's date)
     directory: KprmEmployeeDirectory
@@ -61,6 +87,8 @@ class DemoState:
     hr_reports: dict[str, tuple[tuple, HrReport]] = field(default_factory=dict)  # cycle id -> (inputs key, report)
     hr_signal_ids: dict[tuple[str, str], int] = field(default_factory=dict)  # (cycle id, signal kind) -> stable id
     hr_decisions: dict[int, str] = field(default_factory=dict)  # signal id -> ZAAKCEPTOWANY / ODRZUCONY
+    absences: list[AbsenceRecord] = field(default_factory=list)
+    deadline_changes: list[DeadlineChangeRecord] = field(default_factory=list)
 
     def notes_of(self, evaluation_id: int) -> list[NoteRecord]:
         return [r for r in self.notes.values() if r.evaluation_id == evaluation_id]
@@ -77,6 +105,11 @@ class DemoState:
         """The contract's int id of a person: position in the directory (data ids are text, e.g. 'jan.kowalski')."""
         ids = [e.id for e in self.directory.all()]
         return ids.index(employee_id) + 1 if employee_id in ids else 0
+
+    def employee_by_number(self, number: int) -> Employee | None:
+        """Inverse of `employee_number`."""
+        people = self.directory.all()
+        return people[number - 1] if 1 <= number <= len(people) else None
 
     def version_of(self, cycle_id: str) -> RecordVersion:
         return self.versions.setdefault(cycle_id, RecordVersion())

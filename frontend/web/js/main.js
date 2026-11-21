@@ -4,6 +4,7 @@ import { h, icon, replace, fmtDate, avatar, toast, loading } from "./ui.js";
 import { renderOverview } from "./views/overview.js";
 import { renderEvaluation } from "./views/evaluation.js";
 import { renderDeadlines } from "./views/deadlines.js";
+import { renderAbsences } from "./views/absences.js";
 import { renderPlaceholder } from "./views/placeholder.js";
 
 export const ctx = { me: null, meta: null, users: [], year: "all" };
@@ -12,6 +13,7 @@ const NAV = [
   { href: "#/", label: "Moje oceny", icon: "clipboard", match: (p) => p === "/" || p.startsWith("/ocena") },
   { href: "#/pracownicy", label: "Pracownicy", icon: "users", match: (p) => p.startsWith("/pracownicy") },
   { href: "#/terminy", label: "Terminy i przypomnienia", icon: "bell", match: (p) => p.startsWith("/terminy") },
+  { href: "#/nieobecnosci", label: "Nieobecności", icon: "calendar", match: (p) => p.startsWith("/nieobecnosci") },
   { href: "#/raporty", label: "Raporty", icon: "chart", match: (p) => p.startsWith("/raporty") },
   { href: "#/ustawienia", label: "Ustawienia", icon: "sliders", match: (p) => p.startsWith("/ustawienia") },
 ];
@@ -107,6 +109,7 @@ async function route() {
     const m = p.match(/^\/ocena\/(\d+)/);
     if (m) await renderEvaluation(view, Number(m[1]), ctx);
     else if (p.startsWith("/terminy")) await renderDeadlines(view, ctx);
+    else if (p.startsWith("/nieobecnosci")) await renderAbsences(view, ctx, Number(p.split("/")[2]) || null);
     else if (p.startsWith("/pracownicy")) renderPlaceholder(view, "Pracownicy", "Lista pracowników z danymi kadrowymi i historią ocen.");
     else if (p.startsWith("/raporty")) renderPlaceholder(view, "Raporty", "Zestawienia dla kadr i dyrektora generalnego.");
     else if (p.startsWith("/ustawienia")) renderPlaceholder(view, "Ustawienia", "Konfiguracja urzędu, terminów przypomnień i asystenta.");

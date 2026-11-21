@@ -396,3 +396,16 @@ table.data .avatar { width: 32px; height: 32px; font-size: 12px; }
   .crit-main { grid-template-columns: minmax(0, 1fr); }
   .seg { grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; }
 }
+
+/* ---------------------------------------------------------------- forms, dialogs (start cycle, absences) */
+.notice-ok { background: var(--ok-bg); color: var(--ok); }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; padding: 18px 20px; }
+.form-grid > label { display: flex; flex-direction: column; gap: 4px; font-weight: 650; font-size: 13px; }
+.form-grid > label > input, .form-grid > label > select { font-weight: 400; width: 100%; }
+.form-grid .wide { grid-column: 1 / -1; }
+@media (max-width: 640px) { .form-grid { grid-template-columns: minmax(0, 1fr); } }
+dialog.modal { border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; width: min(520px, calc(100vw - 32px));
+  background: var(--surface); color: var(--text); box-shadow: 0 16px 48px rgba(16, 24, 40, .22); }
+dialog.modal::backdrop { background: rgba(15, 34, 64, .45); }
+dialog.modal h2 { margin-bottom: 6px; }
+dialog.modal input[type="date"] { width: 100%; }

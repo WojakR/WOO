@@ -1,6 +1,6 @@
 // Screen 2 – overview of evaluations (evaluator: own subordinates, HR: whole office).
 import { api } from "../api.js";
-import { h, icon, replace, fmtDate, avatar, daysLeftText, daysWord } from "../ui.js";
+import { h, icon, replace, fmtDate, avatar, daysLeftText, daysWord, toast } from "../ui.js";
 import { STAGES, STATUS_LABEL, WHO_LABEL, personName } from "../labels.js";
 
 const FUNNEL_COLORS = ["#9fb4d6", "#6f8fc4", "#3f6db3", "#1f5fbf", "#163f80", "#1d7444"];
@@ -183,9 +183,43 @@ function renderTable(box, items, state, update) {
           h("td", {}, i.evaluation_id
             ? h("a", { class: "btn btn-sm", href: `#/ocena/${i.evaluation_id}`,
               "aria-label": `Otwórz ocenę: ${personName(i.oceniany)}` }, "Otwórz", icon("chevronRight"))
-            : h("span", { class: "small muted" }, "brak cyklu"))))))
+            : h("button", { class: "btn btn-sm btn-primary", type: "button", onclick: () => startCycle(i),
+              "aria-label": `Rozpocznij ocenę: ${personName(i.oceniany)}` }, icon("forward"), "Rozpocznij ocenę"))))))
       )
       : h("p", { class: "empty" }, "Brak pozycji spełniających wybrane filtry."));
+}
+
+// Start a new evaluation cycle (UC1). Sheet, criteria and deadlines are set by the server.
+function startCycle(i) {
+  const date = h("input", { type: "date", id: "start-date" });
+  const err = h("div");
+  const go = h("button", { class: "btn btn-primary", type: "submit" }, icon("check"), "Rozpocznij ocenę");
+  const dlg = h("dialog", { class: "modal", "aria-labelledby": "start-h" },
+    h("form", { method: "dialog", onsubmit: async (e) => {
+      e.preventDefault();
+      go.disabled = true;
+      try {
+        const ev = await api.startEvaluation({ oceniany_id: i.oceniany.id, data_poczatku_cyklu: date.value || null });
+        dlg.close();
+        toast(`Rozpoczęto ocenę: ${personName(i.oceniany)}. Termin wyznaczenia kryteriów: ${fmtDate(ev.czesc_i.termin_wyznaczenia_kryteriow)}.`);
+        location.hash = `#/ocena/${ev.id}`;
+      } catch (e2) {
+        replace(err, h("p", { class: "notice notice-bad" }, icon("alert"), e2.message));
+        go.disabled = false;
+      }
+    } },
+    h("h2", { id: "start-h" }, `Rozpocznij ocenę okresową – ${personName(i.oceniany)}`),
+    h("p", { class: "small muted" }, `Arkusz ${i.arkusz}. Kryteria obowiązkowe, oceniający i terminy ustali system na podstawie danych kadrowych.`),
+    h("label", { for: "start-date", class: "stack", style: { gap: "4px", margin: "14px 0" } },
+      h("span", { style: { fontWeight: 650 } }, "Początek cyklu oceny (opcjonalnie)"),
+      date,
+      h("span", { class: "small muted" }, "Puste pole: data poprzedniej oceny, a gdy jej nie ma – dzisiejsza data (zatrudnienie).")),
+    err,
+    h("div", { class: "row", style: { justifyContent: "flex-end", gap: "8px" } },
+      h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Anuluj"), go)));
+  dlg.addEventListener("close", () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
 }
 
 function renderAttention(box, items) {
