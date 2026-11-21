@@ -104,6 +104,14 @@ def test_deputy_writes_notes_and_runs_steps_while_active(st):
     assert client.get(f"/api/evaluations/{eid(st)}/notes", headers=as_(OUTSIDER)).status_code == 403
 
 
+def test_sheet_tells_the_ui_who_acts_as_evaluator(st):
+    e = eid(st)
+    flag = lambda who: client.get(f"/api/evaluations/{e}", headers=as_(who)).json()["jako_oceniajacy"]  # noqa: E731
+    assert flag(BOSS) is True and flag(TOP) is False and flag(EMP) is False
+    _deputy(st, BOSS, OUTSIDER)
+    assert flag(OUTSIDER) is True  # the UI shows the deputy the evaluator's tools (notes, drafts, HR partner)
+
+
 def test_expired_deputy_has_no_access(st):
     _deputy(st, BOSS, OUTSIDER, od="2026-05-01", do="2026-05-31")
     assert client.get(f"/api/evaluations/{eid(st)}", headers=as_(OUTSIDER)).status_code == 403

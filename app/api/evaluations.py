@@ -213,6 +213,7 @@ def _evaluation_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.Evaluati
             zapoznanie=_podpis(st, c.acknowledged_on, emp),
             termin_sprzeciwu=c.objection_deadline(svc.rules, svc.calendar),
         ),
+        jako_oceniajacy=as_evaluator,
         dozwolone_akcje=_allowed_actions(c, actor, as_evaluator), edytowalne_pola=_editable(c, as_evaluator),
         walidacje=_validations(st, c), updated_at=ver.updated_at,
     )
