@@ -32,6 +32,10 @@ def _my_evaluations(api: Api, me: dict) -> list[dict]:
     return out
 
 
+def _open_requests() -> None:
+    st.session_state.emp_view = "wnioski"
+
+
 def _requests(api: Api, me: dict) -> None:
     from frontend.views.evaluation import objection_panel
 
@@ -79,7 +83,7 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
                            ("Ocena", c2["wynik"].lower() if c2.get("wynik") and c2.get("data_sporzadzenia")
                             else "w trakcie")]))
 
-        for akcja in ev["dozwolone_akcje"]:
+        for akcja in [a for a in ev["dozwolone_akcje"] if a != "ZLOZ_SPRZECIW"]:  # objection: own page
             with st.container(border=True):
                 if akcja == "POTWIERDZ_KRYTERIA":
                     st.markdown("**✍️ Do potwierdzenia: rozmowa i kryteria oceny**")
@@ -117,9 +121,13 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
                     st.session_state[key] = True
                     st.rerun()
 
-        if ev["status"] == "ZAKONCZONA" and ev["czesc_ii"].get("termin_sprzeciwu"):
-            st.info(f"Jeśli nie zgadzasz się z oceną, możesz złożyć sprzeciw do dyrektora generalnego do "
-                    f"**{ui.fmt(ev['czesc_ii']['termin_sprzeciwu'])}**.")
+        # an objection can be filed against the evaluation just acknowledged, even if the next cycle is open
+        objectable = [e for e in _my_evaluations(api, me) if "ZLOZ_SPRZECIW" in e["dozwolone_akcje"]]
+        for e in objectable[:1]:
+            with st.container(border=True):
+                st.markdown(f"**⚖️ Nie zgadzasz się z oceną?** Sprzeciw do dyrektora generalnego możesz złożyć do "
+                            f"**{ui.fmt(e['czesc_ii'].get('termin_sprzeciwu'))}**.")
+                st.button("Złóż sprzeciw", type="primary", key=f"to_objection_{e['id']}", on_click=_open_requests)
 
     with right:
         with st.container(border=True):
