@@ -50,7 +50,7 @@ def test_dashboard_scope_and_seed():
     finished = {i["oceniany"]["id"] for i in everyone if i["status"] == "ZAKONCZONA"}
     assert finished and all(any(j["oceniany"]["id"] == p and j["status"] == "KRYTERIA_DO_WYZNACZENIA" for j in everyone)
                             for p in finished)
-    assert len(everyone) == 8 + len(finished)
+    assert len(everyone) == 12 + len(finished)  # 8 KPRM sample people + Barbara Przełożona's team of 4
     assert {i["pilnosc"] for i in everyone} >= {"PO_TERMINIE", "WKROTCE"}
     assert {i["wynik"] for i in everyone} >= {"POZYTYWNA", "NEGATYWNA"}
 
@@ -148,3 +148,14 @@ def test_demo_clock_and_reset():
     assert item["dni_do_terminu"] == -12 and item["pilnosc"] == "PO_TERMINIE"
     assert client.post("/api/demo/reset").status_code == 204
     assert client.get("/api/meta").json()["dzis"] == "2026-05-25"
+
+
+def test_demo_team_at_the_start_of_the_process():
+    """Barbara Przełożona evaluates four people whose cycles have just started (criteria still to be set)."""
+    boss = {"X-User-Id": "barbara.przelozona"}
+    me = client.get("/api/me", headers=boss).json()
+    assert me["czy_oceniajacy"]
+    team = client.get("/api/dashboard", headers=boss).json()["pozycje"]
+    assert {i["oceniany"]["nazwisko"] for i in team} == {"Próbny", "Wzorcowa", "Przykładny", "Testowa"}
+    assert {i["status"] for i in team} == {"KRYTERIA_DO_WYZNACZENIA"}
+    assert all(i["kto_dziala"] == "OCENIAJACY" for i in team)
