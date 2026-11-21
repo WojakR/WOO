@@ -25,7 +25,11 @@ st.session_state.setdefault("a11y_font", "Standardowa")  # 120 % of the browser 
 st.session_state.setdefault("user_id", "henryk.pryncypal")
 st.session_state.setdefault("view", "team")
 st.session_state.setdefault("emp_view", "ocena")
-ui.inject_css(ui.FONT_SCALES.get(st.session_state.a11y_font, 1.0), st.session_state.get("a11y_contrast", False))
+_page = (st.session_state.user_id, st.session_state.view, st.session_state.get("eval_id"), st.session_state.emp_view)
+_page_switch = st.session_state.get("_last_page") != _page
+st.session_state._last_page = _page
+ui.inject_css(ui.FONT_SCALES.get(st.session_state.a11y_font, 1.0), st.session_state.get("a11y_contrast", False),
+              page_switch=_page_switch)
 
 api = Api(st.session_state.user_id)
 try:

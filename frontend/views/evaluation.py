@@ -523,7 +523,7 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
                                        disabled=not can_score, on_change=set_score, args=(code, key))
             st.caption(SCALE_LABEL.get(val, "") if val is not None else "nie oceniono")
         sug = k.get("sugerowane_punkty")
-        if work and sug is not None:
+        if ai and work and sug is not None:  # a hint of the assistant: hidden when it is off
             s1, s2 = box.columns([3, 1], vertical_alignment="center")
             why = (e or {}).get("uzasadnienie_sugestii") or ""
             s1.caption(f"✨ Sugerowane: **{sug} pkt** · {why}" + (" · zgodne z oceną" if val == sug else ""))
@@ -732,8 +732,8 @@ def _next_step(ev: dict) -> str:
 def _progress(ev: dict) -> None:
     cur = current_stage(ev)
     done = cur == DONE
-    with st.container(border=True):
-        st.markdown("**🧭 Postęp**" + (" · proces zakończony" if done else f" · krok {cur} z {len(STAGES)}"))
+    with st.expander("🧭 Postęp" + (" · proces zakończony" if done else f" · krok {cur} z {len(STAGES)}"),
+                     expanded=True):
         st.progress(min(cur - 1, len(STAGES)) / len(STAGES) if not done else 1.0)
         st.markdown(f"**Co teraz:** {_next_step(ev)}")
         if ev["status"] == "ROZMOWA_OCENIAJACA" and ev["jako_oceniajacy"]:
@@ -891,6 +891,13 @@ def render(api: Api, me: dict, meta: dict, evaluation_id: int, ai: bool) -> None
         _progress(ev)
         _summary(ev)
         _timeline(api, ev)
-        if (ai and ev["jako_oceniajacy"] and meta.get("funkcje_ai", {}).get("hr_partner")
-                and ev["status"] not in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA")):
-            _hr_partner(api, ev)
+    # HR partner: a round button fixed in the bottom-right corner, the same place however far you scroll
+    if (ai and ev["jako_oceniajacy"] and meta.get("funkcje_ai", {}).get("hr_partner")
+            and ev["status"] not in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA")):
+        hr_key = ("hr", ev["id"], ev["updated_at"], _notes_mark(api, ev))
+        report = _cached(hr_key, lambda: api.hr_partner(ev["id"]))
+        open_signals = 0 if isinstance(report, ApiError) else sum(sg["status"] == "NOWY" for sg in report["sygnaly"])
+        with st.container(key="hrfab"):
+            with st.popover(f"🤝 {open_signals}" if open_signals else "🤝",
+                            help="HR partner – podpowiedzi o dobrostanie i docenianiu"):
+                _hr_partner(api, ev)

@@ -10,7 +10,9 @@ from frontend.process import DONE, STAGES, stage_date, stage_state, to_date
 
 CSS = """
 <style>
-.block-container { padding: 3.6rem 2.5rem 2rem; max-width: 1800px; }
+.block-container { padding: 1.6rem 2.5rem 2rem; max-width: 1800px; }
+[data-testid="stHeader"] { height: 2.4rem !important; min-height: 2.4rem !important; background: transparent !important; }
+[data-testid="stHeader"] [data-testid="stToolbar"] { top: 0 !important; }
 @media (max-width: 900px) { .block-container { padding-left: 1rem; padding-right: 1rem; } }
 /* toasts (bottom-right notifications): big, high-contrast, easy to notice */
 div[data-testid="stToastContainer"] { right: 24px; bottom: 24px; }
@@ -55,6 +57,13 @@ section[data-testid="stSidebar"] .stButton button p { justify-content: flex-star
 .tips th:first-child { color: var(--red); } .tips th:last-child { color: var(--green); }
 .tips td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; width: 50%; }
 .tips td:first-child { color: var(--muted); }
+/* HR partner: floating round button, bottom-right, always in view */
+.st-key-hrfab { position: fixed !important; right: 28px; bottom: 28px; z-index: 1000; width: auto !important; }
+.st-key-hrfab button { width: 4.2rem; height: 4.2rem; border-radius: 50% !important; background: var(--navy) !important;
+  border: 3px solid #ffffff !important; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+.st-key-hrfab button p { color: #ffffff !important; font-size: 1.25rem; font-weight: 700; }
+.st-key-hrfab button svg { display: none; }
+[data-testid="stPopoverBody"] { max-width: min(460px, 92vw); }
 /* overview: stat cards */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 8px 0 12px; }
 .stat .v { font-size: 2rem; font-weight: 700; line-height: 1.2; }
@@ -90,12 +99,6 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] svg { color: var(--b
   fill: #ffffff !important; }
 /* Streamlit's own "Deploy" button is not part of the app */
 [data-testid="stAppDeployButton"] { display: none !important; }
-/* while a page is being rebuilt, hide the previous page: stale elements, and frames/columns left with only stale
-   content (otherwise their empty borders show up as doubled tiles for a moment) */
-[data-testid="stMain"] [data-stale="true"] { display: none !important; }
-[data-testid="stMain"] [data-testid="stLayoutWrapper"]:has([data-stale="true"]):not(:has([data-stale="false"])),
-[data-testid="stMain"] [data-testid="stHorizontalBlock"]:has([data-stale="true"]):not(:has([data-stale="false"])) {
-  display: none !important; }
 /* tiles and framed sections: clearly separated from the background (only framed blocks have a border width) */
 [data-testid="stMain"] [data-testid="stVerticalBlock"], [data-testid="stMain"] [data-testid="stExpander"] details,
 [data-testid="stMain"] .card, [data-testid="stMain"] [data-testid="stPopoverButton"] { border-color: var(--tile-line) !important; }
@@ -116,11 +119,13 @@ section[data-testid="stSidebar"] button[data-testid="stBaseButton-primary"] p { 
 section[data-testid="stSidebar"] [data-testid="stExpander"] button[data-testid="stBaseButton-secondary"] {
   border-color: var(--band-line) !important; }
 /* primary actions in the content: navy */
+[data-testid="stPopoverBody"] button[data-testid="stBaseButton-primary"],
 [data-testid="stMain"] button[data-testid="stBaseButton-primary"], [data-testid="stMain"] button[kind="primaryFormSubmit"],
 [data-testid="stMain"] button[data-testid="stBaseButton-primaryFormSubmit"] {
   background: var(--navy) !important; border-color: var(--navy) !important; color: var(--navy-ink) !important; }
 [data-testid="stMain"] button[data-testid="stBaseButton-primary"]:hover,
 [data-testid="stMain"] button[data-testid="stBaseButton-primaryFormSubmit"]:hover { background: var(--navy-hover) !important; }
+[data-testid="stPopoverBody"] button[data-testid="stBaseButton-primary"] p,
 [data-testid="stMain"] button[data-testid="stBaseButton-primary"] p,
 [data-testid="stMain"] button[data-testid="stBaseButton-primaryFormSubmit"] p { color: var(--navy-ink) !important; }
 /* switches (e.g. Asystent AI) when on: navy instead of the default red */
@@ -242,7 +247,17 @@ def _theme_type() -> str | None:
         return None
 
 
-def inject_css(font_scale: float = 1.0, high_contrast: bool = False) -> None:
+HIDE_STALE = """<style>
+/* page switch only: hide the previous page – stale elements, and frames/columns left with only stale content
+   (otherwise their empty borders show up as doubled tiles for a moment) */
+[data-testid="stMain"] [data-stale="true"] { display: none !important; }
+[data-testid="stMain"] [data-testid="stLayoutWrapper"]:has([data-stale="true"]):not(:has([data-stale="false"])),
+[data-testid="stMain"] [data-testid="stHorizontalBlock"]:has([data-stale="true"]):not(:has([data-stale="false"])) {
+  display: none !important; }
+</style>"""
+
+
+def inject_css(font_scale: float = 1.0, high_contrast: bool = False, page_switch: bool = False) -> None:
     """Base styles + accessibility settings (WCAG 2.1: 1.4.4 resize text, 1.4.3/1.4.6 contrast).
     Colours follow the app's own theme, so light text never lands on a light background."""
     theme = _theme_type()
@@ -260,6 +275,8 @@ def inject_css(font_scale: float = 1.0, high_contrast: bool = False) -> None:
     st.markdown(CSS, unsafe_allow_html=True)
     st.markdown(ACCESSIBILITY_CSS.format(px=round(17 * font_scale), contrast=HIGH_CONTRAST if high_contrast else ""),
                 unsafe_allow_html=True)
+    # always the same element at this position: with the rule on a page switch, empty otherwise
+    st.markdown(HIDE_STALE if page_switch else "<style></style>", unsafe_allow_html=True)
 
 
 def source_note(source: str) -> str:
@@ -415,6 +432,4 @@ THEME_WATCHER = r"""
 
 def theme_watcher() -> None:
     """Zero-height helper (same-origin iframe) that keeps data-aoo-theme on the page in step with the theme."""
-    import streamlit.components.v1 as components
-
-    components.html(THEME_WATCHER, height=0)
+    st.iframe(THEME_WATCHER, height=1)
