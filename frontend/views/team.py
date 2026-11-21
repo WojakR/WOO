@@ -91,6 +91,29 @@ def _attention(items: list[dict]) -> None:
                     col.caption(label)
 
 
+TASK_KIND = {"DWIE_NEGATYWNE": "⚠️ Dwie negatywne oceny z rzędu", "STOPIEN_OBLIGATORYJNY": "🎖️ Obligatoryjny kolejny stopień"}
+
+
+def _hr_tasks(api: Api) -> None:
+    """Consequences of consecutive evaluations HR must act on (server: /api/kadry/zadania) – the system decides nothing."""
+    try:
+        tasks = api.hr_tasks()
+    except ApiError:
+        return
+    if not tasks:
+        return
+    with st.expander(f"📌 Zadania kadr ({len(tasks)})", expanded=True):
+        for t in tasks:
+            c = st.columns([4.5, 1], vertical_alignment="center")
+            due = f" · termin {ui.fmt(t['termin'])}" if t.get("termin") else ""
+            basis = f" ({t['podstawa']})" if t.get("podstawa") else ""
+            c[0].markdown(f"**{TASK_KIND.get(t['rodzaj'], t['rodzaj'])}** · {name(t['oceniany'])}{due}<br>"
+                          f"<span class='lock'>{escape(t['tresc'] + basis)}</span>", unsafe_allow_html=True)
+            if t.get("evaluation_id"):
+                c[1].button("Otwórz", key=f"task_{t['rodzaj']}_{t['evaluation_id']}", on_click=open_evaluation,
+                            args=(t["evaluation_id"],), use_container_width=True)
+
+
 def render(api: Api, me: dict, ai: bool = True) -> None:
     items = api.dashboard()["pozycje"]
     hr = me["rola"] == "KADRY"
@@ -101,6 +124,8 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
     if not items:
         st.info("Nie oceniasz nikogo – brak ocen do pokazania.")
         return
+    if hr:
+        _hr_tasks(api)
 
     units = sorted({i.get("komorka") for i in items if i.get("komorka")})
     s1, s2, s3 = st.columns([1.4, 1.4, 0.6], vertical_alignment="bottom")

@@ -4,8 +4,9 @@ Everything goes through the backend's /api contract (frontend/api_client.py): th
 the database and decides rules, permissions and allowed steps. Set API_URL=http://localhost:8000 to share
 a running `uvicorn backend.main:app` with the web UI; without it the API runs inside this process.
 
-Pages (side menu): evaluator / HR – Mój zespół (views/team.py; a row opens views/evaluation.py), Terminy, Ustawienia;
-evaluated person – Moja ocena, Moje wnioski (views/employee.py). Wireframes: frontend/design/wireframes.drawio
+Pages (side menu): evaluator / HR – Mój zespół (views/team.py; a row opens views/evaluation.py), Dashboard
+(views/reports.py), Archiwum (views/archive.py), Terminy, Pomoc (views/guide.py), Ustawienia;
+evaluated person – Moja ocena, Moje wnioski (views/employee.py), Archiwum, Pomoc. Wireframes: frontend/design/wireframes.drawio
 """
 import sys
 from pathlib import Path
@@ -17,7 +18,7 @@ import streamlit as st
 from frontend import ui
 from frontend.api_client import Api, ApiError
 from frontend.process import name, to_date
-from frontend.views import employee, evaluation, settings, team
+from frontend.views import archive, employee, evaluation, guide, reports, settings, team
 
 st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide",
                    initial_sidebar_state="expanded")
@@ -143,11 +144,16 @@ with st.sidebar:
         view = st.session_state.view
         menu_item("👥 Mój zespół" if me["rola"] != "KADRY" else "👥 Oceny w urzędzie", view in ("team", "eval"), go,
                   ("team",))
+        menu_item("📊 Dashboard", view == "reports", go, ("reports",))
+        menu_item("🗄️ Archiwum", view == "archive", go, ("archive",))
         menu_item("🗓️ Terminy", view == "schedule", go, ("schedule",))
+        menu_item("❓ Pomoc", view == "help", go, ("help",))
         menu_item("⚙️ Ustawienia", view == "settings", go, ("settings",))
     else:
         menu_item("📄 Moja ocena", st.session_state.emp_view == "ocena", go_employee, ("ocena",))
         menu_item("📨 Moje wnioski", st.session_state.emp_view == "wnioski", go_employee, ("wnioski",))
+        menu_item("🗄️ Archiwum", st.session_state.emp_view == "archive", go_employee, ("archive",))
+        menu_item("❓ Pomoc", st.session_state.emp_view == "help", go_employee, ("help",))
         menu_item("⚙️ Ustawienia", st.session_state.emp_view == "settings", go_employee, ("settings",))
 
     st.divider()
@@ -196,6 +202,10 @@ elif not ai:
 # ---------------------------------------------------------------- routing
 if not evaluator_ui and st.session_state.emp_view == "settings":
     settings.render(api, me, meta, users)
+elif not evaluator_ui and st.session_state.emp_view == "archive":
+    archive.render(api, me)
+elif not evaluator_ui and st.session_state.emp_view == "help":
+    guide.render(api)
 elif not evaluator_ui:
     employee.render(api, me, st.session_state.emp_view)
 elif st.session_state.view == "settings":
@@ -204,6 +214,12 @@ elif st.session_state.view == "eval" and st.session_state.get("eval_id"):
     evaluation.render(api, me, meta, st.session_state.eval_id, ai)
 elif st.session_state.view == "schedule":
     team.render_schedule(api, me)
+elif st.session_state.view == "reports":
+    reports.render(api, me, ai)
+elif st.session_state.view == "archive":
+    archive.render(api, me)
+elif st.session_state.view == "help":
+    guide.render(api)
 else:
     team.render(api, me, ai)
 

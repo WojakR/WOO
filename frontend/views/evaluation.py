@@ -216,8 +216,7 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
     crit = _crit_dict(api, ev["arkusz"])
     editable = "kryteria_dodatkowe" in ev["edytowalne_pola"]
     st.markdown("#### Arkusz oceny")
-    ui.html(f"<p>{ui.badge('Arkusz ' + ev['arkusz'] + '*', 'b-blue')}</p>")
-    ui.footnote(f"Dobrany przez system na podstawie stanowiska: {ev['oceniany'].get('stanowisko') or '—'}.")
+    _sheet_choice(api, ev)
 
     st.markdown("#### Kryteria oceny")
     with st.container(border=True):
@@ -426,6 +425,7 @@ def _stage_review(api: Api, ev: dict, ai: bool, today: date) -> None:
                     _prep(api, ev, "OCENIAJACA")
         else:
             st.caption("Asystent AI jest wyłączony – wskazówki asystenta AI do rozmowy są ukryte.")
+        _wellbeing(api, ev)
         st.divider()
     _action(api, ev, "ROZPOCZNIJ_ROZMOWE",
             note=f"Jako datę rozmowy system zapisze dzisiejszą datę ({ui.fmt(today)}).")
@@ -631,6 +631,168 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
     pdf_button(api, ev)
 
 
+# ---------------------------------------------------------------- sheet choice (§ 3), wellbeing, paper flow, HR tools
+
+def _sheet_choice(api: Api, ev: dict) -> None:
+    """Which sheet the system chose from the position and why; HR may change it until the criteria are approved."""
+    d = ev.get("dobor_arkusza") or {}
+    why = d.get("powod") or f"Dobrany przez system na podstawie stanowiska: {ev['oceniany'].get('stanowisko') or '—'}."
+    ui.html(f"<p>{ui.badge('Arkusz ' + ev['arkusz'], 'b-blue')} <span class='lock'>{escape(why)}</span></p>")
+    if d.get("ostrzezenie"):
+        st.warning(d["ostrzezenie"])
+    for z in d.get("zmiany", []):
+        st.caption(f"Zmiana arkusza {ui.fmt(z['data'])}: {z['z']} → {z['na']} · {z['uzasadnienie']}")
+    if not d.get("mozna_zmienic"):
+        return
+    with st.expander("🔁 Zmień arkusz (kadry)"):
+        eid = ev["id"]
+        others = [a for a in ("A", "B", "C") if a != ev["arkusz"]]
+        a, b = st.columns([1, 2.5], vertical_alignment="bottom")
+        sheet = a.selectbox("Nowy arkusz", others, key=f"sheet_new_{eid}")
+        reason = b.text_input("Uzasadnienie", key=f"sheet_why_{eid}", placeholder="np. zmiana zakresu obowiązków")
+        if st.button("Zmień arkusz", key=f"sheet_go_{eid}", type="primary"):
+            if not reason.strip():
+                st.error("Wpisz uzasadnienie zmiany arkusza.")
+            elif _call(api.change_sheet, eid, sheet, reason.strip(), ok="Zmieniono arkusz.") is not None:
+                st.rerun()
+
+
+def _wellbeing(api: Api, ev: dict) -> None:
+    """Checklist of 8 burnout symptoms filled in during the conversation (server: /api/.../wellbeing)."""
+    eid = ev["id"]
+    try:
+        check = api.wellbeing_checklist()
+        saved = api.wellbeing(eid)
+    except ApiError:
+        return
+    answers = {o["kod"]: o["nazwa"] for o in check["odpowiedzi"]}
+    codes = list(answers)
+    title = "🌱 Lista kontrolna dobrostanu (8 objawów)"
+    if saved.get("sygnal_przeciazenia"):
+        title += " · ⚠️ sygnał przeciążenia"
+    with st.container(key=f"aiprep_wb_{eid}"):
+        with st.expander(title):
+            st.caption(check.get("instrukcja", ""))
+            out = {}
+            for sym in check["objawy"]:
+                prev = saved["odpowiedzi"].get(sym["id"], {})
+                c1, c2 = st.columns([2.2, 1.6], vertical_alignment="center")
+                c1.markdown(f"**{sym['nazwa']}**", help=sym.get("opis") or None)
+                val = c2.segmented_control(sym["nazwa"], codes, format_func=answers.get, key=f"wb_{eid}_{sym['id']}",
+                                           default=prev.get("odpowiedz"), label_visibility="collapsed")
+                if val:
+                    out[sym["id"]] = {"odpowiedz": val, "komentarz": prev.get("komentarz") or ""}
+            if saved.get("zaktualizowano"):
+                st.caption(f"Zapisano {ui.fmt(saved['zaktualizowano'])} · „często”: {saved['liczba_czesto']} "
+                           f"(sygnał od {saved['prog_sygnalu']}).")
+            if st.button("💾 Zapisz listę", key=f"wb_save_{eid}"):
+                if _call(api.set_wellbeing, eid, out, ok="Zapisano listę kontrolną.") is not None:
+                    st.rerun()
+
+
+def _paper(api: Api, ev: dict) -> None:
+    """Paper flow: the form printed and signed by hand, or the refusal to sign (fikcja zapoznania)."""
+    eid = ev["id"]
+    c2 = ev["czesc_ii"]
+    if not ev["jako_oceniajacy"] or ev["status"] != "OCENA_DO_ZAPOZNANIA":
+        if c2.get("data_wydruku") or c2.get("data_podpisu"):
+            st.caption(f"Obieg papierowy: wydruk {ui.fmt(c2.get('data_wydruku'))} · "
+                       f"podpis {ui.fmt(c2.get('data_podpisu'))}.")
+        if c2.get("adnotacja_odmowy"):
+            st.caption(f"Adnotacja o odmowie podpisu: {c2['adnotacja_odmowy']}")
+        return
+    with st.expander("🖨️ Obieg papierowy i odmowa podpisu"):
+        st.caption("Jeśli oceniany podpisał wydrukowany arkusz, wpisz daty – data podpisu jest datą zapoznania "
+                   "i od niej liczy się termin sprzeciwu.")
+        a, b = st.columns(2)
+        printed = a.date_input("Data wydruku", value=ui.to_date(c2.get("data_wydruku")), key=f"pap_pr_{eid}",
+                               format="DD.MM.YYYY")
+        signed = b.date_input("Data podpisu", value=ui.to_date(c2.get("data_podpisu")), key=f"pap_sg_{eid}",
+                              format="DD.MM.YYYY")
+        if st.button("💾 Zapisz daty", key=f"pap_save_{eid}"):
+            if _call(api.paper, eid, printed, signed, ok="Zapisano obieg papierowy.") is not None:
+                st.session_state.pop(f"sel_{eid}", None)
+                st.rerun()
+        st.divider()
+        st.markdown("**Odmowa podpisu (fikcja zapoznania)**")
+        note = st.text_area("Adnotacja", key=f"fik_{eid}", height=80,
+                            placeholder="np. Oceniany zapoznał się z oceną i odmówił podpisu w obecności …")
+        if st.button("Zapisz odmowę podpisu", key=f"fik_go_{eid}"):
+            if not note.strip():
+                st.error("Wpisz adnotację o odmowie podpisu.")
+            else:
+                _inline_action(api, eid, "FIKCJA_ZAPOZNANIA", komentarz=note.strip())
+
+
+def _hr_tools(api: Api, ev: dict, me: dict) -> None:
+    """Change of position (HR or the evaluator) and change of the evaluator (HR) – rules on the server."""
+    hr = me["rola"] == "KADRY"
+    if not (hr or ev["jako_oceniajacy"]) or ev["status"] == "ZAKONCZONA":
+        return
+    eid, person = ev["id"], ev["oceniany"]
+    today = ui.to_date(api.meta()["dzis"])
+    with st.expander("🔀 Zmiana stanowiska" + (" / oceniającego" if hr else "")):
+        st.markdown("**Zmiana stanowiska**", help="Istotna zmiana obowiązków: system policzy, czy trzeba wyznaczyć "
+                    "nowe kryteria (§ 9 ust. 1), czy sporządzić ocenę (art. 81 ust. 6).")
+        on = st.date_input("Data zmiany", value=today, key=f"pos_on_{eid}", format="DD.MM.YYYY")
+        pos = st.text_input("Nowe stanowisko", key=f"pos_new_{eid}")
+        sheet = st.selectbox("Arkusz dla nowego stanowiska", [None, "A", "B", "C"], key=f"pos_sheet_{eid}",
+                             format_func=lambda a: "bez zmiany" if a is None else f"arkusz {a}")
+        if st.button("Zapisz zmianę stanowiska", key=f"pos_go_{eid}"):
+            if not pos.strip():
+                st.error("Wpisz nowe stanowisko.")
+            else:
+                out = _call(api.position_change, person["id"], on, pos.strip(), sheet)
+                if out is not None:
+                    st.toast(out.get("wyjasnienie") or "Zapisano zmianę stanowiska.")
+                    st.rerun()
+        if not hr:
+            return
+        st.divider()
+        st.markdown("**Zmiana oceniającego**", help="Art. 81 ust. 8 pkt 1 i § 9 ust. 3: system sprawdza, czy "
+                    "odchodzący oceniający może sporządzić ocenę przed zmianą.")
+        people = _call(api.employees, na_strone=200)
+        if not people:
+            return
+        options = {p["pracownik"]["id"]: name(p["pracownik"]) for p in people["pozycje"]
+                   if p["pracownik"]["id"] not in (person["id"], ev["oceniajacy"]["id"])}
+        new = st.selectbox("Nowy oceniający", list(options), format_func=options.get, key=f"evc_new_{eid}")
+        when = st.date_input("Od dnia", value=today, key=f"evc_on_{eid}", format="DD.MM.YYYY")
+        chk = _call(api.evaluator_change_check, person["id"], when)
+        if chk:
+            st.caption(chk["wyjasnienie"])
+        early = st.checkbox("Odchodzący oceniający sporządza ocenę przed zmianą", key=f"evc_early_{eid}",
+                            disabled=not (chk or {}).get("mozliwa_wczesniejsza_ocena"))
+        if st.button("Zmień oceniającego", key=f"evc_go_{eid}") and new:
+            out = _call(api.evaluator_change, person["id"], new, when, early)
+            if out is not None:
+                st.toast(out.get("wyjasnienie") or "Zmieniono oceniającego.")
+                st.rerun()
+
+
+def _audit(api: Api, ev: dict, me: dict) -> None:
+    """Historia zmian of the evaluation – HR only (server: /api/evaluations/{id}/audit)."""
+    if me["rola"] != "KADRY":
+        return
+    with st.expander("🕓 Historia zmian"):
+        try:
+            rows = api.audit(ev["id"])
+        except ApiError as e:
+            st.caption(e.komunikat)
+            return
+        if not rows:
+            st.caption("Brak wpisów.")
+        for r in list(reversed(rows))[:40]:
+            what = r["akcja"].replace("_", " ").lower()
+            field = f" · {r['pole']}" if r.get("pole") else ""
+            change = f": {r.get('przed') or '—'} → {r.get('po') or '—'}" if r.get("przed") or r.get("po") else ""
+            st.markdown(f"<span class='lock'>{ui.fmt(r['czas'])} · {escape(r['uzytkownik_nazwa'])}</span><br>"
+                        f"{escape((what + field + change)[:220])}", unsafe_allow_html=True)
+        eakt = ev.get("eksport_eakt")
+        if eakt:
+            st.caption(f"e-Akt: {eakt.get('status', '—')}")
+
+
 # ---------------------------------------------------------------- stage 5
 
 def _stage_ack(api: Api, ev: dict) -> None:
@@ -645,8 +807,8 @@ def _stage_ack(api: Api, ev: dict) -> None:
                    + (" (fikcja zapoznania)." if c2.get("fikcja_zapoznania") else "."))
         if c2.get("termin_sprzeciwu"):
             st.markdown(f"Termin na sprzeciw do dyrektora generalnego: **{ui.fmt(c2['termin_sprzeciwu'])}**.")
-    for akcja in ("FIKCJA_ZAPOZNANIA", "POTWIERDZ_ZAPOZNANIE"):
-        _action(api, ev, akcja)
+    _action(api, ev, "POTWIERDZ_ZAPOZNANIE")
+    _paper(api, ev)
     objection_panel(api, ev)
     pdf_button(api, ev)
 
@@ -895,6 +1057,8 @@ def render(api: Api, me: dict, meta: dict, evaluation_id: int, ai: bool) -> None
         _progress(ev)
         _summary(ev)
         _timeline(api, ev)
+        _hr_tools(api, ev, me)
+        _audit(api, ev, me)
     # HR partner: a round button fixed in the bottom-right corner, the same place however far you scroll
     if (ai and ev["jako_oceniajacy"] and meta.get("funkcje_ai", {}).get("hr_partner")
             and ev["status"] not in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA")):

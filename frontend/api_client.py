@@ -86,8 +86,12 @@ class Api:
         self.user_id = user_id
 
     # ---- plumbing --------------------------------------------------------------------------------
-    def _req(self, method: str, path: str, json: Any = None, params: dict | None = None, raw: bool = False):
-        r = _transport()(method, "/api" + path, {"X-User-Id": self.user_id}, json=json, params=params)
+    def _req(self, method: str, path: str, json: Any = None, params: dict | None = None, raw: bool = False,
+             files: dict | None = None):
+        kw = {"files": files} if files else {"json": json}
+        if params:
+            params = {k: v for k, v in params.items() if v is not None}
+        r = _transport()(method, "/api" + path, {"X-User-Id": self.user_id}, params=params, **kw)
         if r.status_code >= 400:
             try:
                 body = r.json()
@@ -245,6 +249,113 @@ class Api:
 
     def reset(self) -> None:
         self._req("POST", "/demo/reset")
+
+
+    def _file(self, path: str, default: str) -> tuple[bytes, str]:
+        r = self._req("GET", path, raw=True)
+        disp = r.headers.get("Content-Disposition", "")
+        name = disp.split('filename="', 1)[1].split('"', 1)[0] if 'filename="' in disp else default
+        return r.content, name
+
+    # ---- employees, history, archive (T6, T22, T23) ------------------------------------------------
+    def employees(self, **filters) -> dict:
+        return self._req("GET", "/employees", params={k: v for k, v in filters.items() if v not in (None, "")})
+
+    def employee(self, employee_number: int) -> dict:
+        return self._req("GET", f"/employees/{employee_number}")
+
+    def history(self, employee_number: int) -> list[dict]:
+        return self._req("GET", f"/employees/{employee_number}/evaluations")
+
+    def archive(self) -> list[dict]:
+        return self._req("GET", "/archive")
+
+    def archive_run(self) -> dict:
+        return self._req("POST", "/archive/run")
+
+    def archive_review(self) -> list[dict]:
+        return self._req("GET", "/archive/review")
+
+    def archive_pdf(self, record_id: int) -> tuple[bytes, str]:
+        return self._file(f"/archive/{record_id}/pdf", f"archiwum-{record_id}.pdf")
+
+    def archive_delete(self, record_id: int) -> dict:
+        return self._req("POST", f"/archive/{record_id}/delete", {"zatwierdzam": True})
+
+    def archive_delete_notes(self, eid: int) -> dict:
+        return self._req("POST", f"/archive/notes/{eid}/delete", {"zatwierdzam": True})
+
+    def legacy_imports(self) -> list[dict]:
+        return self._req("GET", "/legacy-import")
+
+    def legacy_upload(self, name: str, data: bytes) -> dict:
+        return self._req("POST", "/legacy-import", files={"file": (name, data)})
+
+    def legacy_fix(self, rid: int, **fields) -> dict:
+        return self._req("PUT", f"/legacy-import/{rid}", {k: (v.isoformat() if isinstance(v, date) else v)
+                                                           for k, v in fields.items()})
+
+    def legacy_approve(self, rid: int, accept_discrepancies: bool = False) -> dict:
+        return self._req("POST", f"/legacy-import/{rid}/approve", {"akceptuje_rozbieznosci": accept_discrepancies})
+
+    # ---- reports (T17–T19) -------------------------------------------------------------------------
+    def report_progress(self, rok: int | None = None, komorka: str | None = None) -> dict:
+        return self._req("GET", "/reports/progress", params={"rok": rok, "komorka": komorka or None})
+
+    def report_outcomes(self, rok: int | None = None, komorka: str | None = None, poziom: str | None = None,
+                        wynik: str | None = None) -> dict:
+        return self._req("GET", "/reports/outcomes", params={"rok": rok, "komorka": komorka or None,
+                                                              "poziom": poziom, "wynik": wynik})
+
+    def report_training(self, komorka: str | None = None) -> dict:
+        return self._req("GET", "/reports/training-needs", params={"komorka": komorka or None})
+
+    def report_training_csv(self, komorka: str | None = None) -> bytes:
+        return self._req("GET", "/reports/training-needs.csv", params={"komorka": komorka or None}, raw=True).content
+
+    # ---- in the evaluation: wellbeing, paper, sheet, position and evaluator change, audit (T7–T15) ---
+    def wellbeing_checklist(self) -> dict:
+        return self._req("GET", "/wellbeing/checklist")
+
+    def wellbeing(self, eid: int) -> dict:
+        return self._req("GET", f"/evaluations/{eid}/wellbeing")
+
+    def set_wellbeing(self, eid: int, answers: dict[str, dict]) -> dict:
+        return self._req("PUT", f"/evaluations/{eid}/wellbeing", {"odpowiedzi": answers})
+
+    def paper(self, eid: int, printed: date | None, signed: date | None) -> dict:
+        return self._req("PUT", f"/evaluations/{eid}/paper", {"data_wydruku": printed.isoformat() if printed else None,
+                                                             "data_podpisu": signed.isoformat() if signed else None})
+
+    def change_sheet(self, eid: int, sheet: str, reason: str) -> dict:
+        return self._req("PUT", f"/evaluations/{eid}/sheet", {"arkusz": sheet, "uzasadnienie": reason})
+
+    def position_change(self, employee_number: int, on: date, position: str, sheet: str | None) -> dict:
+        return self._req("POST", f"/employees/{employee_number}/position-changes",
+                         {"data_zmiany": on.isoformat(), "nowe_stanowisko": position, "nowy_arkusz": sheet})
+
+    def evaluator_change_check(self, employee_number: int, on: date) -> dict:
+        return self._req("GET", f"/employees/{employee_number}/evaluator-change", params={"data_zmiany": on.isoformat()})
+
+    def evaluator_change(self, employee_number: int, new_number: int, on: date, early: bool = False) -> dict:
+        return self._req("POST", f"/employees/{employee_number}/evaluator-change",
+                         {"nowy_oceniajacy_id": new_number, "data_zmiany": on.isoformat(), "ocena_przed_zmiana": early})
+
+    def audit(self, eid: int) -> list[dict]:
+        return self._req("GET", f"/evaluations/{eid}/audit")
+
+    def hr_tasks(self) -> list[dict]:
+        return self._req("GET", "/kadry/zadania")
+
+    # ---- help (T21) --------------------------------------------------------------------------------
+    def knowledge(self) -> list[dict]:
+        return self._req("GET", "/knowledge")
+
+    def knowledge_search(self, q: str) -> dict:
+        return self._req("GET", "/knowledge/search", params={"q": q})
+
+    def knowledge_doc(self, slug: str) -> dict:
+        return self._req("GET", f"/knowledge/{slug}")
 
 
 def as_hr() -> Api:
