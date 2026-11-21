@@ -20,7 +20,7 @@ AI_FEATURES = {
     "przygotowanie_rozmowy": True,
     "podpowiedz_kryteriow": False,
     "szkic_uzasadnienia": True,
-    "klasyfikacja_notatek": False,
+    "klasyfikacja_notatek": True,
     "hr_partner": False,
 }
 _BEFORE_CRITERIA_CONFIRMED = {Status.CYCLE_STARTED, Status.CRITERIA_SET}
@@ -76,7 +76,7 @@ def conversation_prep(
     kind = rodzaj or ("ROZPOCZYNAJACA" if cycle.status in _BEFORE_CRITERIA_CONFIRMED else "OCENIAJACA")
     prep = st.assistant.conversation_prep(
         cycle, st.directory.get(cycle.employee_id), st.directory.get(cycle.evaluator_id),
-        notes=[],  # no notes store yet (🟢 POST /api/evaluations/{id}/notes comes later)
+        notes=[r.note for r in st.notes_of(evaluation_id)],
         today=st.clock.today(), kind=kind, absences=cycle.absences)
     return m.to_conversation_prep_out(prep)
 
@@ -104,5 +104,5 @@ def draft(
             raise FieldLocked("Wniosek o kolejny stopień służbowy można umotywować tylko przy ocenie pozytywnej "
                               "(§ 11 ust. 5) – najpierw wpisz wszystkie oceny cząstkowe.")
     d = st.assistant.draft(body.rodzaj, cycle, st.directory.get(cycle.employee_id),
-                           notes=[])  # no notes store yet (🟢 POST /api/evaluations/{id}/notes comes later)
+                           notes=[r.note for r in st.notes_of(evaluation_id)])
     return m.to_draft_out(d)
