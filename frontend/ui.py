@@ -10,16 +10,6 @@ from frontend.process import DONE, STAGES, stage_date, stage_state, to_date
 
 CSS = """
 <style>
-:root { --ink:#1f2328; --muted:#59636e; --line:#d1d9e0; --blue:#0b57d0; --blue-bg:#e8f0fe;
-        --green:#1a7f37; --green-bg:#e6f4ea; --amber:#9a6700; --amber-bg:#fff8c5;
-        --red:#b42318; --red-bg:#fdecea; --violet:#6f42c1; --violet-bg:#f1eafe; --grey-bg:#f6f8fa;
-        --surface:#ffffff; }
-@media (prefers-color-scheme: dark) {
-  :root { --ink:#e6edf3; --muted:#9198a1; --line:#3d444d; --blue:#79b8ff; --blue-bg:rgba(56,139,253,.16);
-          --green:#56d364; --green-bg:rgba(46,160,67,.16); --amber:#e3b341; --amber-bg:rgba(187,128,9,.18);
-          --red:#ff7b72; --red-bg:rgba(248,81,73,.16); --violet:#d2a8ff; --violet-bg:rgba(163,113,247,.18);
-          --grey-bg:rgba(110,118,129,.14); --surface:transparent; }
-}
 .block-container { padding: 3.6rem 2.5rem 2rem; max-width: 1800px; }
 @media (max-width: 900px) { .block-container { padding-left: 1rem; padding-right: 1rem; } }
 /* toasts (bottom-right notifications): big, high-contrast, easy to notice */
@@ -83,13 +73,16 @@ button[data-testid="stBaseButton-tertiary"] div, button[data-testid="stBaseButto
 .b-red { color: var(--red); background: var(--red-bg); }
 .b-violet { color: var(--violet); background: var(--violet-bg); }
 .b-grey { color: var(--muted); background: var(--grey-bg); border-color: var(--line); }
-.step { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 66px; background: var(--surface); }
+.stepper { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1rem; margin-bottom: 6px; }
+.step { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--surface);
+        display: flex; flex-direction: column; box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
+.step .d { margin-top: auto !important; }
 .step.sel { outline: 2px solid var(--blue); outline-offset: -1px; }
 .step .n { font-size: .7rem; color: var(--muted); font-weight: 600; letter-spacing: .02em; }
 .step .t { font-weight: 650; font-size: .9rem; line-height: 1.2; }
 .step { position: relative; }
-.step .d { display: inline-block; font-size: .8rem; color: var(--ink); font-weight: 700; margin-top: 4px;
-           padding: 1px 6px; border-radius: 6px; background: var(--grey-bg); }
+.step .d { align-self: flex-start; font-size: .82rem; color: var(--ink); font-weight: 700; margin-top: 6px;
+           padding: 2px 7px; border-radius: 6px; background: var(--date-bg); border: 1px solid var(--line); }
 /* the line between steps: the process is one sequence */
 .step:not(.last)::after { content: ""; position: absolute; top: 50%; right: calc(-1rem - 1px); width: calc(1rem + 1px);
                           height: 3px; background: var(--line); z-index: 0; }
@@ -139,10 +132,19 @@ html {{ font-size: {px}px; }}
 {contrast}
 </style>
 """
+LIGHT_VARS = """--ink:#1f2328; --muted:#59636e; --line:#d1d9e0; --blue:#0b57d0; --blue-bg:#e8f0fe;
+  --green:#1a7f37; --green-bg:#e6f4ea; --amber:#9a6700; --amber-bg:#fff8c5; --red:#b42318; --red-bg:#fdecea;
+  --violet:#6f42c1; --violet-bg:#f1eafe; --grey-bg:#f6f8fa; --surface:#ffffff; --date-bg:#ffffff;"""
+DARK_VARS = """--ink:#e6edf3; --muted:#9198a1; --line:#3d444d; --blue:#79b8ff; --blue-bg:rgba(56,139,253,.16);
+  --green:#56d364; --green-bg:rgba(46,160,67,.16); --amber:#e3b341; --amber-bg:rgba(187,128,9,.18);
+  --red:#ff7b72; --red-bg:rgba(248,81,73,.16); --violet:#d2a8ff; --violet-bg:rgba(163,113,247,.18);
+  --grey-bg:rgba(110,118,129,.14); --surface:transparent; --date-bg:rgba(0,0,0,.35);"""
+# high contrast: secondary text as dark/bright as the main text, strong borders – explicit colours per theme
+HC_LIGHT = "--ink:#000000; --muted:#1f2328; --line:#424a53; --blue:#0a3d91; --green:#0f5323; --red:#8a1c12; --amber:#6b4700;"
+HC_DARK = "--ink:#ffffff; --muted:#f0f3f6; --line:#c9d1d9; --blue:#a5d6ff; --green:#7ee787; --red:#ffa198; --amber:#f2cc60;"
 HIGH_CONTRAST = """
-:root { --muted: var(--ink) !important; --line: #57606a !important; }
-@media (prefers-color-scheme: dark) { :root { --line: #8b949e !important; } }
-[data-testid="stCaptionContainer"], .lock, .app-sub, .note .d { color: inherit !important; opacity: 1 !important; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p, .lock, .app-sub, .note .d, .step .n {
+  color: var(--muted) !important; opacity: 1 !important; }
 .badge { border: 1px solid currentColor !important; }
 .card, .step, div[data-testid="stVerticalBlockBorderWrapper"] { border-width: 2px !important; }
 a, button[data-testid="stBaseButton-tertiary"] p { text-decoration: underline; }
@@ -151,8 +153,26 @@ SENTIMENT = {"POZYTYWNY": ("b-green", "+ pozytywna"), "NEUTRALNY": ("b-grey", "n
              "NEGATYWNY": ("b-red", "− negatywna")}
 
 
+def _theme_type() -> str | None:
+    try:
+        return st.context.theme.type  # "light" / "dark" – the theme the app really shows (not the OS setting)
+    except Exception:  # noqa: BLE001 – older Streamlit or first load: fall back to the OS preference
+        return None
+
+
 def inject_css(font_scale: float = 1.0, high_contrast: bool = False) -> None:
-    """Base styles + accessibility settings (WCAG 2.1: 1.4.4 resize text, 1.4.3/1.4.6 contrast)."""
+    """Base styles + accessibility settings (WCAG 2.1: 1.4.4 resize text, 1.4.3/1.4.6 contrast).
+    Colours follow the app's own theme, so light text never lands on a light background."""
+    theme = _theme_type()
+    light = LIGHT_VARS + (HC_LIGHT if high_contrast else "")
+    dark = DARK_VARS + (HC_DARK if high_contrast else "")
+    if theme == "dark":
+        tokens = f":root {{ {dark} }}"
+    elif theme == "light":
+        tokens = f":root {{ {light} }}"
+    else:
+        tokens = f":root {{ {light} }} @media (prefers-color-scheme: dark) {{ :root {{ {dark} }} }}"
+    st.markdown(f"<style>{tokens}</style>", unsafe_allow_html=True)
     st.markdown(CSS, unsafe_allow_html=True)
     st.markdown(ACCESSIBILITY_CSS.format(px=round(17 * font_scale), contrast=HIGH_CONTRAST if high_contrast else ""),
                 unsafe_allow_html=True)
@@ -220,21 +240,23 @@ def stage_label(stage: int) -> str:
 
 
 def stepper(ev: dict, selected: int, key: str) -> int:
-    """Clickable process steps with dates from the server; returns the stage the user selected."""
-    cols = st.columns(len(STAGES))
-    for i, (col, name) in enumerate(zip(cols, STAGES), start=1):
+    """Process steps with dates from the server, drawn as one grid so every box has the same height;
+    the buttons below select the stage to show."""
+    boxes = []
+    for i, name in enumerate(STAGES, start=1):
         st_state, st_label = stage_state(ev, i)
-        with col:
-            sel = " sel" if i == selected else ""
-            last = " last" if i == len(STAGES) else ""
-            when = stage_date(ev, i)
-            html(f'<div class="step {st_state}{sel}{last}"><div class="n">ETAP {i}</div><div class="t">{escape(name)}</div>'
-                 f'<div class="n">{STATE_ICON[st_state]} {escape(st_label)}</div>'
-                 + (f'<div class="d">📅 {escape(when)}</div>' if when else "") + "</div>")
-            if st.button("Pokaż" if i != selected else "Wybrany", key=f"{key}_{i}", use_container_width=True,
-                         type="primary" if i == selected else "secondary", disabled=i == selected):
-                st.session_state[key] = i
-                st.rerun()
+        sel = " sel" if i == selected else ""
+        last = " last" if i == len(STAGES) else ""
+        when = stage_date(ev, i)
+        boxes.append(f'<div class="step {st_state}{sel}{last}"><div class="n">ETAP {i}</div>'
+                     f'<div class="t">{escape(name)}</div><div class="n">{STATE_ICON[st_state]} {escape(st_label)}</div>'
+                     + (f'<div class="d">📅 {escape(when)}</div>' if when else "") + "</div>")
+    html('<div class="stepper">' + "".join(boxes) + "</div>")
+    for i, col in enumerate(st.columns(len(STAGES)), start=1):
+        if col.button("Pokaż" if i != selected else "Wybrany", key=f"{key}_{i}", use_container_width=True,
+                      type="primary" if i == selected else "secondary", disabled=i == selected):
+            st.session_state[key] = i
+            st.rerun()
     return selected
 
 

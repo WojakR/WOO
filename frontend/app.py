@@ -174,7 +174,7 @@ elif st.session_state.view == "eval" and st.session_state.get("eval_id"):
 elif st.session_state.view == "schedule":
     team.render_schedule(api, me)
 else:
-    team.render(api, me)
+    team.render(api, me, ai)
 
 st.divider()
 st.caption("Dane i reguły pochodzą z serwera (API i baza danych). Asystent tylko proponuje – decyzje podejmuje "

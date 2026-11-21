@@ -31,6 +31,31 @@ class ApiError(Exception):
         return [self.komunikat] + [w.get("komunikat", "") for w in self.walidacje if w.get("komunikat")]
 
 
+def _skip_unreachable_local_model() -> None:
+    """In-process mode only, before the backend reads its config. With AI_MODE=local but no local model server
+    running, every assistant call waited 2–4 s for the connection to fail before using templates/rules.
+    Check once (0.5 s); if nothing listens, start the backend with AI_MODE=off – the same templates and rules,
+    instantly. Restart the app after starting Ollama to use the model again."""
+    import socket
+    from urllib.parse import urlparse
+
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+    if os.environ.get("AI_MODE", "local").lower() != "local" or os.environ.get("LLM_MOCK") == "1":
+        return
+    url = urlparse(os.environ.get("OLLAMA_API_BASE") or "http://localhost:11434")
+    host = "127.0.0.1" if url.hostname in (None, "localhost") else url.hostname
+    try:
+        with socket.create_connection((host, url.port or 11434), timeout=0.5):
+            pass
+    except OSError:
+        os.environ["AI_MODE"] = "off"
+        return
+    if url.hostname in (None, "localhost"):  # "localhost" tries IPv6 first on Windows: 2 s lost per call
+        os.environ["OLLAMA_API_BASE"] = f"{url.scheme or 'http'}://127.0.0.1:{url.port or 11434}"
+
+
 @st.cache_resource(show_spinner=False)
 def _transport():
     url = os.environ.get("API_URL", "").rstrip("/")
@@ -43,6 +68,7 @@ def _transport():
             return session.request(method, url + path, headers=headers, timeout=120, **kw)
 
         return call
+    _skip_unreachable_local_model()
     from fastapi.testclient import TestClient
 
     from backend.main import app

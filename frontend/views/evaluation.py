@@ -447,18 +447,12 @@ def _result_box(c2: dict, scored: int, total: int) -> None:
 
 
 def pdf_button(api: Api, ev: dict, key: str = "pdf") -> None:
-    """One button: the server's PDF of the sheet (fetched once per version of the evaluation)."""
-    ckey = (key, ev["id"], ev["updated_at"])
-    cache = st.session_state.setdefault("pdf_cache", {})
-    if ckey not in cache:
-        try:
-            cache[ckey] = api.pdf(ev["id"])
-        except ApiError as e:
-            st.caption(f"PDF niedostępny: {e.komunikat}")
-            return
-    data, filename = cache[ckey]
-    st.download_button("⬇️ Pobierz PDF arkusza", data, file_name=filename, mime="application/pdf",
-                       key=f"{key}dl_{ev['id']}", help="Arkusz zgodny ze wzorem z rozporządzenia, z serwera")
+    """One button: the server makes the PDF only when it is clicked (no waiting while the page loads)."""
+    eid = ev["id"]
+    surname = ev["oceniany"]["nazwisko"].lower()
+    st.download_button("⬇️ Pobierz PDF arkusza", lambda: api.pdf(eid)[0], file_name=f"arkusz-{ev['arkusz']}-{surname}.pdf",
+                       mime="application/pdf", key=f"{key}dl_{eid}", on_click="ignore",
+                       help="Arkusz zgodny ze wzorem z rozporządzenia, z serwera")
 
 
 def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
