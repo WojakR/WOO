@@ -65,4 +65,12 @@ export const api = {
   hrDecision: (signalId, status) => request("POST", `/hr-signals/${signalId}/decision`, { status }),
   clock: (body) => request("POST", "/demo/clock", body),
   reset: () => request("POST", "/demo/reset"),
+  myReminders: () => request("GET", "/me/przypomnienia"),
+  setMyReminders: (body) => request("PUT", "/me/przypomnienia", body),
+  resetMyReminders: () => request("DELETE", "/me/przypomnienia"),
+  officeReminders: () => request("GET", "/ustawienia/przypomnienia"),
+  setOfficeReminders: (body) => request("PUT", "/ustawienia/przypomnienia", body),
+  reminderPlan: (id) => request("GET", `/evaluations/${id}/przypomnienia`),
+  notifications: () => request("GET", "/notifications"),
+  readNotification: (id) => request("POST", `/notifications/${id}/read`),
 };

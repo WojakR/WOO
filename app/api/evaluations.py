@@ -613,12 +613,15 @@ def get_clock(st: DemoState = Depends(get_state)) -> s.ClockOut:
 
 @router.post("/demo/clock", response_model=s.ClockOut, tags=["demo"])
 def set_clock(body: s.ClockIn, st: DemoState = Depends(get_state)) -> s.ClockOut:
-    """„Przewiń czas”: moves the server clock; the response counts reminders due on the new date."""
+    """„Przewiń czas”: moves the server clock; the response counts the reminders (configurable schedule)
+    that went out on the days skipped."""
+    before = st.clock.today()
     if body.ustaw_date:
         st.clock.set(body.ustaw_date)
     if body.przesun_dni:
         st.clock.advance(days=body.przesun_dni)
-    return s.ClockOut(dzis=st.clock.today(), nowe_powiadomienia=len(st.evaluations.reminders()))
+    sent = st.evaluations.reminders_between(before, st.clock.today(), st.schedule_for)
+    return s.ClockOut(dzis=st.clock.today(), nowe_powiadomienia=len(sent))
 
 
 @router.post("/demo/reset", status_code=204, tags=["demo"])

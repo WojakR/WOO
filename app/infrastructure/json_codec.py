@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from datetime import date, datetime
+from datetime import date, datetime, time
 from enum import Enum
 from fractions import Fraction
 from typing import Any, Iterable
@@ -27,6 +27,8 @@ class JsonCodec:
             return {"__dt__": v.isoformat()}
         if isinstance(v, date):
             return {"__date__": v.isoformat()}
+        if isinstance(v, time):
+            return {"__time__": v.isoformat()}
         if isinstance(v, Fraction):
             return {"__frac__": str(v)}
         if dataclasses.is_dataclass(v) and not isinstance(v, type):
@@ -57,6 +59,8 @@ class JsonCodec:
             return date.fromisoformat(v["__date__"])
         if "__dt__" in v:
             return datetime.fromisoformat(v["__dt__"])
+        if "__time__" in v:
+            return time.fromisoformat(v["__time__"])
         if "__frac__" in v:
             return Fraction(v["__frac__"])
         if "__tuple__" in v:

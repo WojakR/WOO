@@ -1,5 +1,20 @@
 {
   "_opis": "Decyzje urzędu (nie przepisy – te są w server/data/kprm/reguly.json). Zmienia administrator; aplikacja czyta przy starcie. Ścieżkę można podmienić zmienną USTAWIENIA_URZEDU.",
   "zakres_widocznosci": "PODDRZEWO",
-  "_zakres_widocznosci": "PODDRZEWO = przełożony widzi (tylko do odczytu) oceny całego swojego poddrzewa; BEZPOSREDNI = tylko osoby, które sam ocenia. Wypełniać ocenę może zawsze tylko bezpośredni oceniający albo jego zastępca."
+  "_zakres_widocznosci": "PODDRZEWO = przełożony widzi (tylko do odczytu) oceny całego swojego poddrzewa; BEZPOSREDNI = tylko osoby, które sam ocenia. Wypełniać ocenę może zawsze tylko bezpośredni oceniający albo jego zastępca.",
+  "przypomnienia": {
+    "_opis": "Domyślny harmonogram przypomnień; każdy użytkownik może ustawić własny (PUT /api/me/przypomnienia). Rodzaje: CO_DNI, DNI_PRZED, TYGODNIE_PRZED, MIESIACE_PRZED, PROCENT_OKRESU. Przypomnienia przychodzą tylko w dni robocze i w godzinach pracy.",
+    "godzina": "11:00",
+    "godziny_pracy": {"od": "08:00", "do": "16:00"},
+    "etapy": {
+      "WYZNACZENIE_KRYTERIOW": [{"rodzaj": "CO_DNI", "wartosc": 7}],
+      "OKRES_OCENY": [
+        {"rodzaj": "PROCENT_OKRESU", "wartosc": 50},
+        {"rodzaj": "PROCENT_OKRESU", "wartosc": 75},
+        {"rodzaj": "MIESIACE_PRZED", "wartosc": 2},
+        {"rodzaj": "TYGODNIE_PRZED", "wartosc": 2}
+      ],
+      "ZAPOZNANIE": [{"rodzaj": "CO_DNI", "wartosc": 3}]
+    }
+  }
 }

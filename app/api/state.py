@@ -21,6 +21,7 @@ from typing import Iterator
 from app.application.assistant import AiSuggestionService, HrReport, NoteClassification
 from app.application.use_cases import EvaluationService
 from app.domain.access import AccessPolicy
+from app.domain.reminder_schedule import ReminderSchedule
 from app.domain.deadlines import Absence
 from app.domain.employee import Employee
 from app.domain.notes import Note
@@ -114,6 +115,12 @@ class DemoState:
     deadline_changes: list[DeadlineChangeRecord] = field(default_factory=list)
     settings: OfficeSettings = field(default_factory=load_office_settings)
     deputy_records: list[DeputyRecord] = field(default_factory=list)
+    reminder_prefs: dict[str, ReminderSchedule] = field(default_factory=dict)  # user id -> own schedule
+    read_notifications: set[str] = field(default_factory=set)  # (user, notification key) marked read
+
+    def schedule_for(self, user_id: str) -> ReminderSchedule:
+        """The user's own reminder schedule, else the office default (config/ustawienia_urzedu.json)."""
+        return self.reminder_prefs.get(user_id, self.settings.reminders)
 
     def active_deputies(self, evaluator_id: str, day: date) -> set[str]:
         return {d.deputy_id for d in self.deputy_records if d.evaluator_id == evaluator_id and d.active_on(day)}
@@ -201,9 +208,9 @@ def _codec() -> JsonCodec:
     import sys
 
     from app.application import assistant
-    from app.domain import cycle, deadlines, notes, scoring
+    from app.domain import cycle, deadlines, notes, reminder_schedule, scoring
 
-    mods = [cycle, deadlines, scoring, notes, assistant, sys.modules[__name__]]
+    mods = [cycle, deadlines, scoring, notes, reminder_schedule, assistant, sys.modules[__name__]]
     types = [obj for m in mods for _, obj in inspect.getmembers(m, inspect.isclass)
              if obj.__module__ == m.__name__ and (dataclasses.is_dataclass(obj) or issubclass(obj, Enum))]
     return JsonCodec(types)
@@ -226,7 +233,11 @@ def snapshot(st: DemoState) -> Snapshot:
         cycles=st.evaluations.cycles.list_all(), notes=list(st.notes.values()), absences=list(st.absences),
         deadline_changes=list(st.deadline_changes), deputies=list(st.deputy_records),
         meta={"dzis": st.clock.today(), "wersje": dict(st.versions), "hr_sygnaly_id": dict(st.hr_signal_ids),
-              "hr_decyzje": dict(st.hr_decisions)},
+              "hr_decyzje": dict(st.hr_decisions), "przypomnienia_wlasne": dict(st.reminder_prefs),
+              "przeczytane": set(st.read_notifications),
+              # office default changed by HR in the app (else the file config/ustawienia_urzedu.json applies)
+              **({"przypomnienia_urzedu": st.settings.reminders}
+                 if st.settings.reminders != load_office_settings().reminders else {})},
     )
 
 
@@ -243,6 +254,10 @@ def restore(snap: Snapshot, ai_mode: str | None = None) -> DemoState:
     st.versions = dict(snap.meta.get("wersje", {}))
     st.hr_signal_ids = dict(snap.meta.get("hr_sygnaly_id", {}))
     st.hr_decisions = dict(snap.meta.get("hr_decyzje", {}))
+    st.reminder_prefs = dict(snap.meta.get("przypomnienia_wlasne", {}))
+    st.read_notifications = set(snap.meta.get("przeczytane", set()))
+    if "przypomnienia_urzedu" in snap.meta:
+        st.settings = dataclasses.replace(st.settings, reminders=snap.meta["przypomnienia_urzedu"])
     return st
 
 
