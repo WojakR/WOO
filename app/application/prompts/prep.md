@@ -10,13 +10,12 @@ $evidence
 Sygnały do rozmowy wykryte przez system:
 $signals
 
-Przepisy (§ 10 rozporządzenia) wymagają omówienia: głównych obowiązków i sposobu ich realizacji
-w odniesieniu do kryteriów, realizacji celów oraz kierunków rozwoju i potrzeb szkoleniowych.
+$law
 
 Zwróć JSON z polami:
 - "cel_rozmowy": 1–2 zdania,
 - "mocne_strony": do 4 krótkich punktów opartych na obserwacjach,
 - "trudne_tematy": do 4 punktów: co poruszyć i jak sformułować to rzeczowo (fakty, nie ocena osoby),
-- "pytania": obiekt {identyfikator kryterium: lista 1–3 pytań otwartych}, tylko dla kryteriów z listy: $criteria_ids,
+- "pytania": obiekt {identyfikator kryterium: lista 1–3 $question_style}, tylko dla kryteriów z listy: $criteria_ids,
 - "propozycje_rozwoju": do 4 konkretnych działań rozwojowych.
 Nie podawaj punktów ani przewidywanej oceny.
