@@ -279,6 +279,11 @@ def get_state() -> DemoState:
     return st.session_state.demo
 
 
+def ai_on() -> bool:
+    """Global switch in the header: when off, no assistant feature is shown or called."""
+    return bool(st.session_state.get("ai_on", True))
+
+
 def open_evaluation(employee_id: str, stage: int | None = None) -> None:
     """Go to the evaluation screen of one employee, on the given stage (default: the current one)."""
     st.session_state.view = "eval"

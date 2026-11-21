@@ -20,7 +20,8 @@ CSS = """
           --red:#ff7b72; --red-bg:rgba(248,81,73,.16); --violet:#d2a8ff; --violet-bg:rgba(163,113,247,.18);
           --grey-bg:rgba(110,118,129,.14); --surface:transparent; }
 }
-.block-container { padding-top: 3.6rem; max-width: 1400px; }
+.block-container { padding: 3.6rem 2.5rem 2rem; max-width: 1800px; }
+@media (max-width: 900px) { .block-container { padding-left: 1rem; padding-right: 1rem; } }
 /* toasts (bottom-right notifications): big, high-contrast, easy to notice */
 div[data-testid="stToastContainer"] { right: 24px; bottom: 24px; }
 div[data-testid="stToast"] { min-width: 460px; max-width: 560px; padding: 18px 22px; font-size: 1.2rem;

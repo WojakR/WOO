@@ -12,8 +12,8 @@ from app.domain.notes import Note, Sentiment, evidence_by_criterion
 from app.domain.scoring import Outcome, compute_result
 from backend import kprm
 from frontend import ui
-from frontend.demo_state import (DONE, STAGES, DemoState, change_sheet, default_meeting, ics_invite, open_evaluation,
-                                 safe)
+from frontend.demo_state import (DONE, STAGES, DemoState, ai_on, change_sheet, default_meeting, ics_invite,
+                                 open_evaluation, safe)
 from frontend.sheet_export import sheet_html
 
 SENT_OPTS = {"POZYTYWNY": "+ pozytywna", "NEUTRALNY": "neutralna", "NEGATYWNY": "− negatywna"}
@@ -159,7 +159,7 @@ def _stage_criteria(state: DemoState, cycle, current: bool) -> None:
     if not editable:
         _locked()
 
-    if editable:
+    if editable and ai_on():
         with st.expander("✨ Asystent: zaproponuj kryteria dodatkowe", expanded=not _chosen(cycle)):
             st.caption("Asystent dobiera kryteria dodatkowe pasujące do stanowiska i opisanych zadań, "
                        "z krótkim uzasadnieniem. To tylko propozycja – kryterium dodajesz sam przyciskiem „Dodaj”.")
@@ -221,11 +221,12 @@ def _stage_criteria(state: DemoState, cycle, current: bool) -> None:
     if current:
         with st.expander("📅 Zaproszenie na rozmowę rozpoczynającą"):
             _invite_block(state, cycle, 1, "Rozmowa rozpoczynająca ocenę okresową", 45)
-        with st.expander("🗣️ Wskazówki do rozmowy rozpoczynającej"):
-            st.caption("Podpowiedź przed rozmową z pracownikiem: cel rozmowy, plan z czasem, a dla każdego kryterium "
-                       "pytania i oczekiwania, które warto omówić. Na tej rozmowie ustalacie, czego oczekujesz "
-                       "w okresie oceny – przepisy wymagają jej przy wyznaczaniu kryteriów (§ 5 rozporządzenia).")
-            _render_prep(_prep(state, cycle, "ROZPOCZYNAJACA"))
+        if ai_on():
+            with st.expander("🗣️ Wskazówki do rozmowy rozpoczynającej"):
+                st.caption("Podpowiedź przed rozmową z pracownikiem: cel rozmowy, plan z czasem, a dla każdego kryterium "
+                           "pytania i oczekiwania, które warto omówić. Na tej rozmowie ustalacie, czego oczekujesz "
+                           "w okresie oceny – przepisy wymagają jej przy wyznaczaniu kryteriów (§ 5 rozporządzenia).")
+                _render_prep(_prep(state, cycle, "ROZPOCZYNAJACA"))
 
     if not current:
         ui.html(f"<p class='lock'>Kryteria wyznaczone {ui.fmt(cycle.criteria_set_on)}, potwierdzone przez "
@@ -260,9 +261,10 @@ def _note_form(state: DemoState, cycle, key: str) -> None:
     if submitted and text.strip():
         note = state.add_note(cycle.id, text, on, cycle.evaluator_id)
         emp = state.employee(cycle.employee_id)
-        with st.spinner("Asystent przypisuje notatkę do kryterium…"):
-            state.ai_cache[repr(("cls", note.id))] = state.assistant.classify_note(
-                note, cycle.sheet, cycle.additional_criteria, [emp])
+        if ai_on():
+            with st.spinner("Asystent przypisuje notatkę do kryterium…"):
+                state.ai_cache[repr(("cls", note.id))] = state.assistant.classify_note(
+                    note, cycle.sheet, cycle.additional_criteria, [emp])
         st.toast("Notatka dodana.")
         st.rerun()
 
@@ -279,7 +281,7 @@ def _note_row(state: DemoState, cycle, note: Note, editable: bool) -> None:
     if not editable:
         return
     cls_result = None
-    if not note.criterion_id:
+    if not note.criterion_id and ai_on():
         emp = state.employee(cycle.employee_id)
         cls_result = _cached(state, ("cls", note.id), lambda: state.assistant.classify_note(
             note, cycle.sheet, cycle.additional_criteria, [emp]))
@@ -368,7 +370,10 @@ def _stage_review(state: DemoState, cycle, current: bool) -> None:
         with st.expander("📅 Zaproszenie na rozmowę oceniającą", expanded=(cycle.id, 3) not in state.invites):
             _invite_block(state, cycle, 3, "Rozmowa oceniająca", 60)
     st.markdown("#### Przygotowanie do rozmowy")
-    _render_prep(_prep(state, cycle, "OCENIAJACA"))
+    if ai_on():
+        _render_prep(_prep(state, cycle, "OCENIAJACA"))
+    else:
+        st.caption("Asystent jest wyłączony – wskazówki do rozmowy są ukryte.")
     st.markdown("#### Odbycie rozmowy")
     if not current:
         ui.html(f"<p>Rozmowa odbyła się <b>{ui.fmt(cycle.meeting_date)}</b>; okres oceny "
@@ -492,7 +497,7 @@ def _stage_sheet(state: DemoState, cycle, current: bool) -> None:
         src = st.session_state.get(f"src_{key}")
         h.markdown(f"#### {title} {'*' if required else '(opcjonalne)'} "
                    + (ui.source_badge(src) if src else ""), unsafe_allow_html=True)
-        if editable:
+        if editable and ai_on():
             btn.button("✨ Szkic asystenta", key=f"dr_{key}", use_container_width=True,
                        on_click=draft_into, args=(kind, key))
         st.text_area(title, key=key, height=150, disabled=not editable, label_visibility="collapsed")
@@ -511,7 +516,7 @@ def _stage_sheet(state: DemoState, cycle, current: bool) -> None:
                 tkey = f"grade_{cycle.id}"
                 if tkey not in st.session_state:
                     st.session_state[tkey] = gr["text"]
-                if editable:
+                if editable and ai_on():
                     st.button("✨ Szkic uzasadnienia wniosku", key=f"dr_{tkey}",
                               on_click=draft_into, args=("UMOTYWOWANIE_STOPNIA", tkey))
                 gr["text"] = st.text_area("Umotywowanie wniosku", key=tkey, height=110, disabled=not editable)
@@ -684,7 +689,8 @@ def render(state: DemoState, employee_id: str) -> None:
             with st.popover("➕ Notatka", use_container_width=True):
                 _note_form(state, cycle, f"qnf_{cycle.id}")
         _summary(state, cycle)
-        _hr_partner(state, cycle)
+        if ai_on():
+            _hr_partner(state, cycle)
     if cycle.status is Status.ACKNOWLEDGED:
         if st.button("Rozpocznij kolejny cykl oceny"):
             _, problems = safe(state.service.start_cycle, employee_id)

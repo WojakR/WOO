@@ -7,7 +7,8 @@ from html import escape
 import streamlit as st
 
 from frontend import ui
-from frontend.demo_state import DONE, REQUEST_KINDS, STAGES, DemoState, open_evaluation
+from app.domain.deadlines import is_longer_than
+from frontend.demo_state import DONE, REQUEST_KINDS, STAGES, DemoState, ai_on, open_evaluation
 
 SIGNAL_ICONS = {"PRZECIAZENIE": "⚠️ przeciążenie", "DLUGA_NIEOBECNOSC": "🏥 nieobecność",
                 "ZMIANA_OBOWIAZKOW": "🔄 nowe obowiązki", "SPADEK_OCEN": "📉 spadek", "DO_DOCENIENIA": "👏 docenić"}
@@ -41,7 +42,7 @@ def _rows(state: DemoState) -> list[dict]:
         label, due = state.deadline_hint(cycle)
         days = (due - state.today).days if due else None
         signals = state.assistant.hr_partner(cycle, emp, state.notes.get(cycle.id, []), cycle.absences, state.today,
-                                             use_ai=False).signals
+                                             use_ai=False).signals if ai_on() else ()
         _, status = state.stage_status(cycle, stage) if stage != DONE else ("", "zakończona")
         rows.append({
             "id": emp.id, "Pracownik": emp.full_name, "Stanowisko": emp.position, "Komórka": emp.unit,
@@ -78,7 +79,7 @@ def render(state: DemoState) -> None:
         stage_opts = [f"{i} · {s}" for i, s in enumerate(STAGES, start=1)] + ["Zakończona"]
         stages = f1.multiselect("Etap", stage_opts, placeholder="wszystkie etapy")
         sheets = f2.multiselect("Arkusz", ["A", "B", "C"], placeholder="A / B / C")
-        only_signals = f3.toggle("Tylko z sygnałami HR")
+        only_signals = f3.toggle("Tylko z sygnałami HR", disabled=not ai_on())
 
         view = rows
         if q:
@@ -93,10 +94,10 @@ def render(state: DemoState) -> None:
         sort_col, asc = st.session_state.get("team_sort", ("pilnosc", True))
         view = sorted(view, key=SORT_KEYS[sort_col], reverse=not asc)
 
-        widths = [1.15, 2.1, 0.55, 1.8, 1.1, 1.7]
+        widths = [1.15, 2.1, 0.55, 1.8, 1.1, 1.7] if ai_on() else [1.15, 2.6, 0.6, 2.2, 1.4]
         head = st.columns(widths, vertical_alignment="center")
         headers = [("pilnosc", "Pilność"), ("pracownik", "Pracownik"), ("arkusz", "Ark."), ("etap", "Etap · status"),
-                   ("termin", "Termin"), ("sygnaly", "Sygnały HR")]
+                   ("termin", "Termin")] + ([("sygnaly", "Sygnały HR")] if ai_on() else [])
         for col, (key, name) in zip(head, headers):
             arrow = (" ▲" if asc else " ▼") if key == sort_col else ""
             col.button(name + arrow, key=f"sort_{key}", type="tertiary", on_click=_toggle_sort, args=(key,),
@@ -115,7 +116,8 @@ def render(state: DemoState) -> None:
                 days = "" if r["Dni"] is None or r["_stage"] == DONE else \
                     f"<br><span class='lock'>{ui.days_text(r['Dni'])}</span>"
                 c[4].markdown(f"{ui.fmt(r['Termin'])}{days}", unsafe_allow_html=True)
-                c[5].markdown(r["Sygnały HR"] or "<span class='lock'>—</span>", unsafe_allow_html=True)
+                if ai_on():
+                    c[5].markdown(r["Sygnały HR"] or "<span class='lock'>—</span>", unsafe_allow_html=True)
         if not view:
             st.caption("Brak pracowników spełniających kryteria wyszukiwania.")
 
@@ -155,7 +157,8 @@ def render(state: DemoState) -> None:
                     state.decide_request(req.id, False)
                     st.rerun()
             extended = [r for r in in_progress
-                        if (c := state.cycle_for(r["id"])) and any(a.days > 30 for a in c.absences)]
+                        if (c := state.cycle_for(r["id"])) and any(is_longer_than(a, state.service.rules.absence_extends_after_months)
+                                                          for a in c.absences)]
             for r in extended:
                 ui.card(f"Nieobecność > 1 mies. – {r['Pracownik']}",
                         f"<p>Termin oceny przesunięty o czas nieobecności: {ui.fmt(r['Termin'])}.</p>", "c-blue")

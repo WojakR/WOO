@@ -15,7 +15,7 @@ import streamlit as st
 
 from backend import config
 from frontend import ui
-from frontend.demo_state import REQUEST_KINDS, REQUEST_STATUS, get_state, open_evaluation, reset_state
+from frontend.demo_state import REQUEST_KINDS, REQUEST_STATUS, ai_on, get_state, open_evaluation, reset_state
 from frontend.views import employee, evaluation, team
 
 st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide")
@@ -56,6 +56,14 @@ def notifications(role: str, person: str | None) -> list[tuple[str, str, str | N
 
 
 # ---------------------------------------------------------------- header
+st.session_state.setdefault("ai_on", True)
+bar_text, bar_switch = st.columns([4.2, 1.5], vertical_alignment="center")
+with bar_switch:
+    st.toggle("🤖 Asystent AI", key="ai_on",
+              help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta: propozycje kryteriów, wskazówki do rozmów, "
+                   "przypisywanie notatek, szkice tekstów i HR partnera. Proces oceny działa dalej bez zmian.")
+if not st.session_state.ai_on:
+    bar_text.info("Asystent AI jest wyłączony – aplikacja działa bez podpowiedzi. Włączysz go przełącznikiem obok.")
 title, role_col, who_col, a11y_col, time_col, bell_col = st.columns([2.2, 1.3, 1.4, 1.0, 1.1, 0.8],
                                                                     vertical_alignment="center")
 with title:
@@ -122,6 +130,9 @@ elif st.session_state.view == "eval" and st.session_state.get("eval_employee"):
 else:
     team.render(state)
 
-st.caption(f"Tryb asystenta AI: {config.AI_MODE}{' (atrapa – LLM_MOCK)' if config.LLM_MOCK else ''}. "
-           "Asystent tylko proponuje – decyzje podejmuje oceniający. Dane osobowe są pseudonimizowane przed "
-           "wysłaniem do modelu. Dane w demo są fikcyjne (przykłady KPRM).")
+if ai_on():
+    st.caption(f"Tryb asystenta AI: {config.AI_MODE}{' (atrapa – LLM_MOCK)' if config.LLM_MOCK else ''}. "
+               "Asystent tylko proponuje – decyzje podejmuje oceniający. Dane osobowe są pseudonimizowane przed "
+               "wysłaniem do modelu. Dane w demo są fikcyjne (przykłady KPRM).")
+else:
+    st.caption("Asystent AI wyłączony. Dane w demo są fikcyjne (przykłady KPRM).")
