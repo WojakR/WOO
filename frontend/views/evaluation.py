@@ -216,18 +216,18 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
     crit = _crit_dict(api, ev["arkusz"])
     editable = "kryteria_dodatkowe" in ev["edytowalne_pola"]
     st.markdown("#### Arkusz oceny")
-    ui.html(f"<p>{ui.badge('Arkusz ' + ev['arkusz'], 'b-blue')} <span class='lock'>dobrany przez system na podstawie "
-            f"stanowiska: {escape(ev['oceniany'].get('stanowisko') or '')}</span></p>")
+    ui.html(f"<p>{ui.badge('Arkusz ' + ev['arkusz'] + '*', 'b-blue')}</p>")
+    ui.footnote(f"Dobrany przez system na podstawie stanowiska: {ev['oceniany'].get('stanowisko') or '—'}.")
 
     st.markdown("#### Kryteria oceny")
     with st.container(border=True):
-        st.markdown("**Kryteria obowiązkowe** (stałe dla arkusza)")
+        st.markdown("**Kryteria obowiązkowe***")
         for k in [k for k in ev["kryteria"] if k["typ"] == "OBOWIAZKOWE"]:
             st.markdown(f"- {k['nazwa']}", help=_indicators(crit.get(k["criterion_kod"])) or None)
+        ui.footnote("Stałe dla arkusza – wynikają z rozporządzenia.")
     chosen = [k["criterion_kod"] for k in ev["kryteria"] if k["typ"] == "DODATKOWE"]
     optional = [c["kod"] for c in crit.values() if c.get("typ_dla_arkusza") == "DODATKOWE"]
-    st.markdown("**Kryteria dodatkowe** <span class='lock'>– najwyżej 3, bez powtórzeń; puste pole = brak</span>",
-                unsafe_allow_html=True)
+    st.markdown("**Kryteria dodatkowe***")
     slots = [chosen[i] if i < len(chosen) else None for i in range(3)]
 
     def save_slot(i: int) -> None:
@@ -243,12 +243,13 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
                      format_func=lambda c: "— brak —" if c is None else crit[c]["nazwa"],
                      on_change=save_slot, args=(i,),
                      help=_indicators(crit.get(slots[i])) or None)
+    ui.footnote("Najwyżej 3, bez powtórzeń; puste pole oznacza brak kryterium.")
     if not editable:
         _locked("Kryteria można zmieniać do zatwierdzenia ich przez oceniającego.")
 
     st.markdown("#### Termin sporządzenia oceny")
-    st.markdown(f"**{ui.fmt(ev['czesc_i']['termin_oceny'])}** <span class='lock'>wyliczony przez system "
-                "(24 miesiące od początku cyklu, z pominięciem dni wolnych)</span>", unsafe_allow_html=True)
+    st.markdown(f"**{ui.fmt(ev['czesc_i']['termin_oceny'])}***")
+    ui.footnote("Wyliczony przez system: 24 miesiące od początku cyklu, z pominięciem dni wolnych.")
     if "termin_oceny" in ev["edytowalne_pola"]:
         with st.popover("📆 Zmień termin oceny"):
             new = st.date_input("Nowy termin", to_date(ev["czesc_i"]["termin_oceny"]), key=f"ovr_{ev['id']}",
@@ -560,8 +561,7 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
         editable = field in ev["edytowalne_pola"]
         required = field in blocks or field == "wnioski_iprz" or ev["czesc_ii"].get("wynik") == "NEGATYWNA"
         h, btn = st.columns([3, 1], vertical_alignment="bottom")
-        h.markdown(f"#### {title} " + ("*" if required else "<span class='lock'>(opcjonalne przy ocenie pozytywnej)</span>"),
-                   unsafe_allow_html=True)
+        h.markdown(f"#### {title}*")
         if editable and drafts_on:
             btn.button("✨ Szkic od asystenta", key=f"dr_{tkey}", use_container_width=True,
                        on_click=request_draft, args=(kind, dkey))
@@ -588,6 +588,9 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
                          on_click=lambda dkey=dkey: st.session_state.pop(dkey, None))
         st.text_area(title, key=tkey, height=170, disabled=not editable, label_visibility="collapsed",
                      placeholder=hints[field] if editable else "")
+        ui.footnote("Pole wymagane." if field == "wnioski_iprz" else
+                    "Pole wymagane przy ocenie negatywnej (§ 11 ust. 3 rozporządzenia)." if required else
+                    "Opcjonalne przy ocenie pozytywnej.")
         if field in blocks and editable and not st.session_state[tkey].strip():
             st.error(next(w["komunikat"] for w in ev["walidacje"] if w["pole"] == field))
         if not editable and ev["czesc_ii"].get("podpis_oceniajacego", {}).get("at"):
@@ -676,11 +679,10 @@ def objection_panel(api: Api, ev: dict) -> None:
                 st.caption(f"Odwołanie do sądu pracy możliwe do {ui.fmt(o['termin_odwolania_do_sadu'])} (art. 83 ust. 5).")
     if "ZLOZ_SPRZECIW" in ev["dozwolone_akcje"]:
         with st.container(border=True):
-            st.markdown(f"**⚖️ Sprzeciw od oceny** <span class='lock'>– możesz złożyć do "
-                        f"{ui.fmt(ev['czesc_ii'].get('termin_sprzeciwu'))}, rozstrzyga dyrektor generalny</span>",
-                        unsafe_allow_html=True)
+            st.markdown("**⚖️ Sprzeciw od oceny***")
             text = st.text_area("Treść sprzeciwu", key=f"obj_text_{eid}",
                                 placeholder="Napisz, z czym się nie zgadzasz i dlaczego.")
+            ui.footnote(f"Możesz złożyć do {ui.fmt(ev['czesc_ii'].get('termin_sprzeciwu'))}; rozstrzyga dyrektor generalny.")
             if st.button("Złóż sprzeciw", type="primary", key=f"obj_file_{eid}"):
                 if not text.strip():
                     st.error("Wpisz treść sprzeciwu, a potem kliknij „Złóż sprzeciw”.")

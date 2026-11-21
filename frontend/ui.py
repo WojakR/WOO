@@ -79,6 +79,12 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] details { border-col
   background: rgba(255,255,255,.04); }
 section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg,
 section[data-testid="stSidebar"] [data-testid="stExpander"] svg { color: var(--band-ink) !important; fill: var(--band-ink); }
+/* the side panel can always be folded: the « button is shown all the time, not only on hover */
+[data-testid="stSidebarCollapseButton"] { visibility: visible !important; opacity: 1 !important; }
+[data-testid="stSidebarCollapseButton"] button { border: 1px solid var(--band-line) !important; border-radius: 8px; }
+[data-testid="stExpandSidebarButton"] { border: 1px solid var(--line) !important; border-radius: 8px; }
+/* footnotes: a short "*" explanation under a field instead of long inline hints */
+.footnote { font-size: .8rem; color: var(--muted); margin: 2px 0 10px; }
 /* menu items: quiet list on the band; the current page is white with navy text and a bar on the left */
 section[data-testid="stSidebar"] button[data-testid="stBaseButton-secondary"] {
   background: transparent !important; border: 1px solid transparent !important; color: var(--band-ink) !important; }
@@ -350,3 +356,8 @@ def api_error(e) -> None:
 def show_problems(problems: list[str]) -> None:
     if problems:
         st.error("**Nie można zapisać:**\n" + "\n".join(f"- {p}" for p in problems))
+
+
+def footnote(text: str, mark: str = "*") -> None:
+    """Short explanation under a field, referenced by an asterisk in its label."""
+    html(f'<p class="footnote">{escape(mark)} {escape(text)}</p>')

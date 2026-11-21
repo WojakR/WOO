@@ -4,7 +4,7 @@ Everything goes through the backend's /api contract (frontend/api_client.py): th
 the database and decides rules, permissions and allowed steps. Set API_URL=http://localhost:8000 to share
 a running `uvicorn backend.main:app` with the web UI; without it the API runs inside this process.
 
-Pages (side menu): evaluator / HR – Mój zespół (views/team.py), Ocena pracownika (views/evaluation.py), Terminy;
+Pages (side menu): evaluator / HR – Mój zespół (views/team.py; a row opens views/evaluation.py), Terminy, Ustawienia;
 evaluated person – Moja ocena, Moje wnioski (views/employee.py). Wireframes: frontend/design/wireframes.drawio
 """
 import sys
@@ -17,7 +17,7 @@ import streamlit as st
 from frontend import ui
 from frontend.api_client import Api, ApiError
 from frontend.process import name, to_date
-from frontend.views import absences, employee, evaluation, settings, team
+from frontend.views import employee, evaluation, settings, team
 
 st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide",
                    initial_sidebar_state="expanded")
@@ -64,15 +64,6 @@ def go_employee(view: str) -> None:
     st.session_state.emp_view = view
 
 
-def open_current() -> None:
-    eid = st.session_state.get("eval_id")
-    if not eid:
-        first = next((i for i in api.dashboard()["pozycje"] if i["evaluation_id"]), None)
-        eid = first["evaluation_id"] if first else None
-    if eid:
-        team.open_evaluation(eid)
-
-
 def switch_user() -> None:
     for k in [k for k in st.session_state if k.startswith(("sel_", "tx_", "sc_", "add_", "draft_", "confirm_",
                                                             "emp_", "pdf_", "auto_"))]:
@@ -105,10 +96,9 @@ with st.sidebar:
     st.markdown("**Menu**")
     if evaluator_ui:
         view = st.session_state.view
-        menu_item("👥 Mój zespół" if me["rola"] != "KADRY" else "👥 Oceny w urzędzie", view == "team", go, ("team",))
-        menu_item("📝 Ocena pracownika", view == "eval", open_current)
+        menu_item("👥 Mój zespół" if me["rola"] != "KADRY" else "👥 Oceny w urzędzie", view in ("team", "eval"), go,
+                  ("team",))
         menu_item("🗓️ Terminy", view == "schedule", go, ("schedule",))
-        menu_item("🏥 Nieobecności", view == "absences", go, ("absences",))
         menu_item("⚙️ Ustawienia", view == "settings", go, ("settings",))
     else:
         menu_item("📄 Moja ocena", st.session_state.emp_view == "ocena", go_employee, ("ocena",))
@@ -198,8 +188,6 @@ elif not evaluator_ui:
     employee.render(api, me, st.session_state.emp_view)
 elif st.session_state.view == "settings":
     settings.render(api, me, meta, users)
-elif st.session_state.view == "absences":
-    absences.render(api, me, meta)
 elif st.session_state.view == "eval" and st.session_state.get("eval_id"):
     evaluation.render(api, me, meta, st.session_state.eval_id, ai)
 elif st.session_state.view == "schedule":
