@@ -21,7 +21,7 @@ AI_FEATURES = {
     "podpowiedz_kryteriow": False,
     "szkic_uzasadnienia": True,
     "klasyfikacja_notatek": True,
-    "hr_partner": False,
+    "hr_partner": True,  # GET /api/evaluations/{id}/hr-partner (app/api/evaluations.py)
 }
 _BEFORE_CRITERIA_CONFIRMED = {Status.CYCLE_STARTED, Status.CRITERIA_SET}
 
@@ -54,7 +54,8 @@ def meta(st: DemoState = Depends(get_state)) -> s.MetaOut:
     return s.MetaOut(
         dzis=st.clock.today(),
         tryb_ai=s.TrybAI(st.ai_mode.upper()),
-        funkcje_ai=dict(AI_FEATURES),
+        # model_dostepny: is the model answering right now (else every feature uses its template version)
+        funkcje_ai={**AI_FEATURES, "model_dostepny": st.model_available()},
         skala_punktow=sorted(rules.scale),
         progi_poziomow=bands,
         maks_kryteriow_dodatkowych=rules.max_additional_criteria,

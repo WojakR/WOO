@@ -26,7 +26,7 @@ def test_meta_from_server_clock_and_rules(st):
     assert r.status_code == 200
     meta = s.MetaOut.model_validate(r.json())
     assert meta.dzis == date(2026, 6, 15) and meta.tryb_ai is s.TrybAI.OFF
-    assert meta.funkcje_ai["przygotowanie_rozmowy"] is True and meta.funkcje_ai["hr_partner"] is False
+    assert meta.funkcje_ai["przygotowanie_rozmowy"] is True and meta.funkcje_ai["hr_partner"] is True
     assert meta.skala_punktow == [1, 3, 5, 7, 9] and meta.maks_kryteriow_dodatkowych == 3
     assert meta.progi_poziomow[s.Poziom.ZNACZNIE_PONIZEJ] == (1.0, 2.0)  # § 11 ust. 1 pkt 2
     assert meta.progi_poziomow[s.Poziom.NA_POZIOMIE] == (4.0, 6.0)

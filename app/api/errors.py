@@ -16,6 +16,15 @@ def api_error(status: int, kod: str, komunikat: str, walidacje: list[s.Walidacja
     return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
 
 
+class ApiProblem(Exception):
+    """A 4xx/5xx the domain does not raise itself (version conflict, blocked action with its checks,
+    feature not available yet). Rendered as ApiError like every other error."""
+
+    def __init__(self, status: int, kod: str, komunikat: str, walidacje: list[s.Walidacja] = ()):
+        super().__init__(komunikat)
+        self.status, self.kod, self.komunikat, self.walidacje = status, kod, komunikat, list(walidacje)
+
+
 _SIMPLE = (
     (NotFound, 404, "NIE_ZNALEZIONO"),
     (NotAuthorized, 403, "BRAK_UPRAWNIEN"),
@@ -28,6 +37,10 @@ def install_error_handlers(app: FastAPI) -> None:
     for exc_type, status, kod in _SIMPLE:
         app.add_exception_handler(
             exc_type, lambda request, exc, status=status, kod=kod: api_error(status, kod, str(exc)))
+
+    @app.exception_handler(ApiProblem)
+    async def _problem(request: Request, exc: ApiProblem):
+        return api_error(exc.status, exc.kod, exc.komunikat, exc.walidacje)
 
     @app.exception_handler(ValidationError)
     async def _domain_validation(request: Request, exc: ValidationError):
