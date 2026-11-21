@@ -27,7 +27,8 @@ export async function renderEvaluation(view, id, ctx) {
     drafts: {}, open: new Set(), text: {}, dirty: new Set(), confirming: false, busy: false,
   };
   const meId = ctx.me.pracownik.id;
-  const isEvaluator = () => s.ev.oceniajacy.id === meId;
+  // the server decides (evaluator or their active deputy – app/domain/access.py); ID check is the fallback
+  const isEvaluator = () => s.ev.jako_oceniajacy ?? s.ev.oceniajacy.id === meId;
   const canSeeWorkNotes = () => isEvaluator() || ctx.me.rola === "KADRY";
   const editable = (f) => s.ev.edytowalne_pola.includes(f);
   const aiOn = () => Boolean(ctx.meta.funkcje_ai?.szkic_uzasadnienia) && isEvaluator();
@@ -44,8 +45,11 @@ export async function renderEvaluation(view, id, ctx) {
   };
 
   async function loadSide() {
-    const tasks = [api.evidence(id).then((x) => { s.evidence = x; }).catch(() => {})];
-    if (canSeeWorkNotes()) tasks.push(api.notes(id).then((x) => { s.notes = x; }).catch(() => {}));
+    const tasks = [];
+    if (canSeeWorkNotes()) {  // evaluator, deputy, HR – the evaluated person and managers above get 403 anyway
+      tasks.push(api.evidence(id).then((x) => { s.evidence = x; }).catch(() => {}));
+      tasks.push(api.notes(id).then((x) => { s.notes = x; }).catch(() => {}));
+    }
     if (s.ev.status === "KRYTERIA_DO_WYZNACZENIA" && !s.criteriaDict) {
       tasks.push(api.criteria(s.ev.arkusz).then((x) => { s.criteriaDict = x; }));
     }

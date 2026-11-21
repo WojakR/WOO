@@ -23,11 +23,12 @@ from app.domain.scoring import EvaluationResult, Outcome, compute_result
 from . import assistant_mapping as m
 from . import schemas as s
 from .errors import ApiProblem
-from .state import AbsenceRecord, DeadlineChangeRecord, DemoState, get_state, reset_state
+from .access import actor as _actor
+from .access import require_read, require_working_material
+from .state import HR, AbsenceRecord, DeadlineChangeRecord, DemoState, get_state, reset_state
 
 router = APIRouter(prefix="/api")
 
-HR = "kadry"
 
 STATUS_MAP = {
     Status.CYCLE_STARTED: s.StatusOceny.KRYTERIA_DO_WYZNACZENIA,
@@ -77,14 +78,6 @@ def _dt(d: date | None) -> datetime | None:
     return datetime.combine(d, time(12, 0), tzinfo=timezone.utc) if d else None
 
 
-def _actor(st: DemoState, x_user_id: str | None) -> str:
-    if x_user_id is None or x_user_id == HR:
-        return HR
-    if st.directory.get(x_user_id) is None:
-        raise ApiProblem(403, "NIEZNANY_UZYTKOWNIK", "Nieznany użytkownik (nagłówek X-User-Id).")
-    return x_user_id
-
-
 def _osoba(st: DemoState, e: Employee | None) -> s.OsobaRef:
     if e is None:
         return s.OsobaRef(id=0, imie="", nazwisko="")
@@ -106,8 +99,7 @@ def _cycle(st: DemoState, evaluation_id: int, actor: str) -> EvaluationCycle:
     c = st.evaluations.cycles.get(str(evaluation_id))
     if c is None:
         raise NotFound(f"Nie ma oceny o identyfikatorze {evaluation_id}.")
-    if actor not in (HR, c.evaluator_id, c.employee_id):
-        raise NotAuthorized("Nie masz dostępu do tej oceny.")
+    require_read(st, actor, c)
     return c
 
 
@@ -170,19 +162,20 @@ def _validations(st: DemoState, c: EvaluationCycle) -> list[s.Walidacja]:
     return out
 
 
-def _allowed_actions(c: EvaluationCycle, actor: str) -> list[s.Akcja]:
+def _allowed_actions(c: EvaluationCycle, actor: str, as_evaluator: bool) -> list[s.Akcja]:
+    """`as_evaluator`: the evaluator or their active deputy (access policy); managers above only read."""
     out = []
     for akcja, (step, who) in ACTIONS.items():
-        person = c.evaluator_id if who == "evaluator" else c.employee_id
+        allowed = as_evaluator if who == "evaluator" else actor == c.employee_id
         # set_criteria may repeat while not confirmed, but "approve criteria" is offered only once
         repeat = step == "set_criteria" and c.status is Status.CRITERIA_SET
-        if actor == person and c.status in TRANSITIONS[step][0] and not repeat:
+        if allowed and c.status in TRANSITIONS[step][0] and not repeat:
             out.append(akcja)
     return out
 
 
-def _editable(c: EvaluationCycle, actor: str) -> list[str]:
-    if actor != c.evaluator_id:
+def _editable(c: EvaluationCycle, as_evaluator: bool) -> list[str]:
+    if not as_evaluator:
         return []
     return [FIELDS_BACK[f] for f, statuses in EDITABLE_IN.items() if c.status in statuses and f in FIELDS_BACK]
 
@@ -192,6 +185,7 @@ def _podpis(st: DemoState, day: date | None, who: Employee | None) -> s.Podpis:
 
 
 def _evaluation_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.EvaluationOut:
+    as_evaluator = st.policy().can_act_as_evaluator(actor, c.employee_id, c.evaluator_id)
     emp = st.directory.get(c.employee_id)
     boss = st.directory.get(c.evaluator_id)
     result = _live_result(st, c)
@@ -219,7 +213,8 @@ def _evaluation_out(st: DemoState, c: EvaluationCycle, actor: str) -> s.Evaluati
             zapoznanie=_podpis(st, c.acknowledged_on, emp),
             termin_sprzeciwu=c.objection_deadline(svc.rules, svc.calendar),
         ),
-        dozwolone_akcje=_allowed_actions(c, actor), edytowalne_pola=_editable(c, actor),
+        jako_oceniajacy=as_evaluator,
+        dozwolone_akcje=_allowed_actions(c, actor, as_evaluator), edytowalne_pola=_editable(c, as_evaluator),
         walidacje=_validations(st, c), updated_at=ver.updated_at,
     )
 
@@ -256,8 +251,11 @@ def me(x_user_id: str | None = Header(default=None), st: DemoState = Depends(get
         return s.UserContext(pracownik=s.OsobaRef(id=0, imie="Dział", nazwisko="kadr"), rola=s.Rola.KADRY,
                              czy_oceniajacy=False, urzad="Wszystkie urzędy (dane przykładowe)")
     e = st.directory.get(actor)
-    subs = [st.employee_number(x.id) for x in st.directory.all() if x.evaluator_id == actor]
-    return s.UserContext(pracownik=_osoba(st, e), rola=s.Rola.PRACOWNIK, czy_oceniajacy=bool(subs),
+    policy = st.policy()
+    visible = policy.visible_employees(actor)  # subtree or direct reports (office setting), incl. as a deputy
+    subs = [st.employee_number(x.id) for x in st.directory.all() if x.id in visible]
+    evaluates = any(policy.can_act_as_evaluator(actor, x.id, x.evaluator_id) for x in st.directory.all())
+    return s.UserContext(pracownik=_osoba(st, e), rola=s.Rola.PRACOWNIK, czy_oceniajacy=evaluates,
                          podwladni_ids=subs, urzad=e.office)
 
 
@@ -280,7 +278,8 @@ def dashboard(x_user_id: str | None = Header(default=None), st: DemoState = Depe
     actor = _actor(st, x_user_id)
     svc = st.evaluations
     today = st.clock.today()
-    people = [e for e in st.directory.all() if e.evaluator_id and (actor == HR or e.evaluator_id == actor)]
+    visible = st.policy().visible_employees(actor)  # HR: everyone; manager: subtree / direct reports (setting)
+    people = [e for e in st.directory.all() if e.evaluator_id and e.id in visible]
     items = []
     for e in people:
         c = svc.cycles.find_open_for(e.id) or next(
@@ -324,8 +323,8 @@ def create_evaluation(body: s.EvaluationCreate, x_user_id: str | None = Header(d
     Allowed for HR and for the employee's own evaluator; one open cycle per person (else 409)."""
     actor = _actor(st, x_user_id)
     emp = _employee(st, body.oceniany_id)
-    if actor not in (HR, emp.evaluator_id):
-        raise NotAuthorized("Cykl oceny może rozpocząć dział kadr albo oceniający pracownika.")
+    if actor != HR and not st.policy().can_act_as_evaluator(actor, emp.id, emp.evaluator_id):
+        raise NotAuthorized("Cykl oceny może rozpocząć dział kadr albo oceniający pracownika (lub jego zastępca).")
     if not emp.evaluator_id:
         raise ApiProblem(409, "BRAK_OCENIAJACEGO", f"{emp.full_name} nie ma przypisanego oceniającego.")
     if st.evaluations.cycles.find_open_for(emp.id) is not None:
@@ -477,8 +476,7 @@ def evidence(evaluation_id: int, x_user_id: str | None = Header(default=None),
     """Evidence map: tagged notes per criterion and a readable suggested score (never applied automatically)."""
     actor = _actor(st, x_user_id)
     c = _cycle(st, evaluation_id, actor)
-    if actor == c.employee_id:
-        raise NotAuthorized("Mapę dowodów z notatek widzi tylko oceniający.")
+    require_working_material(st, actor, c, "Mapę dowodów z notatek widzi tylko oceniający (lub jego zastępca).")
     rules = st.evaluations.rules
     ids = c.criteria_ids(rules)
     ev = evidence_by_criterion(_notes(st, c), ids)
@@ -505,8 +503,7 @@ def hr_partner(evaluation_id: int, x_user_id: str | None = Header(default=None),
     """Hints for the manager (overload, long absence, change of duties, …) – never a diagnosis of the employee."""
     actor = _actor(st, x_user_id)
     c = _cycle(st, evaluation_id, actor)
-    if actor == c.employee_id:
-        raise NotAuthorized("Podpowiedzi HR partnera są tylko dla przełożonego.")
+    require_working_material(st, actor, c, "Podpowiedzi HR partnera są tylko dla oceniającego (lub jego zastępcy).")
     notes = _notes(st, c)
     key = (tuple(n.id for n in notes), tuple(sorted(c.scores.items())), st.clock.today())
     cached = st.hr_reports.get(c.id)
@@ -559,7 +556,7 @@ def list_absences(employee_id: int, x_user_id: str | None = Header(default=None)
                   st: DemoState = Depends(get_state)) -> list[s.AbsenceOut]:
     actor = _actor(st, x_user_id)
     e = _employee(st, employee_id)
-    if actor not in (HR, e.id, e.evaluator_id):
+    if not st.policy().can_read(actor, e.id, e.evaluator_id):
         raise NotAuthorized("Nie masz dostępu do nieobecności tego pracownika.")
     mine = [r for r in st.absences if r.employee_id == e.id]
     return [_absence_out(st, r) for r in sorted(mine, key=lambda r: r.absence.start, reverse=True)]
@@ -573,8 +570,8 @@ def add_absence(employee_id: int, body: s.AbsenceIn, x_user_id: str | None = Hea
     threshold in reguly.json moves the evaluation deadline automatically (DeadlineChange AUTO, art. 81 ust. 7)."""
     actor = _actor(st, x_user_id)
     e = _employee(st, employee_id)
-    if actor not in (HR, e.evaluator_id):
-        raise NotAuthorized("Nieobecność może zgłosić dział kadr albo oceniający pracownika.")
+    if actor != HR and not st.policy().can_act_as_evaluator(actor, e.id, e.evaluator_id):
+        raise NotAuthorized("Nieobecność może zgłosić dział kadr albo oceniający pracownika (lub jego zastępca).")
     if body.do < body.od:
         raise ValidationError(["Koniec nieobecności nie może być wcześniejszy niż jej początek."])
     c = st.evaluations.cycles.find_open_for(e.id)

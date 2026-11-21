@@ -310,6 +310,8 @@ class EvaluationOut(_Out):
     czesc_ii: CzescII
     czesc_iii: CzescIII | None = None
     # --- server-side rules, so the UI does not duplicate them
+    jako_oceniajacy: bool = False             # current user acts as the evaluator here (evaluator or
+                                              # active deputy) -> evaluator's working material in the UI
     dozwolone_akcje: list[Akcja]
     edytowalne_pola: list[str] = Field(examples=[["kryteria_dodatkowe", "termin_oceny"]])
     walidacje: list[Walidacja] = []             # current problems; BLAD ones block the next action
@@ -601,3 +603,23 @@ class ClockOut(_Out):
 
 ConversationPrepOut.model_rebuild()
 PositionChangeOut.model_rebuild()
+
+
+# ---------------------------------------------------------------- zastępstwa (deputy evaluator)
+
+class ZastepstwoIn(BaseModel):
+    """POST /api/zastepstwa – `zastepca_id` stands in for evaluator `oceniajacy_id` from `od` to `do`:
+    may hold the conversations and draw up the evaluation (KPRM mentor, 21.11.2026)."""
+    oceniajacy_id: int
+    zastepca_id: int
+    od: date
+    do: date
+
+
+class ZastepstwoOut(_Out):
+    id: int
+    oceniajacy: OsobaRef
+    zastepca: OsobaRef
+    od: date
+    do: date
+    aktywne: bool                               # on the server's today

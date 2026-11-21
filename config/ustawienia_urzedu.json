@@ -1,0 +1,5 @@
+{
+  "_opis": "Decyzje urzędu (nie przepisy – te są w server/data/kprm/reguly.json). Zmienia administrator; aplikacja czyta przy starcie. Ścieżkę można podmienić zmienną USTAWIENIA_URZEDU.",
+  "zakres_widocznosci": "PODDRZEWO",
+  "_zakres_widocznosci": "PODDRZEWO = przełożony widzi (tylko do odczytu) oceny całego swojego poddrzewa; BEZPOSREDNI = tylko osoby, które sam ocenia. Wypełniać ocenę może zawsze tylko bezpośredni oceniający albo jego zastępca."
+}

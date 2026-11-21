@@ -10,19 +10,26 @@ Two seeds:
 """
 from __future__ import annotations
 
+import dataclasses
+import inspect
 import itertools
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from enum import Enum
 from typing import Iterator
 
 from app.application.assistant import AiSuggestionService, HrReport, NoteClassification
 from app.application.use_cases import EvaluationService
+from app.domain.access import AccessPolicy
 from app.domain.deadlines import Absence
 from app.domain.employee import Employee
 from app.domain.notes import Note
 from app.infrastructure.assistant_factory import build_assistant
 from app.infrastructure.kprm_adapter import KprmEmployeeDirectory, kprm_rulebook
 from app.infrastructure.memory import FixedClock, InMemoryCycleRepository
+from app.infrastructure.json_codec import JsonCodec
+from app.infrastructure.sql_store import SqlStateStore, Snapshot
+from app.infrastructure.settings import OfficeSettings, load_office_settings
 from backend import config
 
 DEMO_TODAY = date(2026, 5, 25)  # Grzegorz Wzór's deadline 12.06.2026 is then 18 days away
@@ -75,6 +82,22 @@ class DeadlineChangeRecord:
 
 
 @dataclass
+class DeputyRecord:
+    """Zastępstwo: `deputy_id` stands in for evaluator `evaluator_id` from `od` to `do` (inclusive)."""
+    id: int
+    evaluator_id: str
+    deputy_id: str
+    od: date
+    do: date
+
+    def active_on(self, day: date) -> bool:
+        return self.od <= day <= self.do
+
+
+HR = "kadry"  # demo identity of the HR department / office administrator
+
+
+@dataclass
 class DemoState:
     clock: FixedClock  # the server's own clock (contract rule 7: never the browser's date)
     directory: KprmEmployeeDirectory
@@ -89,6 +112,22 @@ class DemoState:
     hr_decisions: dict[int, str] = field(default_factory=dict)  # signal id -> ZAAKCEPTOWANY / ODRZUCONY
     absences: list[AbsenceRecord] = field(default_factory=list)
     deadline_changes: list[DeadlineChangeRecord] = field(default_factory=list)
+    settings: OfficeSettings = field(default_factory=load_office_settings)
+    deputy_records: list[DeputyRecord] = field(default_factory=list)
+
+    def active_deputies(self, evaluator_id: str, day: date) -> set[str]:
+        return {d.deputy_id for d in self.deputy_records if d.evaluator_id == evaluator_id and d.active_on(day)}
+
+    def policy(self) -> AccessPolicy:
+        """Who may see / act on what today (app/domain/access.py), from the tree, settings and deputies."""
+        today = self.clock.today()
+        evaluators = {d.evaluator_id for d in self.deputy_records}
+        return AccessPolicy(
+            evaluator_of={e.id: e.evaluator_id for e in self.directory.all()},
+            scope=self.settings.visibility_scope,
+            deputies={ev: frozenset(self.active_deputies(ev, today)) for ev in evaluators},
+            admins=frozenset({HR}),
+        )
 
     def notes_of(self, evaluation_id: int) -> list[NoteRecord]:
         return [r for r in self.notes.values() if r.evaluation_id == evaluation_id]
@@ -130,38 +169,106 @@ class DemoState:
             return False
 
 
-def build_state(today: date | None = None, ai_mode: str | None = None, scenario: bool = False) -> DemoState:
-    ids = itertools.count(1)
+def _empty_state(today: date | None, ai_mode: str | None, scenario: bool, first_cycle_id: int = 1) -> DemoState:
+    ids = itertools.count(first_cycle_id)
     clock = FixedClock(today or (DEMO_TODAY if scenario else date.today()))
     directory = KprmEmployeeDirectory()
     evaluations = EvaluationService(kprm_rulebook(), InMemoryCycleRepository(), directory, clock,
                                     new_id=lambda: str(next(ids)))
     mode = (ai_mode or config.AI_MODE).lower()
     st = DemoState(clock, directory, evaluations, build_assistant(mode), mode)
+    evaluations.deputies = st.active_deputies  # deputies may act on the evaluator's behalf (use_cases)
+    return st
+
+
+def build_state(today: date | None = None, ai_mode: str | None = None, scenario: bool = False) -> DemoState:
+    st = _empty_state(today, ai_mode, scenario)
     if scenario:
         from .demo_seed import seed_scenario
 
         seed_scenario(st)
     else:
-        for employee in directory.all():  # simple seed: an open cycle for everyone who has an evaluator
+        for employee in st.directory.all():  # simple seed: an open cycle for everyone who has an evaluator
             if employee.evaluator_id:
-                evaluations.start_cycle(employee.id)
+                st.evaluations.start_cycle(employee.id)
     return st
+
+
+# ---------------------------------------------------------------- persistence (app/infrastructure/sql_store.py)
+
+def _codec() -> JsonCodec:
+    """Every dataclass / enum that can sit inside the stored state – nothing else can be rebuilt from the DB."""
+    import sys
+
+    from app.application import assistant
+    from app.domain import cycle, deadlines, notes, scoring
+
+    mods = [cycle, deadlines, scoring, notes, assistant, sys.modules[__name__]]
+    types = [obj for m in mods for _, obj in inspect.getmembers(m, inspect.isclass)
+             if obj.__module__ == m.__name__ and (dataclasses.is_dataclass(obj) or issubclass(obj, Enum))]
+    return JsonCodec(types)
+
+
+_store: SqlStateStore | None = None
+
+
+def store() -> SqlStateStore:
+    global _store
+    if _store is None:
+        from backend.db import engine
+
+        _store = SqlStateStore(engine, _codec())
+    return _store
+
+
+def snapshot(st: DemoState) -> Snapshot:
+    return Snapshot(
+        cycles=st.evaluations.cycles.list_all(), notes=list(st.notes.values()), absences=list(st.absences),
+        deadline_changes=list(st.deadline_changes), deputies=list(st.deputy_records),
+        meta={"dzis": st.clock.today(), "wersje": dict(st.versions), "hr_sygnaly_id": dict(st.hr_signal_ids),
+              "hr_decyzje": dict(st.hr_decisions)},
+    )
+
+
+def restore(snap: Snapshot, ai_mode: str | None = None) -> DemoState:
+    last_cycle = max((int(c.id) for c in snap.cycles if str(c.id).isdigit()), default=0)
+    st = _empty_state(snap.meta.get("dzis"), ai_mode, scenario=False, first_cycle_id=last_cycle + 1)
+    for c in snap.cycles:
+        st.evaluations.cycles.save(c)
+    st.notes = {int(r.note.id): r for r in snap.notes}
+    st.note_ids = itertools.count(max(st.notes, default=0) + 1)
+    st.absences = list(snap.absences)
+    st.deadline_changes = list(snap.deadline_changes)
+    st.deputy_records = list(snap.deputies)
+    st.versions = dict(snap.meta.get("wersje", {}))
+    st.hr_signal_ids = dict(snap.meta.get("hr_sygnaly_id", {}))
+    st.hr_decisions = dict(snap.meta.get("hr_decyzje", {}))
+    return st
+
+
+def save_state() -> None:
+    """Called after every successful change (middleware in backend/main.py) and after background work."""
+    if _state is not None:
+        store().save(snapshot(_state))
 
 
 _state: DemoState | None = None
 
 
 def get_state() -> DemoState:
-    """FastAPI dependency. The running app starts with the demo scenario."""
+    """FastAPI dependency. Loads the saved state from the database; an empty database gets the demo scenario."""
     global _state
     if _state is None:
-        _state = build_state(scenario=True)
+        if store().is_empty():
+            _state = build_state(scenario=True)
+            save_state()
+        else:
+            _state = restore(store().load())
     return _state
 
 
 def reset_state(today: date | None = None, ai_mode: str | None = None, scenario: bool = False) -> DemoState:
-    """Fresh seed (tests: simple; POST /api/demo/reset: scenario)."""
+    """Fresh seed (tests: simple; POST /api/demo/reset: scenario – saved by the middleware right after)."""
     global _state
     _state = build_state(today, ai_mode, scenario)
     return _state
