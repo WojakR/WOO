@@ -191,17 +191,17 @@ class EvaluationCycle:
         if self.deadline_override is not None:
             return cal.next_working_day(self.deadline_override)
         if self.after_negative:
-            return reevaluation_date(self.negative_acknowledged_on or self.start_date, rules)
+            return reevaluation_date(self.negative_acknowledged_on or self.start_date, rules, cal)
         return evaluation_deadline(self.start_date, rules, cal, self.absences)
 
     def objection_deadline(self, rules: RuleBook, cal: WorkingCalendar) -> date | None:
         """Art. 83 ust. 1: last day to object to the evaluation; None until the evaluation is acknowledged."""
         return objection_deadline(self.acknowledged_on, rules, cal) if self.acknowledged_on else None
 
-    def next_evaluation_due(self, rules: RuleBook) -> date | None:
+    def next_evaluation_due(self, rules: RuleBook, cal: WorkingCalendar | None = None) -> date | None:
         """After an acknowledged NEGATIVE evaluation: when the re-evaluation is due (art. 81 ust. 9)."""
         if self.acknowledged_on and self.is_negative:
-            return reevaluation_date(self.acknowledged_on, rules)
+            return reevaluation_date(self.acknowledged_on, rules, cal)
         return None
 
     def can(self, step: str) -> bool:

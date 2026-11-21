@@ -104,5 +104,6 @@ def test_absence_of_exactly_one_month_does_not_extend_deadline():
 # ---------------------------------------------------------------- re-evaluation after a negative evaluation
 
 def test_reevaluation_kprm_example():
-    # P s. 13–14: acknowledged negative evaluation 15.02.2015 -> re-evaluation 16.08.2015
-    assert reevaluation_date(date(2015, 2, 15), R) == date(2015, 8, 16)
+    # P s. 13–14: acknowledged negative evaluation 15.02.2015 -> re-evaluation "16.08.2015"; that day is a Sunday,
+    # so it moves to Monday 17.08.2015 (KPRM mentor, 21.11.2026: the guide's example skipped the shift)
+    assert reevaluation_date(date(2015, 2, 15), R, CAL) == date(2015, 8, 17)

@@ -11,7 +11,7 @@ przypadki użycia: `app/application/use_cases.py`. Przykłady KPRM jako testy: `
 | Ocena okresowa | 24 mies. od poprzedniej oceny / zatrudnienia na czas nieokreślony; koniec w dniu o tym samym numerze (albo ostatnim dniu miesiąca); z dnia wolnego na następny roboczy | art. 81 ust. 4; KPRM „liczenie terminów”; poradnik s. 10 | `evaluation_deadline` |
 | Przedłużenie przez nieobecność | o całą usprawiedliwioną nieobecność ciągłą **dłuższą niż miesiąc**; dni wolne między okresami nie przerywają ciągłości | art. 81 ust. 7; poradnik s. 12–13 | `merge_absences`, `is_longer_than` |
 | Wyznaczenie kryteriów | 30 dni od poprzedniej oceny / zatrudnienia, 7 dni po ocenie negatywnej; dnia zdarzenia nie liczy się | § 7 rozporządzenia; poradnik s. 10 | `criteria_deadline` |
-| Ponowna ocena po negatywnej | dzień po upływie 6 mies. od zapoznania się z oceną; **bez** przedłużania przez nieobecność i **bez** przesuwania z dnia wolnego | art. 81 ust. 9; poradnik s. 13–14 | `reevaluation_date` |
+| Ponowna ocena po negatywnej | dzień po upływie 6 mies. od zapoznania się z oceną; z dnia wolnego na następny roboczy; **bez** przedłużania przez nieobecność | art. 81 ust. 9; poradnik s. 13–14; mentor KPRM 21.11 | `reevaluation_date` |
 | Sprzeciw | 7 dni od zapoznania się z oceną; dnia zapoznania nie liczy się; z dnia wolnego na następny roboczy | art. 83 ust. 1 | `objection_deadline` |
 | Zmiana stanowiska ≤ 6 mies. od odniesienia | ponowne wyznaczenie kryteriów i rozmowa w 30 dni; termin oceny **bez zmian** | § 9 ust. 1 | `position_change` → `NOWE_KRYTERIA` |
 | Zmiana stanowiska > 6 mies. od odniesienia | ocena najwcześniej 7 dni przed zmianą, najpóźniej 30 dni po niej | art. 81 ust. 6; § 9 ust. 2 | `position_change` → `OCENA` |
@@ -50,3 +50,10 @@ jako „ponowna ocena od”, a nie jako ostateczny termin.
   (`PositionChangeIn` / `PositionChangeOut` w `app/api/schemas.py`).
 - `reminders()` ma nowe rodzaje: `objection` (do ocenianego, do końca terminu sprzeciwu)
   i `reevaluation` (do oceniającego, ≤ 30 dni przed ponowną oceną).
+
+## Ponowna ocena w dzień wolny (decyzja mentora KPRM, 21.11.2026)
+
+Poradnik (s. 13–14) podaje: zapoznanie 15.02.2015 → ponowna ocena 16.08.2015, czyli w **niedzielę**, bez
+przesunięcia. Mentor KPRM potwierdził, że przykład pominął regułę dnia roboczego i powinno być **17.08.2015**.
+`reevaluation_date` przesuwa więc datę z soboty, niedzieli i święta tak jak pozostałe terminy
+(np. 11.11.2026 → 12.11.2026). Nieobecności nadal jej nie wydłużają (art. 81 ust. 7–8 dotyczą tylko 24 miesięcy).

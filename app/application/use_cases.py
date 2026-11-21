@@ -184,7 +184,7 @@ class EvaluationService:
             left = (objection - today).days
             out.append(Reminder(c.id, c.employee_id, c.employee_id, "objection", objection, left,
                                 f"Możesz złożyć sprzeciw od oceny do dyrektora generalnego do {objection:%d.%m.%Y}."))
-        due = c.next_evaluation_due(self.rules)
+        due = c.next_evaluation_due(self.rules, self.calendar)
         if due is not None and (due - today).days <= lead_days:
             left = (due - today).days
             out.append(Reminder(c.id, c.employee_id, c.evaluator_id, "reevaluation", due, left,
