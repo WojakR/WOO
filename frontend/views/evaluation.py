@@ -54,6 +54,14 @@ def _sync(key: str, server_value) -> None:
     st.session_state[src] = server_value
 
 
+def _notes_mark(api: Api, ev: dict) -> tuple:
+    """Changes whenever a note is added, tagged or removed – the assistant's hints depend on the notes."""
+    try:
+        return tuple((n["id"], n.get("criterion_kod"), n.get("wydzwiek")) for n in api.notes(ev["id"]))
+    except ApiError:
+        return ()
+
+
 def _cached(key: tuple, compute):
     cache = st.session_state.setdefault("ai_cache", {})
     if key not in cache:
@@ -80,8 +88,8 @@ def _crit_dict(api: Api, sheet: str) -> dict[str, dict]:
 def _indicators(crit: dict | None) -> str:
     if not crit or not crit.get("wskazniki"):
         return ""
-    return (f"**Na co patrzeć – {crit['nazwa']}** (wskaźniki z załącznika nr 1 do rozporządzenia PRM "
-            "z 4.04.2016):\n\n" + "\n".join(f"- {w}" for w in crit["wskazniki"]))
+    return (f"**Na co patrzeć – {crit['nazwa']}** (na podstawie rozporządzenia Prezesa Rady Ministrów "
+            "z 4 kwietnia 2016 r.):\n\n" + "\n".join(f"- {w}" for w in crit["wskazniki"]))
 
 
 def _action(api: Api, ev: dict, akcja: str, before=None, note: str = "") -> None:
@@ -156,7 +164,8 @@ def _person(ev: dict) -> None:
 # ---------------------------------------------------------------- conversation tips (both meetings)
 
 def _prep(api: Api, ev: dict, kind: str) -> None:
-    prep = _cached(("prep", ev["id"], kind, ev["updated_at"]), lambda: api.conversation_prep(ev["id"], kind))
+    prep = _cached(("prep", ev["id"], kind, ev["updated_at"], _notes_mark(api, ev)),
+                   lambda: api.conversation_prep(ev["id"], kind))
     if isinstance(prep, ApiError):
         st.caption(prep.komunikat)
         return
@@ -474,7 +483,7 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
 
     bands = "\n".join(f"- {LEVEL_LABEL[k]}: średnia {lo:g}–{hi:g} pkt" for k, (lo, hi) in meta["progi_poziomow"].items())
     st.markdown("#### Oceny cząstkowe", help=(
-        "**Jak ocenić (§ 11 rozporządzenia PRM z 4.04.2016):**\n\n"
+        "**Jak ocenić – na podstawie § 11 rozporządzenia Prezesa Rady Ministrów z 4 kwietnia 2016 r.:**\n\n"
         + "\n".join(f"- **{p} pkt** – {SCALE_LABEL.get(p, '')}" for p in scale)
         + "\n\nŚrednia wyznacza poziom:\n" + bands
         + "\n\nOcena jest **negatywna**, gdy poziom jest poniżej oczekiwań albo choć jedno kryterium ma 1 pkt. "
@@ -677,13 +686,42 @@ def objection_panel(api: Api, ev: dict) -> None:
 
 # ---------------------------------------------------------------- side panel
 
+NEXT_FOR_EVALUATOR = {
+    "KRYTERIA_DO_WYZNACZENIA": "wybierz kryteria dodatkowe (albo zostaw puste) i kliknij „Zatwierdź kryteria i "
+                               "przekaż ocenianemu”.",
+    "KRYTERIA_DO_POTWIERDZENIA": "czekamy, aż oceniany potwierdzi rozmowę i kryteria – nic nie musisz robić.",
+    "OKRES_OCENY": "zapisuj obserwacje w Notatniku, a przed terminem przeprowadź rozmowę oceniającą (etap 3).",
+    "ROZMOWA_OCENIAJACA": "oceń każde kryterium, uzupełnij wnioski rozwojowe (przy ocenie negatywnej także "
+                          "uzasadnienie) i zatwierdź ocenę.",
+    "OCENA_DO_ZAPOZNANIA": "czekamy, aż oceniany potwierdzi zapoznanie się z oceną – nic nie musisz robić.",
+    "SPRZECIW": "oceniany złożył sprzeciw – czekamy na rozstrzygnięcie dyrektora generalnego.",
+    "ZAKONCZONA": "ocena jest zakończona – możesz pobrać PDF arkusza.",
+}
+NEXT_FOR_OTHERS = {
+    "KRYTERIA_DO_WYZNACZENIA": "oceniający wyznacza kryteria oceny.",
+    "KRYTERIA_DO_POTWIERDZENIA": "oceniany potwierdza rozmowę i kryteria.",
+    "OKRES_OCENY": "trwa okres oceny – oceniający zbiera obserwacje i przygotowuje rozmowę.",
+    "ROZMOWA_OCENIAJACA": "oceniający sporządza ocenę.",
+    "OCENA_DO_ZAPOZNANIA": "oceniany zapoznaje się z oceną.",
+    "SPRZECIW": "sprzeciw czeka na rozstrzygnięcie dyrektora generalnego.",
+    "ZAKONCZONA": "ocena jest zakończona.",
+}
+
+
+def _next_step(ev: dict) -> str:
+    if "ROZPATRZ_SPRZECIW" in ev["dozwolone_akcje"]:
+        return "rozstrzygnij sprzeciw w etapie 5 – uwzględnij go albo nie, z uzasadnieniem."
+    table = NEXT_FOR_EVALUATOR if ev["jako_oceniajacy"] else NEXT_FOR_OTHERS
+    return table.get(ev["status"], STATUS_LABEL.get(ev["status"], ev["status"]))
+
+
 def _progress(ev: dict) -> None:
     cur = current_stage(ev)
     done = cur == DONE
     with st.container(border=True):
         st.markdown("**🧭 Postęp**" + (" · proces zakończony" if done else f" · krok {cur} z {len(STAGES)}"))
         st.progress(min(cur - 1, len(STAGES)) / len(STAGES) if not done else 1.0)
-        st.caption(STATUS_LABEL.get(ev["status"], ev["status"]))
+        st.markdown(f"**Co teraz:** {_next_step(ev)}")
         if ev["status"] == "ROZMOWA_OCENIAJACA" and ev["jako_oceniajacy"]:
             st.markdown("**Do uzupełnienia przed zatwierdzeniem**")
             blocks = [w for w in ev["walidacje"] if w["waga"] == "BLAD"]
@@ -743,7 +781,8 @@ def _summary(ev: dict) -> None:
 
 
 def _hr_partner(api: Api, ev: dict) -> None:
-    report = _cached(("hr", ev["id"], ev["updated_at"]), lambda: api.hr_partner(ev["id"]))
+    hr_key = ("hr", ev["id"], ev["updated_at"], _notes_mark(api, ev))
+    report = _cached(hr_key, lambda: api.hr_partner(ev["id"]))
     with st.container(border=True):
         if isinstance(report, ApiError):
             st.markdown("**🤝 HR partner**")
@@ -752,7 +791,9 @@ def _hr_partner(api: Api, ev: dict) -> None:
         ui.html(f"<b>🤝 HR partner</b><br>{ui.source_note('AI' if report['zrodlo_tekstow'] == 'AI' else 'REGULY')}<br>"
                 "<span class='lock'>Podpowiedzi dla przełożonego przed rozmową – nie są oceną pracownika.</span>")
         if not report["sygnaly"]:
-            st.caption("Brak sygnałów w notatkach z ostatnich miesięcy.")
+            st.caption("Brak sygnałów. HR partner reaguje na notatki z ostatnich 6 miesięcy (np. praca po godzinach, "
+                       "nowe obowiązki), długą nieobecność, spadek ocen i co najmniej 2 pozytywne notatki z 3 miesięcy "
+                       "(„warto docenić”).")
         for sg in report["sygnaly"]:
             title, tone = SIGNAL_LABEL.get(sg["typ"], (sg["typ"], "c-blue"))
             body = f"<p>{escape(sg['opis'])}</p>" + ("<b>Co możesz zrobić:</b>" + ui.ul(sg["rekomendacje"])
@@ -771,7 +812,7 @@ def _hr_partner(api: Api, ev: dict) -> None:
                 def decide(sid: int, status: str) -> None:
                     if _call(api.hr_decision, sid, status, ok="Zapisano decyzję."):
                         pass
-                    st.session_state.get("ai_cache", {}).pop(("hr", ev["id"], ev["updated_at"]), None)
+                    st.session_state.get("ai_cache", {}).pop(hr_key, None)
 
                 a.button("Przyjmij", key=f"hr_ok_{sg['id']}", type="primary", use_container_width=True,
                          on_click=decide, args=(sg["id"], "ZAAKCEPTOWANY"))
