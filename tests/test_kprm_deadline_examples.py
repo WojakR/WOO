@@ -84,6 +84,23 @@ def test_leave_then_sick_leave_41_days_extend_deadline():
     assert evaluation_deadline(date(2013, 1, 15), R, CAL, parts) == date(2015, 2, 25)
 
 
+@pytest.mark.parametrize(
+    "end, longer",
+    [
+        (date(2014, 10, 8), False),
+        (date(2014, 10, 9), False),  # P s. 13: the month from 9.09.2014 "upływał 9 października 2014"
+        (date(2014, 10, 10), True),
+    ],
+)
+def test_one_month_boundary_kprm(end, longer):
+    assert is_longer_than(Absence(date(2014, 9, 9), end), R.absence_extends_after_months) is longer
+
+
+def test_absence_of_exactly_one_month_does_not_extend_deadline():
+    exactly_a_month = Absence(date(2014, 9, 9), date(2014, 10, 9))
+    assert evaluation_deadline(date(2013, 1, 15), R, CAL, [exactly_a_month]) == date(2015, 1, 15)
+
+
 # ---------------------------------------------------------------- re-evaluation after a negative evaluation
 
 def test_reevaluation_kprm_example():

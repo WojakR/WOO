@@ -84,8 +84,10 @@ def test_unjustified_absence_is_ignored():
 
 
 def test_exactly_one_month_is_not_longer_than_a_month():
+    # KPRM guide p. 13: a month counted from 5.10 ends on 5.11
     assert not is_longer_than(Absence(date(2026, 10, 5), date(2026, 11, 4)), 1)
-    assert is_longer_than(Absence(date(2026, 10, 5), date(2026, 11, 5)), 1)
+    assert not is_longer_than(Absence(date(2026, 10, 5), date(2026, 11, 5)), 1)
+    assert is_longer_than(Absence(date(2026, 10, 5), date(2026, 11, 6)), 1)
 
 
 def test_long_absence_extends_evaluation_deadline_by_its_length():

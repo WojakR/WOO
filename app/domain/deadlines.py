@@ -55,8 +55,12 @@ def _continuous(prev_end: date, next_start: date, cal: WorkingCalendar) -> bool:
 
 
 def is_longer_than(absence: Absence, months: int) -> bool:
-    """A period of exactly `months` months ends the day before add_months(start); anything later is longer."""
-    return absence.end >= add_months(absence.start, months)
+    """A period of exactly `months` months ends ON add_months(start); only an end after that is longer.
+
+    KPRM guide p. 13: for an absence from 9.09.2014 "miesięczny okres … upływał 9 października 2014",
+    so 9.09–9.10 is exactly one month and 9.09–10.10 is longer than a month.
+    """
+    return absence.end > add_months(absence.start, months)
 
 
 def extending_absences(absences: Iterable[Absence], rules: RuleBook, cal: WorkingCalendar) -> list[Absence]:
