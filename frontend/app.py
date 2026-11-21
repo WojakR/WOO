@@ -1,7 +1,10 @@
-"""Frontend demo (Streamlit). Uruchom z głównego folderu: streamlit run frontend/app.py
+"""Cyfrowy Asystent Ocen Okresowych – Streamlit demo. Run from projekt/: streamlit run frontend/app.py
 
-Woła funkcje backendu bezpośrednio (bez HTTP) – dzięki temu całość deployuje się
-jednym kliknięciem na Streamlit Cloud. FastAPI jest obok, jeśli zadanie wymaga API.
+Calls the application layer directly (no HTTP), so it deploys as one app. Views:
+  1. evaluation screen (evaluator) – frontend/views/evaluation.py
+  2. my team summary (evaluator)   – frontend/views/team.py
+  3. evaluated person              – frontend/views/employee.py
+Wireframes: frontend/design/wireframes.drawio
 """
 import sys
 from pathlib import Path
@@ -10,47 +13,87 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
 
-from backend import config, db
-from backend.llm import ask_llm
-from backend.parsers import parse_file, to_llm_text
+from backend import config
+from frontend import ui
+from frontend.demo_state import REQUEST_KINDS, REQUEST_STATUS, get_state, reset_state
+from frontend.views import employee, evaluation, team
 
-st.set_page_config(page_title="HackNation 2026", page_icon="🏛️", layout="wide")
-st.title("🏛️ Nazwa projektu")
-st.caption("Jedno zdanie: dla kogo i jaki problem rozwiązujemy.")
+st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide")
+ui.inject_css()
+state = get_state()
 
-with st.sidebar:
-    st.subheader("Status")
-    st.write("Modele:", ", ".join(config.LLM_MODELS))
-    if config.LLM_MOCK:
-        st.warning("Tryb MOCK – LLM zwraca atrapy")
-    st.subheader("Ostatnie dokumenty")
-    for d in db.list_documents(10):
-        st.write(f"#{d['id']} {d['filename']}")
+ROLE_EVALUATOR, ROLE_EMPLOYEE = "Oceniający (przełożony)", "Oceniany (pracownik)"
+st.session_state.setdefault("view", "team")
+st.session_state.setdefault("role", ROLE_EVALUATOR)
 
-tab1, tab2 = st.tabs(["📄 Dokument", "💬 Zapytaj"])
 
-with tab1:
-    up = st.file_uploader("Wrzuć plik (PDF, XML, CSV, XLSX, TXT, obraz)")
-    if up:
-        kind, content = parse_file(up.getvalue(), up.name)
-        text = to_llm_text(kind, content)
-        if kind == "table":
-            st.dataframe(content, use_container_width=True)
-        elif kind == "xml":
-            st.json(content, expanded=False)
-        else:
-            st.text_area("Treść", text[:5000], height=250)
+def notifications(role: str, person: str | None) -> list[tuple[str, str]]:
+    evaluated = {e.id for e in state.evaluated()}
+    items = []
+    for r in state.service.reminders(lead_days=30):
+        mine = r.recipient_id == person if role == ROLE_EMPLOYEE else r.recipient_id not in evaluated
+        if mine:
+            items.append(("🔴" if r.days_left < 0 else "🟡" if r.days_left <= 7 else "🔔", r.message))
+    if role == ROLE_EVALUATOR:
+        items += [("📥", f"Nowy wniosek: {REQUEST_KINDS[q.kind].lower()} – {state.employee(q.employee_id).full_name}")
+                  for q in state.pending_requests()]
+    else:
+        items += [("📨", f"{REQUEST_KINDS[q.kind]}: {REQUEST_STATUS[q.status]}")
+                  for q in state.requests if q.employee_id == person and q.decided]
+    return items
 
-        task = st.text_input("Co zrobić z dokumentem?", "Streść najważniejsze informacje w 5 punktach.")
-        if st.button("Analizuj", type="primary"):
-            with st.spinner("Myślę..."):
-                answer = ask_llm(f"Dokument:\n{text}\n\nZadanie: {task}")
-            st.markdown(answer)
-            db.save_document(up.name, kind, text, {"task": task, "answer": answer})
 
-with tab2:
-    q = st.chat_input("Zadaj pytanie")
-    if q:
-        st.chat_message("user").write(q)
-        with st.spinner("Myślę..."):
-            st.chat_message("assistant").write(ask_llm(q))
+# ---------------------------------------------------------------- header
+title, role_col, who_col, time_col, bell_col = st.columns([2.4, 1.3, 1.5, 1.1, 0.7], vertical_alignment="center")
+with title:
+    ui.html('<p class="app-title">🏛️ Cyfrowy Asystent Ocen Okresowych</p>'
+            '<p class="app-sub">Ocena okresowa w służbie cywilnej – od kryteriów do arkusza, z wirtualnym HR partnerem</p>')
+role = role_col.selectbox("Widok jako", [ROLE_EVALUATOR, ROLE_EMPLOYEE], key="role", label_visibility="collapsed")
+person = None
+if role == ROLE_EMPLOYEE:
+    ids = [e.id for e in state.evaluated()]
+    person = who_col.selectbox("Pracownik", ids, key="person", format_func=lambda i: state.employee(i).full_name,
+                               label_visibility="collapsed")
+else:
+    who_col.caption("Demo bez logowania – rolę wybierasz z listy obok.")
+
+with time_col.popover(f"📅 {ui.fmt(state.today)}", use_container_width=True, help="Przewiń czas (demo)"):
+    st.markdown("**⏩ Przewiń czas (demo)**")
+    st.caption("Pokazuje przypomnienia i terminy. Zmienia tylko datę w tej sesji.")
+    a, b, c = st.columns(3)
+    for col, label, days in ((a, "+1 dzień", 1), (b, "+1 tydz.", 7), (c, "+30 dni", 30)):
+        if col.button(label, use_container_width=True):
+            state.clock.advance(days=days)
+            st.rerun()
+    new = st.date_input("Ustaw datę", state.today, format="DD.MM.YYYY")
+    if new != state.today and st.button("Ustaw", type="primary"):
+        state.clock.set(new)
+        st.rerun()
+    st.divider()
+    if st.button("↺ Zacznij demo od nowa", use_container_width=True):
+        reset_state()
+        for k in list(st.session_state):
+            if k not in ("role",):
+                del st.session_state[k]
+        st.rerun()
+
+notes = notifications(role, person)
+with bell_col.popover(f"🔔 {len(notes)}" if notes else "🔔", use_container_width=True):
+    st.markdown("**Powiadomienia**")
+    if not notes:
+        st.caption("Brak nowych powiadomień.")
+    for icon, text in notes:
+        st.markdown(f"{icon} {text}")
+st.divider()
+
+# ---------------------------------------------------------------- routing
+if role == ROLE_EMPLOYEE:
+    employee.render(state, person)
+elif st.session_state.view == "eval" and st.session_state.get("eval_employee"):
+    evaluation.render(state, st.session_state.eval_employee)
+else:
+    team.render(state)
+
+st.caption(f"Tryb asystenta AI: {config.AI_MODE}{' (atrapa – LLM_MOCK)' if config.LLM_MOCK else ''}. "
+           "Asystent tylko proponuje – decyzje podejmuje oceniający. Dane osobowe są pseudonimizowane przed "
+           "wysłaniem do modelu. Dane w demo są fikcyjne (przykłady KPRM).")

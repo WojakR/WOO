@@ -1,0 +1,144 @@
+"""View 2: the evaluator's team – search, filters, KPIs, schedule and requests to decide."""
+from __future__ import annotations
+
+from html import escape
+
+import streamlit as st
+
+from frontend import ui
+from frontend.demo_state import DONE, REQUEST_KINDS, STAGES, DemoState
+
+SIGNAL_ICONS = {"PRZECIAZENIE": "⚠️ przeciążenie", "DLUGA_NIEOBECNOSC": "🏥 nieobecność",
+                "ZMIANA_OBOWIAZKOW": "🔄 nowe obowiązki", "SPADEK_OCEN": "📉 spadek", "DO_DOCENIENIA": "👏 docenić"}
+
+
+def open_evaluation(employee_id: str) -> None:
+    st.session_state.view = "eval"
+    st.session_state.eval_employee = employee_id
+
+
+def _rows(state: DemoState) -> list[dict]:
+    rows = []
+    for emp in state.evaluated():
+        cycle = state.cycle_for(emp.id)
+        if cycle is None:
+            rows.append({"id": emp.id, "Pracownik": emp.full_name, "Stanowisko": emp.position, "Komórka": emp.unit,
+                         "Arkusz": emp.sheet, "Etap": "— brak cyklu", "Status": "", "Termin": None, "Dni": None,
+                         "Pilność": "⚪", "Sygnały HR": "", "_stage": 0, "_signals": 0})
+            continue
+        stage = state.stage(cycle)
+        label, due = state.deadline_hint(cycle)
+        days = (due - state.today).days if due else None
+        signals = state.assistant.hr_partner(cycle, emp, state.notes.get(cycle.id, []), cycle.absences, state.today,
+                                             use_ai=False).signals
+        _, status = state.stage_status(cycle, stage) if stage != DONE else ("", "zakończona")
+        rows.append({
+            "id": emp.id, "Pracownik": emp.full_name, "Stanowisko": emp.position, "Komórka": emp.unit,
+            "Arkusz": emp.sheet, "Etap": ui.stage_label(stage), "Status": status,
+            "Termin": due, "Dni": days, "Pilność": ui.urgency(days) if stage != DONE else "⚪",
+            "Sygnały HR": " ".join(SIGNAL_ICONS.get(s.kind, s.kind) for s in signals),
+            "_stage": stage, "_signals": len(signals), "_label": label,
+        })
+    return rows
+
+
+def render(state: DemoState) -> None:
+    rows = _rows(state)
+    in_progress = [r for r in rows if 0 < r["_stage"] < DONE]
+    soon = [r for r in in_progress if r["Dni"] is not None and 0 <= r["Dni"] <= 30]
+    late = [r for r in in_progress if r["Dni"] is not None and r["Dni"] < 0]
+    pending = state.pending_requests()
+
+    st.subheader("Mój zespół")
+    st.caption("Demo: lista obejmuje wszystkich ocenianych z danych przykładowych KPRM.")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Oceny w toku", len(in_progress), border=True)
+    k2.metric("Termin w ciągu 30 dni", len(soon), border=True)
+    k3.metric("Po terminie", len(late), border=True)
+    k4.metric("Wnioski do rozpatrzenia", len(pending), border=True)
+
+    main, side = st.columns([2.7, 1.3], gap="large")
+    with main:
+        q = st.text_input("Szukaj pracownika", placeholder="🔍 imię, nazwisko, stanowisko, komórka…",
+                          label_visibility="collapsed")
+        f1, f2, f3, f4 = st.columns([1.4, 1, 1.1, 1.2])
+        stage_opts = [f"{i} · {s}" for i, s in enumerate(STAGES, start=1)] + ["Zakończona"]
+        stages = f1.multiselect("Etap", stage_opts, placeholder="wszystkie etapy")
+        sheets = f2.multiselect("Arkusz", ["A", "B", "C"], placeholder="A / B / C")
+        only_signals = f3.toggle("Tylko z sygnałami HR")
+        sort = f4.selectbox("Sortuj", ["Termin (najbliższy)", "Pracownik (A–Z)", "Etap"])
+
+        view = rows
+        if q:
+            ql = q.casefold()
+            view = [r for r in view if ql in " ".join([r["Pracownik"], r["Stanowisko"], r["Komórka"]]).casefold()]
+        if stages:
+            view = [r for r in view if r["Etap"] in stages]
+        if sheets:
+            view = [r for r in view if r["Arkusz"] in sheets]
+        if only_signals:
+            view = [r for r in view if r["_signals"]]
+        if sort.startswith("Termin"):
+            view = sorted(view, key=lambda r: (r["_stage"] == DONE, r["Dni"] if r["Dni"] is not None else 10**6))
+        elif sort.startswith("Pracownik"):
+            view = sorted(view, key=lambda r: r["Pracownik"])
+        else:
+            view = sorted(view, key=lambda r: r["_stage"])
+
+        widths = [0.35, 2.2, 0.45, 1.9, 1.2, 1.9]
+        head = st.columns(widths, vertical_alignment="center")
+        for col, name in zip(head, ["", "Pracownik", "Ark.", "Etap · status", "Termin", "Sygnały HR"]):
+            col.markdown(f"<span class='lock'><b>{name}</b></span>", unsafe_allow_html=True)
+        for r in view:
+            with st.container(border=True):
+                c = st.columns(widths, vertical_alignment="center")
+                c[0].markdown(r["Pilność"])
+                c[1].button(f"**{r['Pracownik']}** →", key=f"open_{r['id']}", type="tertiary",
+                            on_click=open_evaluation, args=(r["id"],), help="Otwórz ocenę pracownika")
+                c[1].caption(r["Stanowisko"])
+                c[2].markdown(r["Arkusz"])
+                c[3].markdown(f"{r['Etap']}<br><span class='lock'>{r['Status']}</span>", unsafe_allow_html=True)
+                days = "" if r["Dni"] is None or r["_stage"] == DONE else \
+                    f"<br><span class='lock'>{ui.days_text(r['Dni'])}</span>"
+                c[4].markdown(f"{ui.fmt(r['Termin'])}{days}", unsafe_allow_html=True)
+                c[5].markdown(r["Sygnały HR"] or "<span class='lock'>—</span>", unsafe_allow_html=True)
+        if not view:
+            st.caption("Brak pracowników spełniających kryteria wyszukiwania.")
+
+    with side:
+        with st.container(border=True):
+            st.markdown("**🗓️ Harmonogram**")
+            items = []
+            for r in in_progress:
+                if r["Termin"] is not None:
+                    items.append((r["Termin"], f'{r["_label"]} – {r["Pracownik"]}', r["Pilność"]))
+            for (cycle_id, stage), when in state.invites.items():
+                if when.date() >= state.today:
+                    emp = state.employee(state.cycle(cycle_id).employee_id)
+                    kind = "rozmowa rozpoczynająca" if stage == 1 else "rozmowa oceniająca"
+                    items.append((when.date(), f"{kind} {when:%H:%M} – {emp.full_name}", "📅"))
+            for due, text, icon in sorted(items)[:8]:
+                ui.html(f'<div class="note">{icon} <b>{ui.fmt(due)}</b> · {text}</div>')
+            if not items:
+                st.caption("Brak zaplanowanych terminów.")
+
+        with st.container(border=True):
+            st.markdown(f"**📥 Wnioski do rozpatrzenia** {'❗' if pending else ''}")
+            if not pending:
+                st.caption("Brak nowych wniosków.")
+            for req in pending:
+                emp = state.employee(req.employee_id)
+                ui.card(f"{REQUEST_KINDS[req.kind]} – {emp.full_name}",
+                        f"<p>{escape(req.text)}</p><p class='lock'>złożony {ui.fmt(req.created)}</p>", "c-amber")
+                a, b = st.columns(2)
+                if a.button("Przyjmij", key=f"acc_{req.id}", use_container_width=True, type="primary"):
+                    state.decide_request(req.id, True)
+                    st.rerun()
+                if b.button("Odrzuć", key=f"rej_{req.id}", use_container_width=True):
+                    state.decide_request(req.id, False)
+                    st.rerun()
+            extended = [r for r in in_progress
+                        if (c := state.cycle_for(r["id"])) and any(a.days > 30 for a in c.absences)]
+            for r in extended:
+                ui.card(f"Nieobecność > 1 mies. – {r['Pracownik']}",
+                        f"<p>Termin oceny przesunięty o czas nieobecności: {ui.fmt(r['Termin'])}.</p>", "c-blue")
