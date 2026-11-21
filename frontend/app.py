@@ -15,7 +15,7 @@ import streamlit as st
 
 from backend import config
 from frontend import ui
-from frontend.demo_state import REQUEST_KINDS, REQUEST_STATUS, get_state, reset_state
+from frontend.demo_state import REQUEST_KINDS, REQUEST_STATUS, get_state, open_evaluation, reset_state
 from frontend.views import employee, evaluation, team
 
 st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide")
@@ -27,18 +27,29 @@ st.session_state.setdefault("view", "team")
 st.session_state.setdefault("role", ROLE_EVALUATOR)
 
 
-def notifications(role: str, person: str | None) -> list[tuple[str, str]]:
+def go_team() -> None:
+    st.session_state.view = "team"
+
+
+def notifications(role: str, person: str | None) -> list[tuple[str, str, str | None]]:
+    """(icon, text, employee id to open or None). Newest/most urgent first."""
     evaluated = {e.id for e in state.evaluated()}
     items = []
     for r in state.service.reminders(lead_days=30):
         mine = r.recipient_id == person if role == ROLE_EMPLOYEE else r.recipient_id not in evaluated
         if mine:
-            items.append(("🔴" if r.days_left < 0 else "🟡" if r.days_left <= 7 else "🔔", r.message))
+            items.append(("🔴" if r.days_left < 0 else "🟡" if r.days_left <= 7 else "🔔", r.message, r.employee_id))
     if role == ROLE_EVALUATOR:
-        items += [("📥", f"Nowy wniosek: {REQUEST_KINDS[q.kind].lower()} – {state.employee(q.employee_id).full_name}")
-                  for q in state.pending_requests()]
+        items += [("📥", f"Nowy wniosek: {REQUEST_KINDS[q.kind].lower()} – {state.employee(q.employee_id).full_name}",
+                   None) for q in state.pending_requests()]
     else:
-        items += [("📨", f"{REQUEST_KINDS[q.kind]}: {REQUEST_STATUS[q.status]}")
+        for (cycle_id, stage), when in sorted(state.invites.items(), key=lambda x: x[1]):
+            c = state.cycle(cycle_id)
+            if c.employee_id == person and when.date() >= state.today:
+                kind = "rozpoczynającą ocenę" if stage == 1 else "oceniającą"
+                items.append(("✉️", f"Zaproszenie na rozmowę {kind}: {when:%d.%m.%Y, %H:%M} "
+                                    f"(od: {state.employee(c.evaluator_id).full_name})", None))
+        items += [("📨", f"{REQUEST_KINDS[q.kind]}: {REQUEST_STATUS[q.status]}", None)
                   for q in state.requests if q.employee_id == person and q.decided]
     return items
 
@@ -58,8 +69,10 @@ else:
     who_col.caption("Demo bez logowania – rolę wybierasz z listy obok.")
 
 with time_col.popover(f"📅 {ui.fmt(state.today)}", use_container_width=True, help="Przewiń czas (demo)"):
-    st.markdown("**⏩ Przewiń czas (demo)**")
-    st.caption("Pokazuje przypomnienia i terminy. Zmienia tylko datę w tej sesji.")
+    st.markdown("**⏩ Przewiń czas (tylko demo)**")
+    st.caption("Na prezentacji nie poczekamy 24 miesięcy – tu „przesuwasz kalendarz” aplikacji do przodu, żeby "
+               "pokazać przypomnienia, zbliżające się i przekroczone terminy. Zmienia tylko datę w tej sesji; "
+               "w prawdziwym wdrożeniu tej opcji nie ma.")
     a, b, c = st.columns(3)
     for col, label, days in ((a, "+1 dzień", 1), (b, "+1 tydz.", 7), (c, "+30 dni", 30)):
         if col.button(label, use_container_width=True):
@@ -82,8 +95,12 @@ with bell_col.popover(f"🔔 {len(notes)}" if notes else "🔔", use_container_w
     st.markdown("**Powiadomienia**")
     if not notes:
         st.caption("Brak nowych powiadomień.")
-    for icon, text in notes:
-        st.markdown(f"{icon} {text}")
+    for i, (icon, text, emp_id) in enumerate(notes):
+        if role == ROLE_EVALUATOR:
+            st.button(f"{icon} {text}", key=f"notif_{i}", type="tertiary",
+                      on_click=open_evaluation if emp_id else go_team, args=(emp_id,) if emp_id else ())
+        else:
+            st.markdown(f"{icon} {text}")
 st.divider()
 
 # ---------------------------------------------------------------- routing

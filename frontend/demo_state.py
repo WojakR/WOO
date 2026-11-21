@@ -279,6 +279,36 @@ def get_state() -> DemoState:
     return st.session_state.demo
 
 
+def open_evaluation(employee_id: str, stage: int | None = None) -> None:
+    """Go to the evaluation screen of one employee, on the given stage (default: the current one)."""
+    st.session_state.view = "eval"
+    st.session_state.eval_employee = employee_id
+    state = get_state()
+    cycle = state.cycle_for(employee_id)
+    if cycle is not None:
+        current = min(state.stage(cycle), len(STAGES))
+        st.session_state[f"sel_{cycle.id}"] = stage or current
+        st.session_state[f"seen_{cycle.id}"] = state.stage(cycle)
+
+
+def change_sheet(state: DemoState, cycle_id: str, sheet: str) -> list[str]:
+    """Frontend-only workaround until the backend has a use case for it: the evaluator overrides the sheet
+    suggested from the position while the criteria can still be edited. Returns problems (empty = done)."""
+    from app.domain.scoring import validate_additional_criteria
+
+    cycle = state.cycle(cycle_id)
+    if not cycle.is_editable("additional_criteria"):
+        return ["Arkusz można zmienić tylko przed potwierdzeniem kryteriów przez ocenianego."]
+    rules = state.service.rules
+    rules.mandatory(sheet)  # validates the sheet
+    cycle.additional_criteria = [c for c in cycle.additional_criteria if c not in rules.mandatory(sheet)]
+    if problems := validate_additional_criteria(sheet, cycle.additional_criteria, rules):
+        return problems
+    cycle.sheet = sheet
+    state.service.cycles.save(cycle)
+    return []
+
+
 def reset_state() -> None:
     st.session_state.pop("demo", None)
 

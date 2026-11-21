@@ -1,20 +1,31 @@
 """View 2: the evaluator's team – search, filters, KPIs, schedule and requests to decide."""
 from __future__ import annotations
 
+from datetime import date
 from html import escape
 
 import streamlit as st
 
 from frontend import ui
-from frontend.demo_state import DONE, REQUEST_KINDS, STAGES, DemoState
+from frontend.demo_state import DONE, REQUEST_KINDS, STAGES, DemoState, open_evaluation
 
 SIGNAL_ICONS = {"PRZECIAZENIE": "⚠️ przeciążenie", "DLUGA_NIEOBECNOSC": "🏥 nieobecność",
                 "ZMIANA_OBOWIAZKOW": "🔄 nowe obowiązki", "SPADEK_OCEN": "📉 spadek", "DO_DOCENIENIA": "👏 docenić"}
 
 
-def open_evaluation(employee_id: str) -> None:
-    st.session_state.view = "eval"
-    st.session_state.eval_employee = employee_id
+SORT_KEYS = {
+    "pilnosc": lambda r: (r["_stage"] == DONE, r["Dni"] if r["Dni"] is not None else 10**6),
+    "pracownik": lambda r: r["Pracownik"],
+    "arkusz": lambda r: (r["Arkusz"], r["Pracownik"]),
+    "etap": lambda r: (r["_stage"], r["Pracownik"]),
+    "termin": lambda r: (r["Termin"] is None, r["Termin"] or date.max),
+    "sygnaly": lambda r: (-r["_signals"], r["Pracownik"]),
+}
+
+
+def _toggle_sort(col: str) -> None:
+    cur, asc = st.session_state.get("team_sort", ("pilnosc", True))
+    st.session_state.team_sort = (col, not asc if cur == col else True)
 
 
 def _rows(state: DemoState) -> list[dict]:
@@ -61,12 +72,11 @@ def render(state: DemoState) -> None:
     with main:
         q = st.text_input("Szukaj pracownika", placeholder="🔍 imię, nazwisko, stanowisko, komórka…",
                           label_visibility="collapsed")
-        f1, f2, f3, f4 = st.columns([1.4, 1, 1.1, 1.2])
+        f1, f2, f3 = st.columns([1.5, 1, 1.2], vertical_alignment="bottom")
         stage_opts = [f"{i} · {s}" for i, s in enumerate(STAGES, start=1)] + ["Zakończona"]
         stages = f1.multiselect("Etap", stage_opts, placeholder="wszystkie etapy")
         sheets = f2.multiselect("Arkusz", ["A", "B", "C"], placeholder="A / B / C")
         only_signals = f3.toggle("Tylko z sygnałami HR")
-        sort = f4.selectbox("Sortuj", ["Termin (najbliższy)", "Pracownik (A–Z)", "Etap"])
 
         view = rows
         if q:
@@ -78,24 +88,24 @@ def render(state: DemoState) -> None:
             view = [r for r in view if r["Arkusz"] in sheets]
         if only_signals:
             view = [r for r in view if r["_signals"]]
-        if sort.startswith("Termin"):
-            view = sorted(view, key=lambda r: (r["_stage"] == DONE, r["Dni"] if r["Dni"] is not None else 10**6))
-        elif sort.startswith("Pracownik"):
-            view = sorted(view, key=lambda r: r["Pracownik"])
-        else:
-            view = sorted(view, key=lambda r: r["_stage"])
+        sort_col, asc = st.session_state.get("team_sort", ("pilnosc", True))
+        view = sorted(view, key=SORT_KEYS[sort_col], reverse=not asc)
 
-        widths = [0.35, 2.2, 0.45, 1.9, 1.2, 1.9]
+        widths = [0.45, 2.2, 0.55, 1.9, 1.2, 1.9]
         head = st.columns(widths, vertical_alignment="center")
-        for col, name in zip(head, ["", "Pracownik", "Ark.", "Etap · status", "Termin", "Sygnały HR"]):
-            col.markdown(f"<span class='lock'><b>{name}</b></span>", unsafe_allow_html=True)
+        headers = [("pilnosc", "⏱"), ("pracownik", "Pracownik"), ("arkusz", "Ark."), ("etap", "Etap · status"),
+                   ("termin", "Termin"), ("sygnaly", "Sygnały HR")]
+        for col, (key, name) in zip(head, headers):
+            arrow = (" ▲" if asc else " ▼") if key == sort_col else ""
+            col.button(name + arrow, key=f"sort_{key}", type="tertiary", on_click=_toggle_sort, args=(key,),
+                       help="Kliknij, aby posortować; ponownie – odwrotnie")
         for r in view:
             with st.container(border=True):
                 c = st.columns(widths, vertical_alignment="center")
                 c[0].markdown(r["Pilność"])
                 c[1].button(f"**{r['Pracownik']}** →", key=f"open_{r['id']}", type="tertiary",
                             on_click=open_evaluation, args=(r["id"],), help="Otwórz ocenę pracownika")
-                c[1].caption(r["Stanowisko"])
+                c[1].caption(f"{r['Stanowisko']} · {r['Komórka']}")
                 c[2].markdown(r["Arkusz"])
                 c[3].markdown(f"{r['Etap']}<br><span class='lock'>{r['Status']}</span>", unsafe_allow_html=True)
                 days = "" if r["Dni"] is None or r["_stage"] == DONE else \
@@ -108,17 +118,19 @@ def render(state: DemoState) -> None:
     with side:
         with st.container(border=True):
             st.markdown("**🗓️ Harmonogram**")
+            st.caption("Kliknij pozycję, aby przejść do oceny.")
             items = []
             for r in in_progress:
                 if r["Termin"] is not None:
-                    items.append((r["Termin"], f'{r["_label"]} – {r["Pracownik"]}', r["Pilność"]))
+                    items.append((r["Termin"], f'{r["_label"]} – {r["Pracownik"]}', r["Pilność"], r["id"], None))
             for (cycle_id, stage), when in state.invites.items():
                 if when.date() >= state.today:
                     emp = state.employee(state.cycle(cycle_id).employee_id)
-                    kind = "rozmowa rozpoczynająca" if stage == 1 else "rozmowa oceniająca"
-                    items.append((when.date(), f"{kind} {when:%H:%M} – {emp.full_name}", "📅"))
-            for due, text, icon in sorted(items)[:8]:
-                ui.html(f'<div class="note">{icon} <b>{ui.fmt(due)}</b> · {text}</div>')
+                    kind = "Rozmowa rozpoczynająca" if stage == 1 else "Rozmowa oceniająca"
+                    items.append((when.date(), f"{kind} {when:%H:%M} – {emp.full_name}", "📅", emp.id, stage))
+            for i, (due, text, icon, emp_id, stage) in enumerate(sorted(items, key=lambda x: x[0])[:8]):
+                st.button(f"{icon} **{ui.fmt(due)}** · {text}", key=f"sched_{i}_{emp_id}", type="tertiary",
+                          on_click=open_evaluation, args=(emp_id, stage))
             if not items:
                 st.caption("Brak zaplanowanych terminów.")
 

@@ -20,7 +20,14 @@ CSS = """
           --red:#ff7b72; --red-bg:rgba(248,81,73,.16); --violet:#d2a8ff; --violet-bg:rgba(163,113,247,.18);
           --grey-bg:rgba(110,118,129,.14); --surface:transparent; }
 }
-.block-container { padding-top: 1.4rem; max-width: 1400px; }
+.block-container { padding-top: 3.6rem; max-width: 1400px; }
+/* toasts (bottom-right notifications): bigger and easier to notice */
+div[data-testid="stToast"] { min-width: 380px; padding: 14px 18px; font-size: 1.05rem;
+                             border-left: 5px solid var(--blue); box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+div[data-testid="stToast"] p { font-size: 1.05rem; }
+/* link-like buttons (schedule, notifications, names, column headers): left-aligned */
+button[data-testid="stBaseButton-tertiary"] { justify-content: flex-start; text-align: left; }
+button[data-testid="stBaseButton-tertiary"] div, button[data-testid="stBaseButton-tertiary"] p { text-align: left; justify-content: flex-start; }
 .app-title { font-size: 1.35rem; font-weight: 700; margin: 0; line-height: 1.2; }
 .app-sub { color: var(--muted); font-size: .85rem; margin: 0; }
 .badge { display:inline-block; padding: 1px 8px; border-radius: 999px; font-size: .75rem; font-weight: 600;

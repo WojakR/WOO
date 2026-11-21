@@ -12,7 +12,8 @@ from app.domain.notes import Note, Sentiment, evidence_by_criterion
 from app.domain.scoring import Outcome, compute_result
 from backend import kprm
 from frontend import ui
-from frontend.demo_state import DONE, STAGES, DemoState, default_meeting, ics_invite, safe
+from frontend.demo_state import (DONE, STAGES, DemoState, change_sheet, default_meeting, ics_invite, open_evaluation,
+                                 safe)
 from frontend.sheet_export import sheet_html
 
 SENT_OPTS = {"POZYTYWNY": "+ pozytywna", "NEUTRALNY": "neutralna", "NEGATYWNY": "− negatywna"}
@@ -42,19 +43,22 @@ def _locked(text: str = "Pole zablokowane po zatwierdzeniu etapu – zmiana tylk
 
 def _invite_block(state: DemoState, cycle, stage: int, title: str, minutes: int) -> None:
     emp = state.employee(cycle.employee_id)
-    current = state.invites.get((cycle.id, stage), default_meeting(state.today))
-    c1, c2, c3 = st.columns([1, 1, 1.3])
+    sent = state.invites.get((cycle.id, stage))
+    current = sent or default_meeting(state.today)
+    if sent:
+        st.success(f"Zaproszenie wysłane do: {emp.full_name} – {sent:%d.%m.%Y, %H:%M}. "
+                   "Oceniany widzi je w powiadomieniach (🔔).")
+    c1, c2, c3 = st.columns([1, 1, 1.3], vertical_alignment="bottom")
     d = c1.date_input("Data rozmowy", current.date(), key=f"inv_d_{cycle.id}_{stage}", format="DD.MM.YYYY")
     t = c2.time_input("Godzina", current.time(), key=f"inv_t_{cycle.id}_{stage}", step=900)
     when = datetime.combine(d, t)
-    with c3:
-        st.write("")
-        st.write("")
-        if st.button("Zapisz termin", key=f"inv_s_{cycle.id}_{stage}", use_container_width=True):
-            state.invites[(cycle.id, stage)] = when
-            st.toast(f"Zaplanowano: {when:%d.%m.%Y %H:%M}")
+    if c3.button("✉️ Wyślij zaproszenie" if not sent else "✉️ Wyślij nowy termin", key=f"inv_s_{cycle.id}_{stage}",
+                 use_container_width=True, type="primary"):
+        state.invites[(cycle.id, stage)] = when
+        st.toast(f"Wysłano zaproszenie do: {emp.full_name} ({when:%d.%m.%Y, %H:%M}).")
+        st.rerun()
     st.download_button(
-        "📅 Pobierz zaproszenie (.ics – Outlook, Thunderbird)",
+        "📅 Dodaj do kalendarza (.ics – Outlook, Thunderbird)",
         ics_invite(f"{title} – {emp.full_name}", when, minutes,
                    f"{title} w ramach oceny okresowej (arkusz {cycle.sheet})."),
         file_name=f"zaproszenie-{cycle.employee_id}-{stage}.ics", mime="text/calendar",
@@ -95,50 +99,88 @@ def _render_prep(prep) -> None:
 
 # ---------------------------------------------------------------- stage 1
 
+def _slot_keys(cycle) -> list[str]:
+    return [f"add_{cycle.id}_{i}" for i in range(3)]
+
+
+def _chosen(cycle) -> list[str]:
+    return [st.session_state[k] for k in _slot_keys(cycle) if st.session_state.get(k)]
+
+
+def _put_in_free_slot(cycle, criterion_id: str) -> None:
+    for k in _slot_keys(cycle):
+        if not st.session_state.get(k):
+            st.session_state[k] = criterion_id
+            return
+
+
 def _stage_criteria(state: DemoState, cycle, current: bool) -> None:
     rules = state.service.rules
     emp = state.employee(cycle.employee_id)
     editable = current and cycle.is_editable("additional_criteria")
-    sheet_info = kprm.sheets()["arkusze"][cycle.sheet]
+    sheets = kprm.sheets()["arkusze"]
+
     st.markdown("#### Arkusz oceny")
-    ui.html(f"<p>{ui.badge('Arkusz ' + cycle.sheet, 'b-blue')} {escape(sheet_info['opis'])}<br>"
-            f"<span class='lock'>Dobrany na podstawie stanowiska: {escape(emp.position)}</span></p>")
+    if editable:
+        c1, c2 = st.columns([1, 2.2], vertical_alignment="bottom")
+        new_sheet = c1.selectbox("Arkusz", list(sheets), index=list(sheets).index(cycle.sheet),
+                                 format_func=lambda s: f"Arkusz {s}", key=f"sheet_{cycle.id}")
+        c2.markdown(f"{escape(sheets[new_sheet]['opis'])}<br>"
+                    f"<span class='lock'>Podpowiedź na podstawie stanowiska „{escape(emp.position)}”: "
+                    f"arkusz {emp.sheet}. Możesz wybrać inny.</span>", unsafe_allow_html=True)
+        if new_sheet != cycle.sheet:
+            problems = change_sheet(state, cycle.id, new_sheet)
+            if problems:
+                ui.show_problems(problems)
+            else:
+                for k in _slot_keys(cycle):
+                    if st.session_state.get(k) in rules.mandatory(new_sheet):
+                        st.session_state[k] = None
+                st.rerun()
+    else:
+        ui.html(f"<p>{ui.badge('Arkusz ' + cycle.sheet, 'b-blue')} {escape(sheets[cycle.sheet]['opis'])}</p>")
 
     st.markdown("#### Kryteria oceny")
-    left, right = st.columns(2)
-    with left:
-        ui.card("Obowiązkowe (stałe dla arkusza)", ui.ul(_criteria_names(state, rules.mandatory(cycle.sheet))))
-    with right:
-        options = [c["id"] for c in kprm.optional_criteria(cycle.sheet)]
-        key = f"add_{cycle.id}"
-        if key not in st.session_state:
-            st.session_state[key] = list(cycle.additional_criteria)
-        st.multiselect(f"Dodatkowe (0–{rules.max_additional_criteria}, bez powtórzeń)", options,
-                       format_func=rules.criterion_name, max_selections=rules.max_additional_criteria,
-                       key=key, disabled=not editable, placeholder="wybierz kryteria")
-        if not editable:
-            _locked()
+    ui.card("Kryteria obowiązkowe (stałe dla arkusza)", ui.ul(_criteria_names(state, rules.mandatory(cycle.sheet))))
+    st.markdown(f"**Kryteria dodatkowe** <span class='lock'>– najwyżej {rules.max_additional_criteria}, "
+                "bez powtórzeń; puste pole = brak</span>", unsafe_allow_html=True)
+    options = [c["id"] for c in kprm.optional_criteria(cycle.sheet)]
+    keys = _slot_keys(cycle)[:rules.max_additional_criteria]
+    for i, k in enumerate(keys):
+        if k not in st.session_state:
+            st.session_state[k] = cycle.additional_criteria[i] if i < len(cycle.additional_criteria) else None
+    for i, k in enumerate(keys):
+        taken = {st.session_state.get(o) for o in keys if o != k}
+        opts = [None] + [o for o in options if o not in taken]
+        if st.session_state.get(k) not in opts:
+            st.session_state[k] = None
+        st.selectbox(f"Kryterium dodatkowe {i + 1}", opts, key=k, disabled=not editable, placeholder="— brak —",
+                     format_func=lambda c: "— brak —" if c is None else rules.criterion_name(c))
+    if not editable:
+        _locked()
 
     if editable:
-        with st.expander("✨ Podpowiedz kryteria dodatkowe", expanded=not cycle.additional_criteria):
+        with st.expander("✨ Asystent: zaproponuj kryteria dodatkowe", expanded=not _chosen(cycle)):
+            st.caption("Asystent dobiera kryteria dodatkowe pasujące do stanowiska i opisanych zadań, "
+                       "z krótkim uzasadnieniem. To tylko propozycja – kryterium dodajesz sam przyciskiem „Dodaj”.")
             desc = st.text_area("Główne zadania na stanowisku (opcjonalnie – poprawia trafność)",
                                 key=f"desc_{cycle.id}", height=70,
                                 placeholder="np. obsługa interesantów, analizy, projekty unijne…")
             if st.button("Zaproponuj kryteria", key=f"sugg_{cycle.id}"):
-                state.ai_cache.pop(repr(("crit", cycle.id, desc)), None)
+                state.ai_cache.pop(repr(("crit", cycle.id, cycle.sheet, desc)), None)
                 st.session_state[f"sugg_on_{cycle.id}"] = desc
             if f"sugg_on_{cycle.id}" in st.session_state:
                 d = st.session_state[f"sugg_on_{cycle.id}"]
-                sug = _cached(state, ("crit", cycle.id, d), lambda: state.assistant.suggest_criteria(emp, cycle.sheet, d))
+                sug = _cached(state, ("crit", cycle.id, cycle.sheet, d),
+                              lambda: state.assistant.suggest_criteria(emp, cycle.sheet, d))
                 ui.html(f"<p class='lock'>Źródło: {ui.source_badge(sug.source)} – to tylko propozycja.</p>")
+                chosen = _chosen(cycle)
                 for item in sug.items:
-                    a, b = st.columns([4, 1])
+                    a, b = st.columns([4, 1], vertical_alignment="center")
                     a.markdown(f"**{item.name}** – {item.reason}")
-                    chosen = st.session_state[key]
-                    full = len(chosen) >= rules.max_additional_criteria
                     b.button("Dodaj", key=f"addsug_{cycle.id}_{item.criterion_id}",
-                             disabled=item.criterion_id in chosen or full,
-                             on_click=lambda cid=item.criterion_id: st.session_state[key].append(cid))
+                             disabled=item.criterion_id in chosen or len(chosen) >= len(keys),
+                             on_click=_put_in_free_slot, args=(cycle, item.criterion_id))
 
     st.markdown("#### Oczekiwania i cele na okres oceny")
     goals_key = f"goals_{cycle.id}"
@@ -149,14 +191,26 @@ def _stage_criteria(state: DemoState, cycle, current: bool) -> None:
 
     st.markdown("#### Termin sporządzenia oceny")
     default_deadline = state.service.evaluation_deadline(cycle.id)
-    override = None
+    override = cycle.deadline_override
     if editable:
-        c1, c2 = st.columns([1.2, 1])
-        c1.markdown(f"Wyliczony z przepisów: **{ui.fmt(default_deadline)}** "
-                    f"({rules.cycle_months} mies. od {ui.fmt(cycle.start_date)})")
-        if c2.toggle("Ustal inny termin", key=f"ovr_on_{cycle.id}", value=cycle.deadline_override is not None):
-            override = c2.date_input("Nowy termin", cycle.deadline_override or default_deadline,
-                                     key=f"ovr_{cycle.id}", format="DD.MM.YYYY")
+        st.markdown(f"Termin: **{ui.fmt(default_deadline)}** <span class='lock'>"
+                    + ("(ustalony przez oceniającego)" if override else
+                       f"(wyliczony z przepisów: {rules.cycle_months} mies. od {ui.fmt(cycle.start_date)})")
+                    + "</span>", unsafe_allow_html=True)
+        with st.popover("📆 Zmień termin oceny"):
+            new = st.date_input("Nowy termin sporządzenia oceny", default_deadline, key=f"ovr_{cycle.id}",
+                                format="DD.MM.YYYY", min_value=state.today)
+            a, b = st.columns(2)
+            if a.button("Zapisz termin", type="primary", key=f"ovr_save_{cycle.id}", use_container_width=True):
+                _, problems = safe(state.service.edit, cycle.id, cycle.evaluator_id, deadline_override=new)
+                if problems:
+                    ui.show_problems(problems)
+                else:
+                    st.toast(f"Nowy termin oceny: {ui.fmt(new)}")
+                    st.rerun()
+            if override and b.button("Przywróć wyliczony", key=f"ovr_reset_{cycle.id}", use_container_width=True):
+                _, problems = safe(state.service.edit, cycle.id, cycle.evaluator_id, deadline_override=None)
+                ui.show_problems(problems) if problems else st.rerun()
     else:
         st.markdown(f"**{ui.fmt(default_deadline)}**")
         _locked("Zmiana terminu po potwierdzeniu kryteriów – w trybie zmiany terminu oceny.")
@@ -164,7 +218,10 @@ def _stage_criteria(state: DemoState, cycle, current: bool) -> None:
     if current:
         with st.expander("📅 Zaproszenie na rozmowę rozpoczynającą"):
             _invite_block(state, cycle, 1, "Rozmowa rozpoczynająca ocenę okresową", 45)
-        with st.expander("🗣️ Przygotowanie do rozmowy rozpoczynającej"):
+        with st.expander("🗣️ Ściąga na rozmowę rozpoczynającą"):
+            st.caption("Podpowiedź przed rozmową z pracownikiem: cel rozmowy, plan z czasem, a dla każdego kryterium "
+                       "pytania i oczekiwania, które warto omówić. Na tej rozmowie ustalacie, czego oczekujesz "
+                       "w okresie oceny – przepisy wymagają jej przy wyznaczaniu kryteriów (§ 5 rozporządzenia).")
             _render_prep(_prep(state, cycle, "ROZPOCZYNAJACA"))
 
     if not current:
@@ -180,7 +237,7 @@ def _stage_criteria(state: DemoState, cycle, current: bool) -> None:
     if st.button(label, type="primary", key=f"setcrit_{cycle.id}"):
         goals = [g for g in st.session_state[goals_key].splitlines() if g.strip()]
         _, problems = safe(state.service.set_criteria, cycle.id, cycle.evaluator_id,
-                           list(st.session_state[key]), goals, override)
+                           _chosen(cycle), goals, override)
         if problems:
             ui.show_problems(problems)
         else:
@@ -568,7 +625,7 @@ def render(state: DemoState, employee_id: str) -> None:
                             format_func=lambda i: f"{state.employee(i).full_name} – {state.employee(i).position}",
                             label_visibility="collapsed")
     if chosen != employee_id:
-        st.session_state.eval_employee = chosen
+        open_evaluation(chosen)
         st.rerun()
 
     emp = state.employee(employee_id)
@@ -582,8 +639,11 @@ def render(state: DemoState, employee_id: str) -> None:
 
     sel_key = f"sel_{cycle.id}"
     current = state.stage(cycle)
-    if sel_key not in st.session_state:
+    seen_key = f"seen_{cycle.id}"
+    if sel_key not in st.session_state or st.session_state.get(seen_key) != current:
+        # default: the stage the process is at now (also after it moved on, e.g. the employee confirmed)
         st.session_state[sel_key] = min(current, len(STAGES))
+        st.session_state[seen_key] = current
     st.markdown(f"### {emp.full_name} <span class='lock'>· {escape(emp.position)} · {escape(emp.unit)}</span>",
                 unsafe_allow_html=True)
     selected = ui.stepper(state, cycle, st.session_state[sel_key], sel_key)
