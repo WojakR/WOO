@@ -160,6 +160,25 @@ def _training(api: Api, unit: str | None, ai: bool) -> None:
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
 
+def _statement(api: Api, me: dict, rok: int | None, unit: str | None) -> None:
+    """Statement for the reporting system / inspections: one evaluation = one row (server: /api/reports/zestawienie)."""
+    with st.expander("Zestawienie ocen do sprawozdań i kontroli", icon=":material/summarize:"):
+        st.caption("Jedna ocena = jeden wiersz: terminy i ich dotrzymanie, wynik, sprzeciw, wniosek o stopień. Bez "
+                   "danych osobowych osoby mają stały pseudonim (P-…).")
+        a, b, c = st.columns([1, 1, 1.4])
+        od = a.date_input("Sporządzone od", value=None, key="stmt_od", format="DD.MM.YYYY")
+        do = b.date_input("Sporządzone do", value=None, key="stmt_do", format="DD.MM.YYYY")
+        personal = c.toggle("Z imionami i nazwiskami", key="stmt_personal", disabled=me["rola"] != "KADRY",
+                            help="Tylko dla kadr.")
+        params = {"rok": rok, "komorka": unit, "od": od, "do": do, "dane_osobowe": personal or None}
+        x, y = st.columns(2)
+        x.download_button("Pobierz CSV (Excel)", lambda: api.statement("csv", **params), icon=":material/download:",
+                          file_name="zestawienie-ocen.csv", mime="text/csv", on_click="ignore", use_container_width=True)
+        y.download_button("Pobierz JSON (system sprawozdawczy)", lambda: api.statement("json", **params),
+                          icon=":material/data_object:", file_name="zestawienie-ocen.json", mime="application/json",
+                          on_click="ignore", use_container_width=True)
+
+
 def render(api: Api, me: dict, ai: bool = True) -> None:
     st.subheader(":material/bar_chart: Dashboard", help="Statystyki ocen z serwera. Kadry widzą cały urząd, przełożony – osoby, których "
                  "oceny widzi. Wyniki małych grup są ukryte (ochrona prywatności).")
@@ -174,6 +193,7 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
     rok = None if year == "Wszystkie" else int(year)
     komorka = None if unit == "Wszystkie" else unit
     st.caption(f"Zakres: {base['zakres']}.")
+    _statement(api, me, rok, komorka)
     tabs = st.tabs([":material/trending_up: Postęp ocen", ":material/track_changes: Wyniki", ":material/school: Potrzeby szkoleniowe"])
     with tabs[0]:
         _progress(api, rok, komorka)

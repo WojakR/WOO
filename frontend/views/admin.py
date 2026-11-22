@@ -258,6 +258,121 @@ def _staff_changes(api: Api, today: date, kind: str) -> None:
             st.rerun()
 
 
+def _person_form(prefix: str, form: dict, people: dict[int, dict], today: date) -> dict:
+    """Fields of the server's EmployeeForm; returns the form to send."""
+    a, b, c = st.columns(3)
+    out = dict(form)
+    out["imie"] = a.text_input("Imię *", value=form.get("imie") or "", key=f"{prefix}_imie")
+    out["nazwisko"] = b.text_input("Nazwisko *", value=form.get("nazwisko") or "", key=f"{prefix}_nazwisko")
+    out["email"] = c.text_input("E-mail", value=form.get("email") or "", key=f"{prefix}_email") or None
+    a, b = st.columns(2)
+    out["stanowisko"] = a.text_input("Stanowisko *", value=form.get("stanowisko") or "", key=f"{prefix}_stan")
+    out["komorka"] = b.text_input("Komórka", value=form.get("komorka") or "", key=f"{prefix}_kom")
+    boss_ids = [None] + [i for i in people if people[i]["id"] != form.get("_number")]
+    cur_boss = form.get("przelozony")
+    a, b, c = st.columns([1.6, 1, 1])
+    out["przelozony"] = a.selectbox("Przełożony (oceniający)", boss_ids, key=f"{prefix}_boss",
+                                    index=boss_ids.index(cur_boss) if cur_boss in boss_ids else 0,
+                                    format_func=lambda i: "— brak —" if i is None else
+                                    f"{name(people[i])} · {people[i].get('stanowisko') or ''}")
+    sheets = [None, "A", "B", "C"]
+    out["arkusz"] = b.selectbox("Arkusz", sheets, key=f"{prefix}_ark",
+                                index=sheets.index(form.get("arkusz")) if form.get("arkusz") in sheets else 0,
+                                format_func=lambda x: "dobierze system" if x is None else f"arkusz {x}",
+                                help="A – kierownik urzędu, B – kieruje ludźmi, C – pozostali (§ 3 rozporządzenia).")
+    out["data_zatrudnienia"] = c.date_input("Data zatrudnienia", value=to_date(form.get("data_zatrudnienia")),
+                                            key=f"{prefix}_zatr", format="DD.MM.YYYY")
+    a, b, c = st.columns(3)
+    out["kieruje_zespolem"] = a.toggle("Kieruje zespołem", value=bool(form.get("kieruje_zespolem")), key=f"{prefix}_kz")
+    out["urzednik_mianowany"] = b.toggle("Urzędnik mianowany", value=bool(form.get("urzednik_mianowany")),
+                                         key=f"{prefix}_um")
+    out["kierownik_urzedu"] = c.toggle("Kierownik urzędu", value=bool(form.get("kierownik_urzedu")), key=f"{prefix}_ku")
+    if out["urzednik_mianowany"]:
+        out["stopien_sluzbowy"] = st.number_input("Stopień służbowy", 1, 9, int(form.get("stopien_sluzbowy") or 1),
+                                                  key=f"{prefix}_st")
+    out["data_ostatniej_oceny"] = st.date_input("Data ostatniej oceny (jeśli była przed systemem)",
+                                                value=to_date(form.get("data_ostatniej_oceny")), key=f"{prefix}_ost",
+                                                format="DD.MM.YYYY")
+    for k in ("data_zatrudnienia", "data_ostatniej_oceny", "data_zakonczenia_zatrudnienia", "data_przyznania_stopnia"):
+        if isinstance(out.get(k), date):
+            out[k] = out[k].isoformat()
+    out.pop("_number", None)
+    return out
+
+
+def _missing(form: dict) -> list[str]:
+    return [label for key, label in (("imie", "imię"), ("nazwisko", "nazwisko"), ("stanowisko", "stanowisko"))
+            if not (form.get(key) or "").strip()]
+
+
+def _people_admin(api: Api, today: date) -> None:
+    """Employees entered by hand (HR): add, edit, remove the data of a person – the same rules as the HR import."""
+    data = _call(api.employees, na_strone=200)
+    if data is None:
+        return
+    people = {r["pracownik"]["id"]: r["pracownik"] for r in data["pozycje"]}
+    last = st.session_state.get("adm_people_msg")
+    if last:
+        st.success(last)
+        st.session_state.pop("adm_people_msg", None)
+    mode = st.segmented_control("Co chcesz zrobić?", ["dodaj", "edytuj", "usun"], default="dodaj", key="adm_people_mode",
+                                format_func={"dodaj": "Dodaj pracownika", "edytuj": "Edytuj dane",
+                                             "usun": "Usuń dane pracownika"}.get)
+    if mode == "dodaj":
+        st.caption("Pola z * są wymagane. Identyfikator (login) system utworzy z imienia i nazwiska.")
+        form = _person_form("add", {}, people, today)
+        start = st.checkbox("Od razu rozpocznij ocenę okresową (gdy ma przełożonego)", key="add_start")
+        if st.button("Dodaj pracownika", type="primary", icon=":material/person_add:", key="add_go"):
+            if _missing(form):
+                st.error("Uzupełnij: " + ", ".join(_missing(form)) + ".")
+                return
+            out = _call(api.add_employee, form, start)
+            if out is not None:
+                st.session_state.adm_people_msg = (f"Dodano: {name(out['pracownik'])}."
+                                                   + (" Rozpoczęto ocenę okresową." if out.get("uruchomiony_cykl") else ""))
+                for k in [k for k in st.session_state if isinstance(k, str) and k.startswith("add_")]:
+                    del st.session_state[k]
+                st.rerun()
+        return
+    pid = st.selectbox("Pracownik", list(people), key=f"adm_people_who_{mode}",
+                       format_func=lambda i: f"{name(people[i])} · {people[i].get('stanowisko') or ''}")
+    if mode == "edytuj":
+        form = _call(api.employee_form, pid)
+        if form is None:
+            return
+        form["_number"] = pid
+        new = _person_form(f"edit_{pid}", form, people, today)
+        st.caption("Przełożonego osoby z oceną w toku zmienisz w zakładce „Zmiana oceniającego” – tam system "
+                   "rozstrzyga, co dzieje się z trwającą oceną.")
+        if st.button("Zapisz zmiany", type="primary", icon=":material/save:", key=f"edit_go_{pid}"):
+            if _missing(new):
+                st.error("Uzupełnij: " + ", ".join(_missing(new)) + ".")
+            elif _call(api.update_employee, pid, new) is not None:
+                st.session_state.adm_people_msg = f"Zapisano dane: {new['imie']} {new['nazwisko']}."
+                st.rerun()
+        return
+    st.markdown("Usunięcie danych (np. po ustaniu zatrudnienia): zamknięte oceny trafią do archiwum, pozostałe dane "
+                "i konto zostaną usunięte, zostaje zapis bez danych osobowych.")
+    end = st.date_input("Data ustania zatrudnienia", value=today, key=f"del_end_{pid}", format="DD.MM.YYYY")
+    plan = _call(api.removal_preview, pid, end)
+    if plan is None:
+        return
+    ui.html(ui.kv([("Do archiwum (zamknięte oceny)", str(len(plan["do_archiwum"]))),
+                   ("Do usunięcia (oceny nie sporządzone)", str(len(plan["do_usuniecia"])))]))
+    for p in plan["przeszkody"]:
+        st.error(p)
+    if not plan["mozna_usunac"]:
+        st.caption("Najpierw usuń przeszkody wymienione wyżej.")
+        return
+    sure = st.checkbox(f"Potwierdzam usunięcie danych: {name(people[pid])} (nie da się cofnąć)", key=f"del_ok_{pid}")
+    if st.button("Usuń dane pracownika", icon=":material/person_remove:", disabled=not sure, key=f"del_go_{pid}"):
+        out = _call(api.remove_employee, pid, end)
+        if out is not None and out.get("usunieto"):
+            st.session_state.adm_people_msg = (f"Usunięto dane: {name(people[pid])} · do archiwum: "
+                                               f"{len(out['do_archiwum'])} · usunięte konta: {out.get('usuniete_konta', 0)}.")
+            st.rerun()
+
+
 def _rcp_eakt(api: Api) -> None:
     with st.container(border=True):
         st.markdown("#### :material/timer: Rejestracja czasu pracy (RCP)", help="Dane o nadgodzinach i przerwach trafiają do HR "
@@ -292,6 +407,29 @@ def _rcp_eakt(api: Api) -> None:
                                + (f" – {x['blad']}" if x.get("blad") else ""))
 
 
+def _ezd(api: Api) -> None:
+    with st.container(border=True):
+        st.markdown("#### :material/folder_shared: EZD – elektroniczne zarządzanie dokumentacją",
+                    help="Arkusz po zapoznaniu lub po rozpatrzeniu sprzeciwu i pismo o zmianie terminu są rejestrowane "
+                         "w systemie obiegu dokumentów urzędu.")
+        data = _call(api.ezd)
+        if data is None:
+            return
+        if data.get("tryb") == "off":
+            st.info("Integracja z EZD jest wyłączona na serwerze (EZD_MODE=off).")
+        else:
+            st.caption(f"Tryb: {data.get('tryb')} · JRWA: {data.get('jrwa') or '—'}")
+        docs = data.get("dokumenty") or []
+        if docs:
+            st.dataframe(pd.DataFrame(docs), hide_index=True, use_container_width=True)
+        elif data.get("tryb") != "off":
+            st.caption("Brak zarejestrowanych dokumentów.")
+        if st.button("Ponów nieudane rejestracje", icon=":material/refresh:", key="adm_ezd"):
+            out = _call(api.ezd_retry)
+            if out is not None:
+                st.success(f"Ponowiono: {len(out.get('ponowiono', []))}.")
+
+
 def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
     st.subheader(":material/admin_panel_settings: Panel administratora", help="Ustawienia całego urzędu. Zmiany zapisuje serwer w bazie; "
                  "przepisy zmieniasz jako nowe wersje z datą i podstawą prawną.")
@@ -299,8 +437,8 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
         st.info("Panel administratora jest dostępny dla działu kadr.")
         return
     today = to_date(meta["dzis"])
-    tabs = st.tabs([":material/policy: Terminy", ":material/checklist: Kryteria i etapy", ":material/apartment: Urząd i przypomnienia", ":material/groups: Import pracowników",
-                    ":material/badge: Zmiana stanowiska", ":material/supervisor_account: Zmiana oceniającego", ":material/inventory_2: Archiwum kadr", ":material/timer: RCP i e-Akt"])
+    tabs = st.tabs([":material/policy: Terminy", ":material/checklist: Kryteria i etapy", ":material/apartment: Urząd i przypomnienia", ":material/person: Pracownicy", ":material/upload_file: Import pracowników",
+                    ":material/badge: Zmiana stanowiska", ":material/supervisor_account: Zmiana oceniającego", ":material/inventory_2: Archiwum kadr", ":material/timer: RCP, e-Akt i EZD"])
     with tabs[0]:
         _terms(api, today)
     with tabs[1]:
@@ -308,12 +446,14 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
     with tabs[2]:
         _office(api, me, users, today)
     with tabs[3]:
-        _people(api)
+        _people_admin(api, today)
     with tabs[4]:
-        _staff_changes(api, today, "stanowisko")
+        _people(api)
     with tabs[5]:
-        _staff_changes(api, today, "oceniajacy")
+        _staff_changes(api, today, "stanowisko")
     with tabs[6]:
+        _staff_changes(api, today, "oceniajacy")
+    with tabs[7]:
         inner = st.tabs([":material/ac_unit: Zamrożone oceny", ":material/hourglass_top: Okresy przechowywania", ":material/upload_file: Import starych ocen"])
         with inner[0]:
             archive._frozen(api)
@@ -321,5 +461,6 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
             archive._retention(api)
         with inner[2]:
             archive._legacy(api)
-    with tabs[7]:
+    with tabs[8]:
         _rcp_eakt(api)
+        _ezd(api)

@@ -91,7 +91,8 @@ def _attention(items: list[dict]) -> None:
                     col.caption(label)
 
 
-TASK_KIND = {"DWIE_NEGATYWNE": ":material/warning: Dwie negatywne oceny z rzędu", "STOPIEN_OBLIGATORYJNY": ":material/military_tech: Obligatoryjny kolejny stopień"}
+TASK_KIND = {"DWIE_NEGATYWNE": ":material/warning: Dwie negatywne oceny z rzędu", "STOPIEN_OBLIGATORYJNY": ":material/military_tech: Obligatoryjny kolejny stopień",
+             "WNIOSEK_O_STOPIEN": ":material/workspace_premium: Wniosek o kolejny stopień"}
 
 
 def _hr_tasks(api: Api) -> None:

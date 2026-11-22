@@ -142,6 +142,7 @@ class Api:
 
     def action(self, eid: int, akcja: str, komentarz: str | None = None, uwzglednij: bool | None = None,
                tryb: str | None = None) -> dict:
+        """`tryb` – only for an upheld objection: ZMIANA_OCENY or PONOWNE_SPORZADZENIE."""
         return self._req("POST", f"/evaluations/{eid}/actions/{akcja}",
                          {"komentarz": komentarz, "uwzglednij": uwzglednij, "tryb": tryb})
 
@@ -364,6 +365,51 @@ class Api:
 
     def eakt_retry(self) -> dict:
         return self._req("POST", "/admin/eakt/retry")
+
+    # ---- invitations to the conversations (sent by the server, .ics from the server) -------------------
+    def invitations(self, eid: int) -> list[dict]:
+        return self._req("GET", f"/evaluations/{eid}/zaproszenia")
+
+    def invite(self, eid: int, kind: str, when, minutes: int, place: str, notes: str = "") -> dict:
+        return self._req("POST", f"/evaluations/{eid}/zaproszenia",
+                         {"rodzaj": kind, "termin": when.isoformat(), "czas_min": minutes, "miejsce": place,
+                          "uwagi": notes})
+
+    def invitation_ics(self, eid: int, n: int) -> bytes:
+        return self._req("GET", f"/evaluations/{eid}/zaproszenia/{n}.ics", raw=True).content
+
+    def cancel_invitation(self, eid: int, n: int) -> dict:
+        return self._req("POST", f"/evaluations/{eid}/zaproszenia/{n}/odwolaj")
+
+    # ---- employees entered by hand (HR) ---------------------------------------------------------------
+    def employee_form(self, employee_number: int) -> dict:
+        return self._req("GET", f"/admin/employees/{employee_number}")
+
+    def add_employee(self, form: dict, start_cycle: bool = False) -> dict:
+        return self._req("POST", "/admin/employees", form, params={"uruchom_cykl": str(start_cycle).lower()})
+
+    def update_employee(self, employee_number: int, form: dict) -> dict:
+        return self._req("PUT", f"/admin/employees/{employee_number}", form)
+
+    def removal_preview(self, employee_number: int, end: date | None) -> dict:
+        return self._req("GET", f"/admin/employees/{employee_number}/usuniecie",
+                         params={"data_ustania_zatrudnienia": end.isoformat() if end else None})
+
+    def remove_employee(self, employee_number: int, end: date | None) -> dict:
+        return self._req("POST", f"/admin/employees/{employee_number}/usuniecie",
+                         {"data_ustania_zatrudnienia": end.isoformat() if end else None, "zatwierdzam": True})
+
+    # ---- statement for the reporting system, EZD -------------------------------------------------------
+    def statement(self, fmt: str, **params) -> bytes:
+        params = {k: (v.isoformat() if isinstance(v, date) else str(v).lower() if isinstance(v, bool) else v)
+                  for k, v in params.items() if v not in (None, "")}
+        return self._req("GET", f"/reports/zestawienie.{fmt}", params=params, raw=True).content
+
+    def ezd(self) -> dict:
+        return self._req("GET", "/admin/ezd")
+
+    def ezd_retry(self) -> dict:
+        return self._req("POST", "/admin/ezd/retry")
 
     # ---- help (T21) --------------------------------------------------------------------------------
     def knowledge(self) -> list[dict]:

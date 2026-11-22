@@ -19,7 +19,15 @@ from frontend.views.team import open_evaluation
 TEXT_FIELDS = {"uzasadnienie": ("Uzasadnienie oceny", "UZASADNIENIE"),
                "wnioski_iprz": ("Wnioski dotyczące indywidualnego programu rozwoju zawodowego", "IPRZ")}
 CHECK_LABEL = {"UZASADNIENIE_WYMAGANE": "Uzasadnienie oceny", "IPRZ_WYMAGANE": "Wnioski do IPRZ",
-               "BRAK_OCENY": "Oceny cząstkowe"}
+               "BRAK_OCENY": "Oceny cząstkowe",
+               "SPRZECIW_OBNIZENIE": "Po sprzeciwie ocena cząstkowa nie może być niższa niż przed nim",
+               "SPRZECIW_BRAK_ZMIAN": "Po uwzględnionym sprzeciwie ocena musi się czymś różnić"}
+OBJECTION_MODE = {
+    "ZMIANA_OCENY": ("Zmiana oceny", "Oceniający poprawia kwestionowane fragmenty. Ocena zachowuje datę sporządzenia "
+                     "i zapoznania – bez ponownego zapoznania i bez kolejnego sprzeciwu."),
+    "PONOWNE_SPORZADZENIE": ("Ponowne sporządzenie oceny", "Ocena jest anulowana i wraca do rozmowy oceniającej. "
+                             "Oceniany zapoznaje się z nią ponownie i może złożyć kolejny sprzeciw."),
+}
 
 
 # ---------------------------------------------------------------- small helpers
@@ -193,21 +201,43 @@ def _prep(api: Api, ev: dict, kind: str) -> None:
             ui.card(title, ui.ul(items or []) or "<p class='lock'>brak</p>")
 
 
-def _invite(ev: dict, today: date, stage: int, title: str, minutes: int) -> None:
-    """Calendar file only – sending invitations needs the backend's notifications (not in the API yet)."""
-    from frontend.ics import ics_invite
-
-    c1, c2 = st.columns(2)
-    d = c1.date_input("Data rozmowy", today + timedelta(days=3), key=f"inv_d_{ev['id']}_{stage}", format="DD.MM.YYYY")
-    t = c2.time_input("Godzina", time(10, 0), key=f"inv_t_{ev['id']}_{stage}", step=900)
-    when = datetime.combine(d, t)
-    st.download_button(":material/event: Pobierz zaproszenie do kalendarza (.ics – Outlook, Thunderbird)",
-                       ics_invite(f"{title} – {name(ev['oceniany'])}", when, minutes,
-                                  f"{title} w ramach oceny okresowej (arkusz {ev['arkusz']})."),
-                       file_name=f"zaproszenie-{ev['id']}-{stage}.ics", mime="text/calendar",
-                       key=f"inv_ics_{ev['id']}_{stage}")
-    st.caption("Wysłanie zaproszenia do pracownika w aplikacji wymaga obsługi powiadomień w backendzie – "
-               "na razie plik do kalendarza.")
+def _invite(api: Api, ev: dict, today: date, stage: int, title: str, minutes: int) -> None:
+    """Invitation sent by the server: the invited person gets a notification and an e-mail with the .ics file;
+    a new date sends an updated invitation, „Odwołaj” cancels it."""
+    eid = ev["id"]
+    kind = "ROZMOWA_KRYTERIA" if stage == 1 else "ROZMOWA_OCENIAJACA"
+    try:
+        sent = [i for i in api.invitations(eid) if i["rodzaj"] == kind]
+    except ApiError:
+        sent = []
+    current = next((i for i in reversed(sent) if not i["odwolane"]), None)
+    if current:
+        when = datetime.fromisoformat(current["termin"])
+        st.success(f"Wysłano zaproszenie: **{when:%d.%m.%Y, %H:%M}** · {current['czas_min']} min · "
+                   f"{current['miejsce']}" + (f" (zmiana terminu nr {current['wersja']})" if current["wersja"] else ""))
+        a, b = st.columns(2)
+        a.download_button(":material/event: Pobierz do kalendarza (.ics)", lambda: api.invitation_ics(eid, current["id"]),
+                          file_name=f"zaproszenie-{eid}-{stage}.ics", mime="text/calendar", on_click="ignore",
+                          key=f"inv_ics_{eid}_{stage}", use_container_width=True)
+        if b.button(":material/event_busy: Odwołaj spotkanie", key=f"inv_cancel_{eid}_{stage}", use_container_width=True):
+            if _call(api.cancel_invitation, eid, current["id"], ok="Odwołano spotkanie.") is not None:
+                st.rerun()
+        st.caption("Aby zmienić termin, wpisz nową datę poniżej – pracownik dostanie zaktualizowane zaproszenie.")
+    c1, c2, c3 = st.columns([1.2, 1, 1])
+    d = c1.date_input("Data rozmowy", today + timedelta(days=3), key=f"inv_d_{eid}_{stage}", format="DD.MM.YYYY")
+    t = c2.time_input("Godzina", time(10, 0), key=f"inv_t_{eid}_{stage}", step=900)
+    length = c3.number_input("Czas (min)", 15, 240, minutes, step=15, key=f"inv_m_{eid}_{stage}")
+    place = st.text_input("Miejsce", key=f"inv_p_{eid}_{stage}", placeholder="np. pokój 214 albo link do Teams")
+    notes = st.text_input("Uwagi (opcjonalnie)", key=f"inv_n_{eid}_{stage}",
+                          placeholder="np. proszę przygotować listę zadań z ostatniego roku")
+    if st.button(":material/send: " + ("Wyślij nowy termin" if current else "Wyślij zaproszenie"), type="primary",
+                 key=f"inv_send_{eid}_{stage}"):
+        if not place.strip():
+            st.error("Wpisz miejsce spotkania.")
+        elif _call(api.invite, eid, kind, datetime.combine(d, t), int(length), place.strip(), notes.strip(),
+                   ok="Wysłano zaproszenie.") is not None:
+            st.rerun()
+    st.caption(f"{name(ev['oceniany'])} dostanie powiadomienie w aplikacji i e-mail z plikiem do kalendarza.")
 
 
 # ---------------------------------------------------------------- stage 1: criteria
@@ -259,7 +289,7 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
 
     if ev["jako_oceniajacy"] and current_stage(ev) == 1:
         with st.expander(":material/event: Zaproszenie na rozmowę inicjującą"):
-            _invite(ev, today, 1, "Rozmowa inicjująca ocenę okresową", 45)
+            _invite(api, ev, today, 1, "Rozmowa inicjująca ocenę okresową", 45)
         if ai:
             with st.container(key="aiprep_start"):
                 with st.expander(":material/smart_toy: Wskazówki asystenta AI do rozmowy inicjującej"):
@@ -424,7 +454,7 @@ def _stage_review(api: Api, ev: dict, ai: bool, today: date) -> None:
         return
     if ev["jako_oceniajacy"]:
         with st.expander(":material/event: Zaproszenie na rozmowę oceniającą"):
-            _invite(ev, today, 3, "Rozmowa oceniająca", 60)
+            _invite(api, ev, today, 3, "Rozmowa oceniająca", 60)
         st.markdown("#### Przygotowanie do rozmowy")
         _talk_tips()
         if ai:
@@ -495,6 +525,7 @@ def pdf_button(api: Api, ev: dict, key: str = "pdf") -> None:
 
 def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
     eid = ev["id"]
+    _objection_order(ev)
     crit = _crit_dict(api, ev["arkusz"])
     can_score = "punkty" in ev["edytowalne_pola"]
     work = ev["jako_oceniajacy"] or me["rola"] == "KADRY"
@@ -771,14 +802,28 @@ def objection_panel(api: Api, ev: dict) -> None:
     if o:
         with st.container(border=True):
             st.markdown("**:material/gavel: Sprzeciw od oceny**")
-            ui.html(ui.kv([("Złożony", ui.fmt(o["zlozony"])), ("Termin rozstrzygnięcia", ui.fmt(o["termin_rozpatrzenia"])),
-                           ("Rozstrzygnięcie", {"UWZGLEDNIONY": "uwzględniony", "NIEUWZGLEDNIONY": "nieuwzględniony"}
-                            .get(o.get("decyzja"), "czeka na decyzję dyrektora generalnego"))]))
+            decision = {"UWZGLEDNIONY": "uwzględniony", "NIEUWZGLEDNIONY": "nieuwzględniony"}.get(
+                o.get("decyzja"), "czeka na decyzję dyrektora generalnego")
+            if o.get("tryb"):
+                decision += f" – {OBJECTION_MODE[o['tryb']][0].lower()}"
+            rows = [("Złożony", ui.fmt(o["zlozony"])), ("Termin rozstrzygnięcia", ui.fmt(o["termin_rozpatrzenia"])),
+                    ("Rozstrzygnięcie", decision)]
+            if o.get("tryb"):
+                rows.append(("Wykonanie", f"wykonano {ui.fmt(o['wykonano'])}" if o.get("wykonano")
+                             else f"oceniający do {ui.fmt(o.get('termin_wykonania'))}"))
+            ui.html(ui.kv(rows))
             ui.html(f"<p><b>Treść:</b> {escape(o['tresc'])}</p>")
             if o.get("uzasadnienie_decyzji"):
                 ui.html(f"<p><b>Uzasadnienie decyzji:</b> {escape(o['uzasadnienie_decyzji'])}</p>")
             if o.get("termin_odwolania_do_sadu"):
                 st.caption(f"Odwołanie do sądu pracy możliwe do {ui.fmt(o['termin_odwolania_do_sadu'])} (art. 83 ust. 5).")
+            before = o.get("przed_sprzeciwem")
+            if before:
+                level = LEVEL_LABEL.get(before.get("poziom"), "—")
+                wynik = (before.get("wynik") or "—").lower()
+                st.caption(f"Ocena przed sprzeciwem{' (anulowana)' if before.get('anulowana') else ''}: {wynik}, "
+                           f"średnia {before.get('srednia') or '—'}, {level}"
+                           f" – sporządzona {ui.fmt(before.get('data_sporzadzenia'))}.")
     if "ZLOZ_SPRZECIW" in ev["dozwolone_akcje"]:
         with st.container(border=True):
             st.markdown("**:material/gavel: Sprzeciw od oceny***")
@@ -793,18 +838,32 @@ def objection_panel(api: Api, ev: dict) -> None:
     if "ROZPATRZ_SPRZECIW" in ev["dozwolone_akcje"]:
         with st.container(border=True):
             st.markdown("**:material/gavel: Rozstrzygnięcie sprzeciwu**")
+            options = {"NIE": ("Nie uwzględniam sprzeciwu", "Ocena zostaje bez zmian. Oceniany może odwołać się do "
+                                                            "sądu pracy (art. 83 ust. 5).")}
+            options.update({k: (f"Uwzględniam – {v[0].lower()}", v[1]) for k, v in OBJECTION_MODE.items()})
+            choice = st.radio("Decyzja", list(options), format_func=lambda k: options[k][0], key=f"obj_choice_{eid}")
+            st.caption(options[choice][1] + (" Oceniający ma na to 14 dni od wniesienia sprzeciwu; ocena cząstkowa "
+                                             "nie może spaść." if choice != "NIE" else ""))
             reason = st.text_area("Uzasadnienie rozstrzygnięcia", key=f"obj_dec_{eid}")
-            modes = {"ZMIANA_OCENY": "Zmiana oceny", "PONOWNE_SPORZADZENIE": "Ponowne sporządzenie oceny"}
-            mode = st.radio("Po uwzględnieniu sprzeciwu (art. 83 ust. 4)", list(modes), format_func=modes.get,
-                            key=f"obj_mode_{eid}", horizontal=True)
-            a, b = st.columns(2)
-            for col, upheld, label in ((a, True, "Uwzględnij sprzeciw"), (b, False, "Nie uwzględniaj")):
-                if col.button(label, key=f"obj_{upheld}_{eid}", type="primary" if upheld else "secondary",
-                              use_container_width=True):
-                    _inline_action(api, eid, "ROZPATRZ_SPRZECIW", komentarz=reason.strip() or None, uwzglednij=upheld,
-                                   tryb=mode if upheld else None)
-            st.caption("Zmiana oceny: oceniający zastępuje kwestionowane fragmenty. Ponowne sporządzenie: ocena jest "
-                       "anulowana i wraca do rozmowy oceniającej. Nieuwzględniony: oceniany może odwołać się do sądu pracy.")
+            if st.button("Zapisz rozstrzygnięcie", type="primary", key=f"obj_go_{eid}"):
+                if not reason.strip():
+                    st.error("Wpisz uzasadnienie rozstrzygnięcia.")
+                else:
+                    _inline_action(api, eid, "ROZPATRZ_SPRZECIW", komentarz=reason.strip(), uwzglednij=choice != "NIE",
+                                   tryb=None if choice == "NIE" else choice)
+
+
+def _objection_order(ev: dict) -> None:
+    """After an upheld objection: what the evaluator has to do, by when, and the floor for the partial scores."""
+    o = ev.get("sprzeciw") or {}
+    if not o.get("tryb") or o.get("wykonano"):
+        return
+    title, text = OBJECTION_MODE[o["tryb"]]
+    before = o.get("przed_sprzeciwem") or {}
+    floor = ", ".join(f"{k}: {v}" for k, v in (before.get("punkty") or {}).items())
+    st.warning(f"**Sprzeciw uwzględniony – {title.lower()}** (termin: {ui.fmt(o.get('termin_wykonania'))}). {text}"
+               + (f" Ocen cząstkowych nie można obniżyć poniżej dotychczasowych ({floor})." if floor else ""),
+               icon=":material/gavel:")
 
 
 # ---------------------------------------------------------------- side panel
