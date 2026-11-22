@@ -592,6 +592,7 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
         out = _call(api.draft, eid, kind)
         if out:
             st.session_state[dkey] = out
+            st.session_state.pop(f"e{dkey}", None)
 
     for field, (title, kind) in TEXT_FIELDS.items():
         tkey = f"tx_{eid}_{field}"
@@ -611,20 +612,39 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
                 based = f" · na podstawie {len(d.get('oparte_na_notatkach') or [])} notatek" if d.get("oparte_na_notatkach") else ""
                 ui.html(f"{ui.badge(':material/auto_awesome: Propozycja asystenta AI', 'b-violet')} <span class='lock'>{src}{based} · nic nie "
                         f"zostanie zapisane bez Twojej decyzji.</span>")
-                st.markdown(d["tekst"])
-                a, b, c = st.columns(3)
+                # the text of the assistant is never taken as it is: the evaluator has to read and change it
+                ekey = f"e{dkey}"
+                if ekey not in st.session_state:
+                    st.session_state[ekey] = d["tekst"]
+                st.text_area("Tekst propozycji – przeczytaj i popraw", key=ekey, height=170)
+                st.caption("Zanim wstawisz, przeczytaj tekst i wprowadź choć jedną zmianę – to Twoja ocena, "
+                           "asystent tylko podpowiada.")
+                if st.session_state.get(f"err_{dkey}"):
+                    st.error(st.session_state[f"err_{dkey}"])
+                a, c = st.columns([2, 1])
 
-                def use(save: bool, field=field, tkey=tkey, dkey=dkey) -> None:
-                    st.session_state[tkey] = st.session_state[dkey]["tekst"]
+                def use(field=field, tkey=tkey, dkey=dkey, ekey=ekey) -> None:
+                    text = st.session_state[ekey].strip()
+                    if text == st.session_state[dkey]["tekst"].strip():
+                        st.session_state[f"err_{dkey}"] = ("Tekst propozycji jest bez zmian. Przeczytaj go i popraw "
+                                                           "przynajmniej jedno miejsce, a potem kliknij „Wstaw”.")
+                        return
+                    if not text:
+                        st.session_state[f"err_{dkey}"] = "Tekst jest pusty."
+                        return
+                    st.session_state.pop(f"err_{dkey}", None)
+                    st.session_state[tkey] = text
                     st.session_state.pop(dkey, None)
-                    if save:
-                        fresh = api.evaluation(eid)
-                        _call(api.patch, fresh, **{field: st.session_state[tkey]}, ok="Wstawiono i zapisano.")
+                    st.session_state.pop(ekey, None)
+                    _call(api.patch, api.evaluation(eid), **{field: text}, ok="Wstawiono i zapisano.")
 
-                a.button("Wstaw", key=f"use_{dkey}", type="primary", use_container_width=True, on_click=use, args=(True,))
-                b.button(":material/edit: Edytuj", key=f"edit_{dkey}", use_container_width=True, on_click=use, args=(False,))
-                c.button("✖ Odrzuć", key=f"rej_{dkey}", use_container_width=True,
-                         on_click=lambda dkey=dkey: st.session_state.pop(dkey, None))
+                def reject(dkey=dkey, ekey=ekey) -> None:
+                    for k in (dkey, ekey, f"err_{dkey}"):
+                        st.session_state.pop(k, None)
+
+                a.button("Wstaw poprawiony tekst", key=f"use_{dkey}", type="primary", use_container_width=True,
+                         on_click=use)
+                c.button("✖ Odrzuć", key=f"rej_{dkey}", use_container_width=True, on_click=reject)
         st.text_area(title, key=tkey, height=170, disabled=not editable, label_visibility="collapsed",
                      placeholder=hints[field] if editable else "")
         ui.footnote("Pole wymagane." if field == "wnioski_iprz" else
