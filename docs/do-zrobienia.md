@@ -27,6 +27,13 @@ trzeba je dobudować albo sprawdzić:
   (specyfikacja) – `docs/terminy.md`.
 - [ ] **P2** Potwierdzić z KPRM: zmiana terminu (art. 81 ust. 8) działa od razu decyzją oceniającego; zatwierdzanie przez
   kadry to tylko ustawienie urzędu (`zmiana_terminu.zatwierdza=KADRY`).
+- [ ] **P2** Potwierdzić z KPRM: kto rozpatruje sprzeciw. Ustawa (art. 83 ust. 1) wskazuje dyrektora generalnego, wymagania
+  zespołu – przełożonego przełożonego. Dziś domyślnie DG; tryb `sprzeciw.tryb=PRZELOZONY_PRZELOZONEGO` (PR #50) to
+  ustawienie urzędu, a gdy oceniający nie ma przełożonego, sprzeciw trafia do DG / kierownika urzędu. Czy taki tryb
+  jest w ogóle dopuszczalny i co przy braku przełożonego przełożonego?
+- [ ] **P2** Potwierdzić z KPRM: druga negatywna ocena z rzędu. Specyfikacja: „negatywna jest jedna” – po drugiej wracamy do
+  24 miesięcy (tak liczy kod od PR #49, `EvaluationService.start_next_cycle`). Art. 81 ust. 9 nie ogranicza skróconego
+  trybu (7 dni na kryteria, ponowna ocena po 6 miesiącach) do pierwszej negatywnej – `docs/terminy.md`.
 
 ## 2. Wdrożenie w małym urzędzie (4 osoby, bez IT, bez serwera)
 
