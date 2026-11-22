@@ -73,6 +73,13 @@ SIGNAL_LABEL = {
     "ZMIANA_OBOWIAZKOW": (":material/sync: Zmiana zakresu obowiązków", "c-blue"),
     "SPADEK_OCEN": (":material/trending_down: Wynik niższy niż poprzednio", "c-red"),
     "DO_DOCENIENIA": (":material/celebration: Warto docenić", "c-green"),
+    # from the person's history (tenure + trend of the evaluations)
+    "SPADEK_PRZY_STAZU": (":material/trending_down: Spadek wyników u doświadczonego pracownika", "c-red"),
+    "SPADEK_TRENDU": (":material/trending_down: Wyniki spadają z oceny na ocenę", "c-red"),
+    "STAGNACJA": (":material/trending_flat: Ten sam poziom od kilku ocen", "c-amber"),
+    "STABILNIE_WYSOKO": (":material/star: Stabilnie wysokie wyniki", "c-green"),
+    "WZROST": (":material/trending_up: Wynik wyższy niż poprzednio", "c-green"),
+    "NOWY_PRACOWNIK": (":material/waving_hand: Nowy pracownik", "c-blue"),
 }
 SENTIMENTS = {"POZYTYWNY": "+ pozytywna", "NEUTRALNY": "neutralna", "NEGATYWNY": "− negatywna"}
 

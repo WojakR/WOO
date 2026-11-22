@@ -13,7 +13,11 @@ from frontend.process import DONE, STAGE_OF_STATUS, STAGES, STATUS_LABEL, WHO_LA
 URGENCY_KEY = {"PO_TERMINIE": "late", "PILNE": "soon", "WKROTCE": "soon", "OK": "ok"}
 WYNIK = {"POZYTYWNA": ("pozytywna", "b-green"), "NEGATYWNA": ("negatywna", "b-red")}
 SIGNAL_SHORT = {"PRZECIAZENIE": ":material/warning: przeciążenie", "DLUGA_NIEOBECNOSC": ":material/medical_services: nieobecność",
-                "ZMIANA_OBOWIAZKOW": ":material/sync: nowe obowiązki", "SPADEK_OCEN": ":material/trending_down: spadek ocen", "DO_DOCENIENIA": ":material/celebration: docenić"}
+                "ZMIANA_OBOWIAZKOW": ":material/sync: nowe obowiązki", "SPADEK_OCEN": ":material/trending_down: spadek ocen", "DO_DOCENIENIA": ":material/celebration: docenić",
+                "SPADEK_PRZY_STAZU": ":material/trending_down: spadek przy stażu",
+                "SPADEK_TRENDU": ":material/trending_down: wyniki spadają", "STAGNACJA": ":material/trending_flat: ten sam poziom",
+                "STABILNIE_WYSOKO": ":material/star: stabilnie wysoko", "WZROST": ":material/trending_up: wzrost",
+                "NOWY_PRACOWNIK": ":material/waving_hand: nowy pracownik"}
 
 
 def _signals(api: Api, item: dict) -> list[str]:

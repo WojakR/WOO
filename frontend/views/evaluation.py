@@ -568,7 +568,9 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
         if ai and work and sug is not None:  # a hint of the assistant: hidden when it is off
             s1, s2 = box.columns([3, 1], vertical_alignment="center")
             why = (e or {}).get("uzasadnienie_sugestii") or ""
-            s1.markdown(ui.icons(f"<span class='ai-text'>:material/auto_awesome: Sugerowane: <b>{sug} pkt</b> · {escape(why)}"
+            lo, hi = (e or {}).get("sugerowane_od"), (e or {}).get("sugerowane_do")
+            span = f" (niepewne: od {lo} do {hi} pkt)" if lo is not None and hi is not None and lo != hi else ""
+            s1.markdown(ui.icons(f"<span class='ai-text'>:material/auto_awesome: Sugerowane: <b>{sug} pkt</b>{span} · {escape(why)}"
                         + (" · zgodne z oceną" if val == sug else "") + "</span>"), unsafe_allow_html=True)
             if can_score and val != sug:
                 s2.button("Przyjmij", key=f"acc_sc_{eid}_{code}", on_click=accept, args=(code, key, sug),
@@ -979,7 +981,8 @@ def _hr_partner(api: Api, ev: dict) -> None:
         for sg in report["sygnaly"]:
             title, tone = SIGNAL_LABEL.get(sg["typ"], (sg["typ"], "c-blue"))
             body = f"<p>{escape(sg['opis'])}</p>" + ("<b>Co możesz zrobić:</b>" + ui.ul(sg["rekomendacje"])
-                                                    if sg.get("rekomendacje") else "")
+                                                    if sg.get("rekomendacje") else "") +                 ("<b>Pomysły na rozwój (IPRZ, szkolenia):</b>" + ui.ul(sg["dzialania_rozwojowe"])
+                 if sg.get("dzialania_rozwojowe") else "")
             ui.card(title, body, tone)
             if sg.get("dowody"):
                 with st.expander("Na podstawie"):
