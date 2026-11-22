@@ -3,7 +3,7 @@
 > Ten katalog to `projekt/` w monorepo: aplikacja konkursowa. Koordynator agentów jest w `../server/`,
 > a dane domenowe KPRM w `../server/data/kprm/`. Zadanie i scenariusz demo: [`docs/task.md`](docs/task.md).
 
-Python + FastAPI (API i aplikacja webowa) + SQLite + asystent AI (model lokalny przez Ollamę, z wersją bez AI).
+Python + FastAPI (API) + Streamlit (interfejs) + SQLite + asystent AI (model lokalny przez Ollamę, z wersją bez AI).
 
 **Najprościej (mały urząd, jeden komputer, bez Dockera i bez IT):** zainstaluj
 [Pythona 3.10+](https://www.python.org/downloads/) (Windows: zaznacz „Add python.exe to PATH”), pobierz repozytorium
@@ -20,9 +20,9 @@ Asystent AI nie jest potrzebny – bez modelu działają szablony i reguły.
 
 **Dla programistów** (po instalacji z punktu 1, w katalogu `projekt/`):
 ```bash
-uvicorn backend.main:app --reload
+streamlit run frontend/app.py
 ```
-i otwórz **http://localhost:8000**. Szczegóły w punkcie 2.
+i otwórz **http://localhost:8501** (API działa w tym samym procesie). Szczegóły w punkcie 2.
 
 ```
 backend/
@@ -30,15 +30,14 @@ backend/
   llm.py        # ask_llm(), ask_llm_json() – fallback po liście modeli
   parsers.py    # PDF, XML, CSV/XLSX, TXT, OCR -> tekst/dict/DataFrame
   db.py         # SQLite
-  main.py       # FastAPI: /api/... + serwuje interfejs z frontend/web
+  main.py       # FastAPI: /api/...
   kprm.py       # jedyny czytelnik danych KPRM z ../server/data/kprm
 app/
   domain/       # reguły oceny (§ 11), terminy, cykl oceny – czysty Python
   application/  # przypadki użycia UC1–UC5, asystent AI
   infrastructure/ # adaptery: dane KPRM, pamięć, modele AI
   api/          # endpointy /api (routes.py), dane demo (demo_state.py), schematy kontraktu
-frontend/web/   # interfejs webowy (HTML/CSS/JS, bez budowania i bez CDN)
-frontend/app.py # stare demo Streamlit (wgrywanie plików, pytania do LLM)
+frontend/       # interfejs Streamlit: app.py (menu, górny pasek), views/ (strony), api_client.py (tylko /api)
 Uruchom.bat / uruchom.sh # start jednym poleceniem (wywołują scripts/uruchom.py)
 scripts/
   uruchom.py       # .venv + biblioteki + .env + wolny port + przeglądarka
@@ -85,12 +84,13 @@ Wszystko ma być ✅.
 Wszystkie polecenia z katalogu `projekt/`, z aktywnym `.venv`.
 
 ```bash
-uvicorn backend.main:app --reload        # aplikacja -> http://localhost:8000, API -> http://localhost:8000/docs
+streamlit run frontend/app.py            # aplikacja -> http://localhost:8501 (API w tym samym procesie)
+uvicorn backend.main:app --reload        # samo API -> http://localhost:8000/docs (z nim: API_URL=http://localhost:8000)
 python -m pytest -q                      # testy (bez kluczy i bez modelu AI)
 ```
 
-Port zajęty? `uvicorn backend.main:app --reload --port 8765` i otwórz http://localhost:8765.
-Dostęp z innych komputerów w sieci urzędu: dodaj `--host 0.0.0.0` (i otwórz port w zaporze).
+Port zajęty? `streamlit run frontend/app.py --server.port 8765` i otwórz http://localhost:8765.
+Dostęp z innych komputerów w sieci urzędu: dodaj `--server.address 0.0.0.0` (i otwórz port w zaporze).
 
 ### Serwer urzędu w Dockerze
 
@@ -147,7 +147,6 @@ Szczegóły: [`docs/asystent.md`](docs/asystent.md).
 ### Inne
 
 ```bash
-streamlit run frontend/app.py            # stare demo Streamlit -> http://localhost:8501
 python scripts/gen_fake_data.py --n 500  # dane testowe -> data/fake_wnioski.csv
 ```
 

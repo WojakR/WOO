@@ -133,7 +133,9 @@ def main(argv: list[str] | None = None) -> int:
     _say("  Zamknij to okno albo naciśnij Ctrl+C, żeby zatrzymać.\n")
     if not args.bez_przegladarki:
         threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
-    cmd = [str(py), "-m", "uvicorn", "backend.main:app", "--host", host, "--port", str(port)]
+    # the Streamlit app runs the API in-process (frontend/api_client.py) – one process, one port
+    cmd = [str(py), "-m", "streamlit", "run", "frontend/app.py", "--server.address", host, "--server.port", str(port),
+           "--server.headless", "true", "--browser.gatherUsageStats", "false"]
     try:
         return subprocess.call(cmd, cwd=PROJECT)
     except KeyboardInterrupt:

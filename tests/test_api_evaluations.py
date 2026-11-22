@@ -21,11 +21,10 @@ def grzegorz_eval_id() -> int:
     return item["evaluation_id"]
 
 
-def test_web_ui_is_served():
-    r = client.get("/")
-    assert r.status_code == 200 and "Asystent Ocen Okresowych" in r.text
-    assert client.get("/js/main.js").status_code == 200
-    assert r.headers["cache-control"] == "no-cache"
+def test_api_docs_are_served():
+    # the UI is the Streamlit app (frontend/app.py); the FastAPI server serves the API and its documentation
+    assert client.get("/docs").status_code == 200
+    assert client.get("/api/meta").status_code == 200
 
 
 def test_me_users_and_meta():
