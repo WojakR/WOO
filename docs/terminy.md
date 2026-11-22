@@ -39,6 +39,11 @@ w `pracownicy.json`: `poprzednia_ocena.data` i `poprzednia_ocena.data_zapoznania
 liczymy od sporządzenia (§ 12 ust. 1: zapoznanie „niezwłocznie”). Przykład: sporządzona 10.06.2026,
 zapoznanie 22.06.2026 → kryteria do 17.06.2026, ponowna ocena 23.12.2026.
 
+Skrócony tryb dotyczy tylko **pierwszej** oceny negatywnej („negatywna jest jedna”, specyfikacja KPRM): jeśli
+ponowna ocena (cykl z `after_negative=True`) też jest negatywna, kolejny cykl jest zwykły – kryteria w 30 dni,
+termin 24 miesiące od sporządzenia (`EvaluationService.start_next_cycle`). U urzędnika mianowanego dwie negatywne
+z rzędu dają dodatkowo zadanie dla kadr o rozwiązaniu stosunku pracy (art. 71 ust. 1 pkt 1).
+
 Poradnik mówi o ponownej ocenie „niezwłocznie po dniu, w którym minie 6 miesięcy” – w UI pokazywać tę datę
 jako „ponowna ocena od”, a nie jako ostateczny termin.
 

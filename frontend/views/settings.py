@@ -70,6 +70,23 @@ def _visibility(api: Api, me: dict) -> None:
                 st.rerun()
 
 
+def _objection_route(api: Api, me: dict) -> None:
+    o = api.office()
+    with st.container(border=True):
+        st.markdown("#### :material/gavel: Kto rozpatruje sprzeciw od oceny",
+                    help="Ustawa (art. 83 ust. 1) wskazuje dyrektora generalnego urzędu. Urząd może zdecydować, że "
+                         "sprzeciw trafia do przełożonego oceniającego. Gdy oceniający nie ma przełożonego, "
+                         "sprzeciw rozpatruje dyrektor generalny (albo kierownik urzędu).")
+        opts = {"DYREKTOR_GENERALNY": "Dyrektor generalny urzędu (art. 83 ust. 1 ustawy)",
+                "PRZELOZONY_PRZELOZONEGO": "Przełożony oceniającego – a gdy go nie ma, dyrektor generalny"}
+        choice = st.radio("Kto rozpatruje sprzeciw", list(opts), format_func=opts.get,
+                          index=list(opts).index(o["tryb_sprzeciwu"]), disabled=not o["moze_edytowac"],
+                          key="office_objection", label_visibility="collapsed")
+        if choice != o["tryb_sprzeciwu"] and st.button("Zapisz", type="primary", key="office_objection_save"):
+            if _ok(api.set_office, tryb_sprzeciwu=choice, ok="Zapisano, kto rozpatruje sprzeciwy."):
+                st.rerun()
+
+
 def _rules(api: Api, me: dict) -> None:
     r = api.rules()
     with st.container(border=True):
@@ -245,6 +262,7 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
     _assistant(api, me)
     if hr:
         _visibility(api, me)
+        _objection_route(api, me)
     _reminders(api, me)
     _deputies(api, me, users, to_date(meta["dzis"]))
     _evaluator_absence(api, me, to_date(meta["dzis"]))

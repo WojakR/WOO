@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import time
 from pathlib import Path
 
 from app.domain.access import VisibilityScope
 from app.domain.errors import ValidationError
-from app.domain.objection import HeadMode, ObjectionPolicy
+from app.domain.objection import HeadMode, ObjectionPolicy, Route
 from app.domain.reminder_schedule import ReminderRule, ReminderSchedule, RuleKind, Stage, WorkingHours
 
 DEFAULT_PATH = Path(__file__).resolve().parents[2] / "config" / "ustawienia_urzedu.json"
@@ -83,6 +84,9 @@ class OfficeSettings:
     # personalised conversation prep / development from the person's history (app/domain/career_profile.py)
     employee_profile: dict = field(default_factory=dict)
 
+    def with_objection_route(self, route: Route) -> OfficeSettings:
+        return dataclasses.replace(self, objection=dataclasses.replace(self.objection, route=route))
+
     @classmethod
     def from_dict(cls, raw: dict) -> OfficeSettings:
         scope = raw.get("zakres_widocznosci", VisibilityScope.SUBTREE.value)
@@ -104,8 +108,13 @@ class OfficeSettings:
         except ValueError:
             raise ValidationError([f"Ustawienia urzędu: nieznany tryb sprzeciwu kierownika urzędu „{head.get('tryb')}” "
                                    f"(dozwolone: {', '.join(m.value for m in HeadMode)})."]) from None
+        try:
+            route = Route(objection_raw.get("tryb", Route.DIRECTOR_GENERAL.value))
+        except ValueError:
+            raise ValidationError([f"Ustawienia urzędu: nieznany sprzeciw.tryb „{objection_raw.get('tryb')}” "
+                                   f"(dozwolone: {', '.join(r.value for r in Route)})."]) from None
         objection = ObjectionPolicy(reviewer, bool(objection_raw.get("urzad_ma_dyrektora_generalnego", True)), mode,
-                                    str(head.get("rozpatruje") or reviewer))
+                                    str(head.get("rozpatruje") or reviewer), route)
         wellbeing = raw.get("dobrostan") or {}
         reports = raw.get("raporty") or {}
         training = raw.get("szkolenia") or {}

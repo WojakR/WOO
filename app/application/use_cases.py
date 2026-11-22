@@ -542,7 +542,9 @@ class EvaluationService:
         if emp is None or not emp.evaluator_id or self.cycles.find_open_for(done.employee_id) is not None:
             return None
         result = done.result
-        negative = result is not None and result.outcome is Outcome.NEGATIVE
+        # Only the first negative gets the 6-month re-evaluation (art. 81 ust. 9): a negative re-evaluation
+        # starts the ordinary 24-month cycle again (KPRM spec: "negatywna jest jedna").
+        negative = result is not None and result.outcome is Outcome.NEGATIVE and not done.after_negative
         previous = PreviousEvaluation(result.outcome.value if result else None, result.level if result else None,
                                       done.evaluated_on, acknowledged=done.acknowledged_on)
         return self.start_cycle(
