@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Response
 
+from app.application.calendar_export import DeadlineEvent, deadlines_ics
 from app.domain.cycle import EDITABLE_IN, REDO, TRANSITIONS, EvaluationCycle, Status
 from app.domain.deadlines import Absence
 from app.domain.employee import Employee
@@ -438,6 +439,39 @@ def dashboard(x_user_id: str | None = Header(default=None), st: DemoState = Depe
     own = sorted((x for x in all_cycles if x.employee_id == actor), key=lambda x: (x.start_date, int(x.id)))
     mine_items = [_dashboard_item(st, me, c, today) for c in own] if me else []
     return s.DashboardOut(pozycje=items, nieprzeczytane_powiadomienia=0, moje=mine_items)
+
+
+_WHO = {"OCENIAJACY": "oceniający", "OCENIANY": "oceniany", "KADRY": "kadry"}
+
+
+def _deadline_events(out: s.DashboardOut) -> list[DeadlineEvent]:
+    """The deadlines the "Terminy" view shows (a step with a deadline running), plus the user's own evaluation."""
+    events = []
+    for own, items in ((False, out.pozycje), (True, out.moje)):
+        for i in items:
+            if i.evaluation_id is None or i.termin is None or i.dni_do_terminu is None:
+                continue  # not started, finished, or nothing due right now
+            who = f"{i.oceniany.imie} {i.oceniany.nazwisko}"
+            step = i.nastepny_krok or "Ocena okresowa"
+            summary = f"Moja ocena okresowa: {step}" if own else f"{step} – {who}"
+            details = [f"Ocena okresowa: {who}, arkusz {i.arkusz.value}.", f"Następny krok: {step}."]
+            if i.kto_dziala in _WHO:
+                details.append(f"Działa: {_WHO[i.kto_dziala]}.")
+            if i.termin_oceny and i.termin_oceny != i.termin:
+                details.append(f"Termin sporządzenia oceny: {i.termin_oceny:%d.%m.%Y}.")
+            details.append("Szczegóły w aplikacji Asystent Ocen Okresowych.")
+            events.append(DeadlineEvent(str(i.evaluation_id), i.termin, summary, " ".join(details)))
+    return events
+
+
+@router.get("/me/terminy.ics", tags=["sesja"], response_class=Response,
+            responses={200: {"content": {"text/calendar": {}}}})
+def deadlines_calendar(x_user_id: str | None = Header(default=None), st: DemoState = Depends(get_state)) -> Response:
+    """The user's deadlines as a calendar file: import it into Outlook / Thunderbird / Google; importing a newer
+    file updates the events (stable UID per evaluation). Same scope as GET /api/dashboard, no scores."""
+    text = deadlines_ics(_deadline_events(dashboard(x_user_id, st)))
+    return Response(text, media_type="text/calendar; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="terminy-ocen.ics"'})
 
 
 def _dashboard_item(st: DemoState, e: Employee, c: EvaluationCycle, today: date) -> s.DashboardItem:

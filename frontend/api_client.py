@@ -372,6 +372,9 @@ class Api:
                          {"rodzaj": kind, "termin": when.isoformat(), "czas_min": minutes, "miejsce": place,
                           "uwagi": notes})
 
+    def deadlines_ics(self) -> bytes:
+        return self._req("GET", "/me/terminy.ics", raw=True).content
+
     def invitation_ics(self, eid: int, n: int) -> bytes:
         return self._req("GET", f"/evaluations/{eid}/zaproszenia/{n}.ics", raw=True).content
 

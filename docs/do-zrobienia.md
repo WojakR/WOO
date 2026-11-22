@@ -14,8 +14,8 @@ trzeba je dobudować albo sprawdzić:
 
 - [ ] **P1** UC1 „AI podpowiada kryteria” – endpoint `POST /api/evaluations/{id}/ai/suggest-criteria` działa (także bez
   AI), w Streamlicie nie ma przycisku ani metody w `frontend/api_client.py`. Pozycja z listy MVP w `docs/task.md`.
-- [ ] **P1** Oceniany po zalogowaniu widzi swoją ocenę i to, że czeka na niego krok – `GET /api/dashboard` zwraca
-  `moje`; sprawdzić, czy `frontend/views/employee.py` prowadzi do zapoznania się / potwierdzenia kryteriów.
+- [x] Oceniany w Streamlicie dociera do swoich kroków – sprawdzone: „Potwierdzam rozmowę i zapoznanie się
+  z kryteriami”, „Potwierdzam zapoznanie się z oceną” (`frontend/views/employee.py`).
 
 ## 1. Otwarte punkty z `TODO.md`
 
@@ -46,8 +46,10 @@ mailem i w kalendarzu. Jeden kod, dwa profile („małe biuro” / „duży urz�
   jako miejsce kopii, nigdy jako miejsce bazy) + przycisk „przywróć”.
 - [ ] **P2** Przycisk „oznacz jako podpisane na papierze” kończący przypomnienia o danym kroku (sprawdzić, ile pokrywa
   już rejestracja daty podpisu z T13).
-- [ ] **P2** `.ics` jako kanał przypomnień, gdy nie ma poczty: „Dodaj do kalendarza” przy terminach i komunikat
-  „Termin się zmienił – zaktualizuj kalendarz” po przesunięciu terminu.
+- [x] `.ics` z terminami: „Dodaj terminy do kalendarza (.ics)” w widoku „Terminy” (`GET /api/me/terminy.ics`;
+  przypomnienia 7 dni i 1 dzień wcześniej, ponowny import aktualizuje wydarzenia).
+- [ ] **P3** Komunikat „Termin się zmienił – pobierz kalendarz ponownie” po przesunięciu terminu (nieobecność,
+  zmiana terminu); dziś użytkownik musi o tym pamiętać sam.
 - [ ] **P3** „Użyj mojego Outlooka” zamiast SMTP – sprawdzić realnie: M365 często blokuje SMTP z hasłem, nowy Outlook
   nie ma COM.
 - [ ] **P3** Paczka offline: Python embedded + biblioteki w jednym ZIP / instalatorze, bez pobierania z internetu
