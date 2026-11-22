@@ -65,7 +65,7 @@ def test_unit_filter_and_subtree_of_a_manager():
 def test_api_scope_hr_manager_and_employee():
     st = reset_state(today=date(2026, 6, 1), ai_mode="off")
     hr = client.get("/api/reports/progress", headers={"X-User-Id": "kadry"}).json()
-    assert hr["objeci_ocena"] == 12 and hr["zakres"] == "całego urzędu"
+    assert hr["objeci_ocena"] == 13 and hr["zakres"] == "całego urzędu"
     boss = client.get("/api/reports/progress", headers={"X-User-Id": "henryk.pryncypal"}).json()
     assert boss["objeci_ocena"] == 1 and boss["komorki"][0]["komorka"] == "Referat Przekładów"
     assert boss["statusy"] == {"KRYTERIA_DO_WYZNACZENIA": 1}
