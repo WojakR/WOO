@@ -242,6 +242,7 @@ class DashboardOut(_Out):
     """GET /api/dashboard – scope depends on role (evaluator: subordinates, KADRY/DG: whole office)."""
     pozycje: list[DashboardItem]
     nieprzeczytane_powiadomienia: int
+    moje: list[DashboardItem] = []              # the user's own evaluations (as the evaluated person)
 
 
 # ---------------------------------------------------------------- evaluation (the sheet)
@@ -559,6 +560,11 @@ class KryteriumSugestia(_Out):
     kod: str
     nazwa: str = ""
     uzasadnienie: str
+
+
+class SuggestCriteriaIn(BaseModel):
+    """POST /api/evaluations/{id}/ai/suggest-criteria – optional description of the duties (body may be omitted)."""
+    opis: str = Field(default="", max_length=2000)
 
 
 class SuggestCriteriaOut(_Out):

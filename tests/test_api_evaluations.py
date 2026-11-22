@@ -159,3 +159,14 @@ def test_demo_team_at_the_start_of_the_process():
     assert {i["oceniany"]["nazwisko"] for i in team} == {"Próbny", "Wzorcowa", "Przykładny", "Testowa"}
     assert {i["status"] for i in team} == {"KRYTERIA_DO_WYZNACZENIA"}
     assert all(i["kto_dziala"] == "OCENIAJACY" for i in team)
+
+
+def test_dashboard_lists_the_users_own_evaluation_apart_from_the_people_they_evaluate():
+    mine = client.get("/api/dashboard", headers=AS_EMP).json()
+    assert mine["pozycje"] == []  # Grzegorz evaluates nobody
+    [own] = mine["moje"]
+    assert own["oceniany"]["nazwisko"] == "Wzór" and own["status"] == "ROZMOWA_OCENIAJACA"
+    boss = client.get("/api/dashboard", headers=AS_BOSS).json()
+    assert boss["moje"] == []  # Henryk has no evaluation of his own in the scenario
+    assert all(i["oceniany"]["nazwisko"] != "Pryncypał" for i in boss["pozycje"])
+    assert client.get("/api/dashboard", headers=AS_HR).json()["moje"] == []  # HR account is not an employee

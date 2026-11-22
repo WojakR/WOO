@@ -433,7 +433,11 @@ def dashboard(x_user_id: str | None = Header(default=None), st: DemoState = Depe
             continue
         for c in mine:
             items.append(_dashboard_item(st, e, c, today))
-    return s.DashboardOut(pozycje=items, nieprzeczytane_powiadomienia=0)
+    # the user's own evaluations (never in `pozycje`: those are the people they evaluate or oversee)
+    me = st.directory.get(actor)
+    own = sorted((x for x in all_cycles if x.employee_id == actor), key=lambda x: (x.start_date, int(x.id)))
+    mine_items = [_dashboard_item(st, me, c, today) for c in own] if me else []
+    return s.DashboardOut(pozycje=items, nieprzeczytane_powiadomienia=0, moje=mine_items)
 
 
 def _dashboard_item(st: DemoState, e: Employee, c: EvaluationCycle, today: date) -> s.DashboardItem:

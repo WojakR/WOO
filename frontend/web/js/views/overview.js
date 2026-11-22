@@ -45,6 +45,16 @@ export async function renderOverview(view, ctx) {
       h("select", { onchange: (e) => { state[key] = e.target.value; update(); } },
         options.map(([v, t]) => h("option", { value: v }, t))));
 
+  // the user's own evaluation (as the evaluated person): a person who evaluates nobody sees only that
+  const own = data.moje || [];
+  if (ctx.me.rola !== "KADRY" && !ctx.me.czy_oceniajacy && !data.pozycje.length) {
+    return replace(view,
+      h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Moja ocena okresowa"),
+        h("p", {}, "Twoja ocena: etap, termin i to, czy teraz czeka na Ciebie jakiś krok."))),
+      own.length ? ownEvaluations(own) : h("section", { class: "card card-pad" },
+        h("p", { class: "empty" }, "Nie masz jeszcze rozpoczętej oceny okresowej.")));
+  }
+
   const title = ctx.me.rola === "KADRY" ? "Oceny okresowe – wszystkie urzędy" : `Oceny okresowe – ${ctx.me.urzad}`;
   const lead = ctx.me.rola === "KADRY"
     ? "Stan ocen okresowych w urzędach (dane przykładowe). Kliknij „Otwórz”, aby zobaczyć arkusz."
@@ -52,6 +62,7 @@ export async function renderOverview(view, ctx) {
 
   replace(view,
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, title), h("p", {}, lead))),
+    own.length ? ownEvaluations(own) : null,
     h("div", { class: "card filters", role: "search" },
       select("Komórka", "unit", [["", "Wszystkie komórki"], ...units.map((u) => [u, u])]),
       h("div", { class: "search" }, icon("search"),
@@ -237,6 +248,29 @@ async function startCycle(i, ctx) {
   dlg.addEventListener("close", () => dlg.remove());
   document.body.append(dlg);
   dlg.showModal();
+}
+
+// "Moja ocena": the user's own evaluations; the one waiting for the user's step comes first and stands out.
+function ownEvaluations(items) {
+  const rows = [...items].sort((a, b) => (b.kto_dziala === "OCENIANY") - (a.kto_dziala === "OCENIANY")
+    || (b.evaluation_id || 0) - (a.evaluation_id || 0));
+  const waiting = rows.filter((i) => i.kto_dziala === "OCENIANY").length;
+  return h("section", { class: "card", style: { marginBottom: "16px" }, "aria-labelledby": "own-h" },
+    h("div", { class: "card-head" }, h("div", {},
+      h("h2", { id: "own-h" }, "Moja ocena"),
+      h("p", {}, waiting ? "Czeka na Ciebie krok w ocenie okresowej." : "Nic nie czeka teraz na Ciebie."))),
+    h("ul", { class: "plain-list" }, rows.map((i) => {
+      const mine = i.kto_dziala === "OCENIANY";
+      return h("li", { class: "row", style: { gap: "12px", flexWrap: "wrap", alignItems: "center" } },
+        stageBadge(i),
+        mine ? h("span", { class: "badge badge-warn" }, icon("alert"), "Czeka na Ciebie") : null,
+        h("span", {}, mine ? i.nastepny_krok || ""
+          : WHO_LABEL[i.kto_dziala] && i.kto_dziala !== "NIKT" ? `Teraz działa: ${WHO_LABEL[i.kto_dziala]}` : ""),
+        h("span", { style: { marginLeft: "auto" } }, deadlineCell(i)),
+        i.wynik ? resultBadge(i.wynik) : null,
+        i.evaluation_id ? h("a", { class: `btn btn-sm ${mine ? "btn-primary" : ""}`, href: `#/ocena/${i.evaluation_id}`,
+          "aria-label": `Otwórz moją ocenę (${STATUS_LABEL[i.status] || "ocena"})` }, "Otwórz", icon("chevronRight")) : null);
+    })));
 }
 
 function renderAttention(box, items) {

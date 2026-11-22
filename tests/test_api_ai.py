@@ -161,3 +161,22 @@ def test_draft_unknown_kind_is_422(st):
 
 def test_meta_shows_the_draft_button(st):
     assert client.get("/api/meta").json()["funkcje_ai"]["szkic_uzasadnienia"] is True
+
+
+def test_suggest_criteria_matches_contract_and_sets_nothing(st):
+    eid = _eval_id(st)
+    before = client.get(f"/api/evaluations/{eid}", headers={"X-User-Id": BOSS}).json()["kryteria"]
+    r = client.post(f"/api/evaluations/{eid}/ai/suggest-criteria", headers={"X-User-Id": BOSS},
+                    json={"opis": "Obsługa interesantów i korespondencja z klientami"})
+    assert r.status_code == 200
+    out = s.SuggestCriteriaOut.model_validate(r.json())
+    assert out.zrodlo == "REGULY" and 1 <= len(out.sugestie) <= 3  # AI off -> keywords, still useful
+    assert all(x.uzasadnienie for x in out.sugestie)
+    after = client.get(f"/api/evaluations/{eid}", headers={"X-User-Id": BOSS}).json()["kryteria"]
+    assert after == before  # never applied automatically
+
+
+def test_suggest_criteria_body_is_optional_and_evaluator_only(st):
+    url = f"/api/evaluations/{_eval_id(st)}/ai/suggest-criteria"
+    assert client.post(url, headers={"X-User-Id": BOSS}).status_code == 200
+    assert client.post(url, headers={"X-User-Id": EMP}).status_code == 403
