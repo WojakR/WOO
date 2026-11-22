@@ -43,7 +43,7 @@ def _test_notes(author: str) -> list[Note]:
 
 _HISTORY = {  # employee id -> (employment start, evaluations before the previous one)
     "grzegorz.wzor": (date(2015, 3, 2), (PreviousEvaluation("pozytywna", "powyżej oczekiwań", date(2022, 6, 10)),)),
-    "monika.testowa": (date(2017, 2, 1), (PreviousEvaluation("pozytywna", "na poziomie oczekiwań", date(2022, 5, 25)),)),
+    "monika.testowa": (date(2017, 2, 1), (PreviousEvaluation("pozytywna", "na poziomie oczekiwań", date(2024, 5, 27)),)),
     "agata.wzorcowa": (date(2025, 12, 1), ()),
 }
 

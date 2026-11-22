@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from app.application.assistant import AiSuggestionService
+from app.application.assistant import AiSuggestionService, fill_template
 from app.application.ports import AiInvalidOutput, AiUnavailable
 from app.application.privacy import Pseudonymizer
 from app.application.use_cases import EvaluationService
@@ -371,3 +371,31 @@ def test_ai_calls_are_logged_pseudonymised(cycle):
     a = service(model)
     a.classify_note(NOTES[3], "C", ADDITIONAL, people=[EMPLOYEE])
     assert a.calls[0].ok and "Grzegorz" not in a.calls[0].prompt and json.loads(a.calls[0].response) == {"etykiety": []}
+
+
+def test_fill_template_drops_the_sentence_of_an_empty_optional_value():
+    tpl = "Poziom: {poziom}. Najmocniejsze strony: {mocne}.\n\n{dowody}\n\nJednocześnie należy odnotować: {mocne}.\n\nKoniec."
+    text = fill_template(tpl, {"poziom": "na poziomie", "mocne": "", "dowody": "– notatka (01.02.2025)"}, ("mocne",))
+    assert text == "Poziom: na poziomie.\n\n– notatka (01.02.2025)\n\nKoniec."
+    assert "brak" not in text
+    goal = fill_template("Docenić mocne strony ({mocne}) i ustalić kierunki.", {"mocne": ""}, ("mocne",))
+    assert goal == "Docenić mocne strony i ustalić kierunki."
+    kept = fill_template("Docenić mocne strony ({mocne}).", {"mocne": "rzetelność"}, ("mocne",))
+    assert kept == "Docenić mocne strony (rzetelność)."
+
+
+def test_draft_negative_without_strengths_has_no_empty_sentence(cycle):
+    d = service().draft("UZASADNIENIE", scored(cycle, [1, 1, 1, 1, 1, 1, 1]), EMPLOYEE, NOTES)
+    assert "ocenę negatywną" in d.text and "należy odnotować: brak" not in d.text
+
+
+def test_draft_iprz_template_groups_actions_by_weak_criterion(cycle):
+    d = service().draft("IPRZ", scored(cycle, [3, 3, 5, 1, 3, 3, 5]), EMPLOYEE, NOTES)
+    weak = [line for line in d.text.splitlines() if line.startswith("– ") and ": " in line]
+    assert weak and all(line.split(": ")[0][2:] in {R.criteria[c].name for c in R.criteria} for line in weak)
+
+
+def test_suggest_criteria_reason_names_whole_words():
+    out = service().suggest_criteria(EMPLOYEE, description="Kierownik zespołu, korespondencja z interesantami")
+    reasons = " ".join(i.reason for i in out.items)
+    assert "kierownik" in reasons and "kierown," not in reasons and "kierown." not in reasons

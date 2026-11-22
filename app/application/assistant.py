@@ -72,6 +72,20 @@ def _start_questions(name: str, indicators: Sequence[str]) -> tuple[str, ...]:
     return tuple(out)
 
 
+def fill_template(template: str, values: Mapping[str, str], optional: Iterable[str] = ()) -> str:
+    """`template.format(**values)`, but a placeholder in `optional` whose value is empty takes its words with it:
+    "(…{key})" disappears, a sentence holding it is dropped, and so is a paragraph left empty."""
+    for key in optional:
+        if values.get(key):
+            continue
+        token = "{" + key + "}"
+        template = re.sub(r"\s*\(" + re.escape(token) + r"\)", "", template)
+        template = re.sub(r"[^.\n]*" + re.escape(token) + r"[^.\n]*\.?[ \t]*", "", template)
+    text = template.format(**values)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return "\n".join(line.rstrip() for line in text.strip().split("\n"))
+
+
 def _prompt(name: str, **values: Any) -> str:
     return Template((_PROMPTS / f"{name}.md").read_text(encoding="utf-8")).substitute(**values)
 
@@ -436,20 +450,27 @@ class AiSuggestionService:
             "okres_od": f"{(cycle.period_from or cycle.criteria_set_on or cycle.start_date):%d.%m.%Y}",
             "okres_do": f"{(cycle.period_to or cycle.meeting_date or date.today()):%d.%m.%Y}",
             "poziom": result.level if result else "nie wyliczono (brak wszystkich ocen cząstkowych)",
-            "slabe_kryteria": self._names(weak),
-            "mocne_strony": self._names(strong),
+            "slabe_kryteria": self._names(weak) if weak else "",
+            "mocne_strony": self._names(strong) if strong else "",
             "dowody_negatywne": proofs(weak, False),
             "dowody_pozytywne": proofs(strong, True),
         }
         t = self.catalog.templates
         if kind == "IPRZ":
-            actions = [*ctx["personal"], *(a for cid in (weak or ctx["ids"]) for a in self.catalog.development.get(cid, [])[:2])]
-            text = t["iprz"].format(dzialania="\n".join(f"– {a}" for a in dict.fromkeys(actions)) or "– do uzgodnienia na rozmowie")
+            # one line per criterion to improve (weak ones; else the first three), each with its own actions,
+            # so the plan reads as a response to the evaluation and not as a generic list
+            lines = [f"– {a}" for a in ctx["personal"]]
+            for cid in weak or ctx["ids"][:3]:
+                acts = [a for a in self.catalog.development.get(cid, [])[:2] if f"– {a}" not in lines]
+                if acts:
+                    lines.append(f"– {self.rules.criterion_name(cid)}: {'; '.join(acts)}")
+            text = t["iprz"].format(dzialania="\n".join(dict.fromkeys(lines)) or "– do uzgodnienia na rozmowie")
         elif kind == "UMOTYWOWANIE_STOPNIA":
-            text = t["umotywowanie_stopnia"].format(**values)
+            text = fill_template(t["umotywowanie_stopnia"], values, ("mocne_strony",))
         else:
             negative = result is not None and result.outcome is Outcome.NEGATIVE
-            text = t["uzasadnienie_negatywna" if negative else "uzasadnienie_pozytywna"].format(**values)
+            text = fill_template(t["uzasadnienie_negatywna" if negative else "uzasadnienie_pozytywna"], values,
+                                 ("mocne_strony",) if negative else ("mocne_strony", "slabe_kryteria"))
         return text, tuple(dict.fromkeys(used))
 
     def _draft_prompt(self, kind: DraftKind, cycle: EvaluationCycle, employee: Employee, notes: Sequence[Note],
@@ -584,8 +605,9 @@ class AiSuggestionService:
             plan = (("Obowiązki z opisu stanowiska", 10), ("Kryteria i oczekiwania", 15),
                     ("Cele na okres oceny", 10), ("Pytania pracownika", 5))
         else:
-            goal = t["cel_rozmowy_negatywna" if weak else "cel_rozmowy_pozytywna"].format(
-                slabe_kryteria=self._names(weak), mocne_strony=self._names(strong))
+            goal = fill_template(t["cel_rozmowy_negatywna" if weak else "cel_rozmowy_pozytywna"],
+                                 {"slabe_kryteria": self._names(weak), "mocne_strony": self._names(strong) if strong else ""},
+                                 ("mocne_strony",))
             plan = (("Otwarcie i mocne strony", 5), ("Kryteria po kolei", 20),
                     ("Rozwój i wsparcie", 10), ("Ustalenia i kolejne kroki", 5))
         strengths = [f"{self.rules.criterion_name(c)}: {len(ev[c].positive)} pozytywnych obserwacji" for c in strong]
@@ -681,10 +703,16 @@ class AiSuggestionService:
         if ai is not None:
             return CriteriaSuggestions(tuple(ai), "AI")
 
-        text = f"{employee.position} {employee.unit} {description}".casefold()
+        source = f"{employee.position} {employee.unit} {description}"
+        text = source.casefold()
+
+        def word(stem: str) -> str:
+            m = re.search(r"\w*" + re.escape(stem) + r"\w*", source, re.IGNORECASE)
+            return m.group(0).lower() if m else stem
+
         scored = []
         for cid in candidates:
-            hits = [k for k in self.catalog.keywords.get(cid, []) if k.casefold() in text]
+            hits = list(dict.fromkeys(word(k) for k in self.catalog.keywords.get(cid, []) if k.casefold() in text))
             if hits:
                 scored.append((len(hits), cid, hits))
         scored.sort(key=lambda s: (-s[0], self.rules.criteria[s[1]].number))
