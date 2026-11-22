@@ -159,6 +159,9 @@ section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"] b
   width: 100% !important; justify-content: center !important; padding: .55rem 0 !important; min-height: 3.1rem; border-radius: 10px; }
 section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"] button [data-testid="stMarkdownContainer"] {
   display: none !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"] button div,
+section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"] button > div > span {
+  justify-content: center !important; width: 100%; gap: 0 !important; }
 section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"] [data-testid="stIconMaterial"] {
   margin: 0 !important; font-size: 1.5rem; }
 section[data-testid="stSidebar"] [class*="st-key-nav_"] [data-testid="stIconMaterial"] { font-size: 1.3rem; margin-right: .35rem; }
@@ -178,9 +181,14 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] svg { color: var(--b
   border-radius: 8px; width: 2.4rem; height: 2.4rem; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
 [data-testid="stSidebarCollapseButton"] button svg, [data-testid="stSidebarCollapseButton"] button span {
   color: #1c3460 !important; fill: #1c3460 !important; }
-[data-testid="stExpandSidebarButton"] { background: #1c3460 !important; border-radius: 8px; width: 2.4rem; height: 2.4rem; }
-[data-testid="stExpandSidebarButton"] svg, [data-testid="stExpandSidebarButton"] span { color: #ffffff !important;
-  fill: #ffffff !important; }
+/* "expand the menu" sits on top of the folded rail, centred like the tiles under it */
+[data-testid="stHeader"] { z-index: 1000200 !important; pointer-events: none; }
+[data-testid="stHeader"] * { pointer-events: auto; }
+[data-testid="stExpandSidebarButton"] { position: fixed !important; top: .9rem; left: calc((4.6rem - 2.6rem) / 2);
+  z-index: 1000100; background: #ffffff !important; border-radius: 10px; width: 2.6rem; height: 2.6rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+[data-testid="stExpandSidebarButton"] svg, [data-testid="stExpandSidebarButton"] span { color: #1c3460 !important;
+  fill: #1c3460 !important; }
 /* Streamlit's own "Deploy" button is not part of the app */
 [data-testid="stAppDeployButton"] { display: none !important; }
 /* tiles and framed sections: clearly separated from the background (only framed blocks have a border width) */
