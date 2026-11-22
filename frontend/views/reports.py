@@ -36,11 +36,12 @@ def _bars(rows: dict[str, float], label: str, horizontal: bool = True) -> None:
     tip = [alt.Tooltip("kat:N", title=""), alt.Tooltip("val:Q", title=label)]
     if horizontal:
         base = alt.Chart(df).encode(
-            y=alt.Y("kat:N", sort=order, title=None, axis=alt.Axis(labelLimit=320, labelFontSize=13)),
+            y=alt.Y("kat:N", sort=order, title=None, axis=alt.Axis(labelLimit=320, labelFontSize=13),
+                    scale=alt.Scale(paddingInner=0.35)),
             x=alt.X("val:Q", title=label, axis=alt.Axis(grid=False, tickMinStep=1)), tooltip=tip)
-        chart = base.mark_bar(color=BAR, cornerRadiusEnd=3, height=22) + base.mark_text(
+        chart = base.mark_bar(color=BAR, cornerRadiusEnd=3) + base.mark_text(
             align="left", dx=4, fontSize=12).encode(text=alt.Text("val:Q", format="~g"))
-        height = 40 * len(rows) + 30
+        height = 44 * len(rows) + 80  # axis and its title need ~80 px; each bar gets its own row
     else:
         base = alt.Chart(df).encode(
             x=alt.X("kat:N", sort=order, title=None, axis=alt.Axis(labelAngle=0, labelLimit=200)),
