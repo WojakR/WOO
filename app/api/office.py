@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Header
 
 from app.domain.access import VisibilityScope
 from app.domain.errors import NotAuthorized
+from app.domain.objection import Route
 from app.infrastructure import regulations
 from backend import kprm
 
@@ -129,7 +130,8 @@ def reset_rules(x_user_id: str | None = Header(default=None), st: DemoState = De
 def _office_out(st: DemoState, who: str) -> s.UstawieniaUrzeduOut:
     return s.UstawieniaUrzeduOut(
         zakres_widocznosci=st.settings.visibility_scope.value, asystent_ai=st.ai_office,
-        hr_partner=st.hr_partner_office, tryb_ai_serwera=s.TrybAI(st.ai_mode.upper()), moze_edytowac=who == HR)
+        hr_partner=st.hr_partner_office, tryb_ai_serwera=s.TrybAI(st.ai_mode.upper()), moze_edytowac=who == HR,
+        tryb_sprzeciwu=st.settings.objection.route.value)
 
 
 @router.get("/ustawienia/urzad", response_model=s.UstawieniaUrzeduOut)
@@ -149,6 +151,8 @@ def set_office(body: s.UstawieniaUrzeduIn, x_user_id: str | None = Header(defaul
         st.hr_reports.clear()
     if body.hr_partner is not None:
         st.hr_partner_office = body.hr_partner
+    if body.tryb_sprzeciwu is not None:
+        st.settings = st.settings.with_objection_route(Route(body.tryb_sprzeciwu))
     return _office_out(st, who)
 
 

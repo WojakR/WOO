@@ -54,6 +54,8 @@
   },
   "sprzeciw": {
     "_opis": "Kto rozpatruje sprzeciwy (art. 83 ust. 1: dyrektor generalny urzędu). \"kadry\" = konto działu kadr / administratora; można wpisać id osoby z pracownicy.json.",
+    "tryb": "DYREKTOR_GENERALNY",
+    "_tryb": "DYREKTOR_GENERALNY = sprzeciw rozpatruje dyrektor generalny (art. 83 ust. 1, pole rozpatruje); PRZELOZONY_PRZELOZONEGO = przełożony oceniającego (decyzja urzędu) – gdy oceniający nie ma przełożonego, sprzeciw trafia jak w trybie DYREKTOR_GENERALNY.",
     "rozpatruje": "kadry",
     "urzad_ma_dyrektora_generalnego": true,
     "_urzad_ma_dyrektora_generalnego": "false = w urzędzie nie ma stanowiska DG: sprzeciw rozpatruje kierownik urzędu (przypis 17 do wzoru arkusza; kierownik = osoba z kierownik_urzedu=true w tym urzędzie).",

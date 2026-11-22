@@ -25,6 +25,7 @@ from app.application.notices import Notice, notices_for
 from app.application.personnel_export import ExportService, ExportStatus
 from app.application.use_cases import EvaluationService, ProcessEvent
 from app.domain.access import AccessPolicy
+from app.domain.cycle import Status
 from app.domain.reminder_schedule import ReminderSchedule
 from app.domain.deadlines import Absence
 from app.domain.employee import Employee
@@ -40,7 +41,7 @@ from app.infrastructure.json_codec import JsonCodec
 from app.infrastructure.sql_store import SqlStateStore, Snapshot
 from app.infrastructure.settings import OfficeSettings, load_office_settings
 from app.infrastructure import regulations
-from app.domain.objection import Reviewer, objection_reviewer
+from app.domain.objection import Reviewer, Route, objection_reviewer
 from backend import config, kprm
 
 DEMO_TODAY = date(2026, 5, 25)  # Grzegorz Wzór's deadline 12.06.2026 is then 18 days away
@@ -349,8 +350,9 @@ class DemoState:
         emp = self.directory.get(c.employee_id)
         head = next((e.id for e in self.directory.all() if emp and e.office == emp.office and e.is_office_head),
                     None)
+        boss = self.directory.get(c.evaluator_id) if c.evaluator_id else None
         return objection_reviewer(self.settings.objection, c.employee_id, c.evaluator_id,
-                                  bool(emp and emp.is_office_head), head)
+                                  bool(emp and emp.is_office_head), head, boss.evaluator_id if boss else None)
 
     def reviewers(self) -> frozenset[str]:
         """Everyone who may have to decide an objection (reads every evaluation, like HR)."""
@@ -367,7 +369,17 @@ class DemoState:
             deputies={ev: frozenset(self.active_deputies(ev, today)) for ev in evaluators},
             # the reviewers of objections read all; accounts with the admin flag (AUTH_MODE=session)
             admins=frozenset({HR}) | self.reviewers() | _account_admins(),
+            objection_readers=self._objection_readers(),
         )
+
+    def _objection_readers(self) -> dict[str, frozenset[str]]:
+        """Reviewers of pending objections who are not admins (e.g. the evaluator's supervisor, office setting)
+        read that evaluation even when the visibility scope is BEZPOSREDNI."""
+        out: dict[str, set[str]] = {}
+        for c in self.evaluations.cycles.list_all():
+            if c.status is Status.OBJECTION:
+                out.setdefault(c.employee_id, set()).add(self.objection_reviewer(c).id)
+        return {e: frozenset(r) for e, r in out.items()}
 
     def notes_of(self, evaluation_id: int, include_withheld: bool = False) -> list[NoteRecord]:
         """Notes of the evaluation – without the previous evaluator's notes they have not handed over."""
@@ -515,6 +527,8 @@ def snapshot(st: DemoState) -> Snapshot:
               "powiadomienia": list(st.notices), "zaproszenia": list(st.invitations), "ezd": dict(st.ezd_status),
               **({"zakres_widocznosci": st.settings.visibility_scope}
                  if st.settings.visibility_scope != load_office_settings().visibility_scope else {}),
+              **({"tryb_sprzeciwu": st.settings.objection.route.value}
+                 if st.settings.objection.route != load_office_settings().objection.route else {}),
               # office default changed by HR in the app (else the file config/ustawienia_urzedu.json applies)
               **({"przypomnienia_urzedu": st.settings.reminders}
                  if st.settings.reminders != load_office_settings().reminders else {})},
@@ -541,6 +555,8 @@ def restore(snap: Snapshot, ai_mode: str | None = None) -> DemoState:
         st.settings = dataclasses.replace(st.settings, reminders=snap.meta["przypomnienia_urzedu"])
     if "zakres_widocznosci" in snap.meta:
         st.settings = dataclasses.replace(st.settings, visibility_scope=snap.meta["zakres_widocznosci"])
+    if "tryb_sprzeciwu" in snap.meta:
+        st.settings = st.settings.with_objection_route(Route(snap.meta["tryb_sprzeciwu"]))
     st.rule_changes = list(snap.meta.get("zmiany_regul", []))
     if "wersje_regul" in snap.meta:
         st.rule_versions = regulations.RuleVersions(list(snap.meta["wersje_regul"]))
