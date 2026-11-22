@@ -3,7 +3,7 @@ and the criteria (as dated versions), office switches and visibility, default re
 import, the HR archive tools, RCP and e-Akt. The server validates and stores everything; nothing is decided here."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -390,6 +390,54 @@ def _people_admin(api: Api, today: date) -> None:
             st.rerun()
 
 
+ABSENCE_TYPES = {"L4": "zwolnienie lekarskie", "URLOP_WYPOCZYNKOWY": "urlop wypoczynkowy",
+                 "URLOP_RODZICIELSKI": "urlop rodzicielski", "INNA_USPRAWIEDLIWIONA": "inna usprawiedliwiona",
+                 "NIEUSPRAWIEDLIWIONA": "nieusprawiedliwiona"}
+
+
+def _absences(api: Api, today: date) -> None:
+    """Absences of the evaluated people: a justified one longer than a month moves the evaluation deadline
+    (art. 81 ust. 7) – the server decides and tells the person."""
+    data = _call(api.employees, na_strone=200)
+    if not data:
+        return
+    rows = {r["pracownik"]["id"]: r for r in data["pozycje"] if r.get("biezaca_ocena")}
+    st.markdown("Nieobecność pracownika z oceną w toku. Usprawiedliwiona nieobecność **dłuższa niż miesiąc** sama "
+                "przesuwa termin oceny o czas nieobecności (art. 81 ust. 7) – pracownik dostaje powiadomienie.")
+    if not rows:
+        st.info("Nikt nie ma teraz oceny w toku.")
+        return
+    last = st.session_state.pop("adm_abs_msg", None)
+    if last:
+        st.success(last)
+    pid = st.selectbox("Pracownik", list(rows), key="adm_abs_who",
+                       format_func=lambda i: f"{name(rows[i]['pracownik'])} · termin oceny "
+                                             f"{ui.fmt(rows[i]['biezaca_ocena'].get('termin_oceny'))}")
+    a, b, c = st.columns([1, 1, 1.4])
+    od = a.date_input("Od", today, key="adm_abs_od", format="DD.MM.YYYY")
+    do = b.date_input("Do", today + timedelta(days=30), key="adm_abs_do", format="DD.MM.YYYY")
+    kind = c.selectbox("Rodzaj", list(ABSENCE_TYPES), format_func=ABSENCE_TYPES.get, key="adm_abs_type")
+    if st.button("Zapisz nieobecność", type="primary", icon=":material/event_busy:", key="adm_abs_go"):
+        if do < od:
+            st.error("Koniec nieobecności nie może być wcześniejszy niż jej początek.")
+        else:
+            out = _call(api.add_absence, pid, od, do, kind)
+            if out is not None:
+                moved = out.get("zmiana_terminu")
+                st.session_state.adm_abs_msg = (
+                    f"Zapisano nieobecność ({out['dni']} dni). "
+                    + (f"Termin oceny przesunięty: {ui.fmt(moved['stary_termin'])} → {ui.fmt(moved['nowy_termin'])}."
+                       if moved else f"Termin oceny bez zmian: {ui.fmt(out.get('termin_oceny'))}."))
+                st.rerun()
+    hist = _call(api.absences, pid) or []
+    if hist:
+        st.markdown("**Zapisane nieobecności**")
+        for h in reversed(hist):
+            moved = h.get("zmiana_terminu")
+            st.markdown(f"- {ui.fmt(h['od'])} – {ui.fmt(h['do'])} · {ABSENCE_TYPES.get(h['typ'], h['typ'])} · "
+                        f"{h['dni']} dni" + (f" · termin przesunięty na {ui.fmt(moved['nowy_termin'])}" if moved else ""))
+
+
 def _rcp_eakt(api: Api) -> None:
     with st.container(border=True):
         st.markdown("#### :material/timer: Rejestracja czasu pracy (RCP)", help="Dane o nadgodzinach i przerwach trafiają do HR "
@@ -454,7 +502,7 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
         st.info("Panel administratora jest dostępny dla działu kadr.")
         return
     today = to_date(meta["dzis"])
-    tabs = st.tabs([":material/policy: Terminy", ":material/checklist: Kryteria i etapy", ":material/apartment: Urząd i przypomnienia", ":material/person: Pracownicy", ":material/upload_file: Import pracowników",
+    tabs = st.tabs([":material/policy: Terminy", ":material/checklist: Kryteria i etapy", ":material/apartment: Urząd i przypomnienia", ":material/person: Pracownicy", ":material/event_busy: Nieobecności", ":material/upload_file: Import pracowników",
                     ":material/badge: Zmiana stanowiska", ":material/supervisor_account: Zmiana oceniającego", ":material/inventory_2: Archiwum kadr", ":material/timer: RCP, e-Akt i EZD"])
     with tabs[0]:
         _terms(api, today)
@@ -465,12 +513,14 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
     with tabs[3]:
         _people_admin(api, today)
     with tabs[4]:
-        _people(api)
+        _absences(api, today)
     with tabs[5]:
-        _staff_changes(api, today, "stanowisko")
+        _people(api)
     with tabs[6]:
-        _staff_changes(api, today, "oceniajacy")
+        _staff_changes(api, today, "stanowisko")
     with tabs[7]:
+        _staff_changes(api, today, "oceniajacy")
+    with tabs[8]:
         inner = st.tabs([":material/ac_unit: Zamrożone oceny", ":material/hourglass_top: Okresy przechowywania", ":material/upload_file: Import starych ocen"])
         with inner[0]:
             archive._frozen(api)
@@ -478,6 +528,6 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
             archive._retention(api)
         with inner[2]:
             archive._legacy(api)
-    with tabs[8]:
+    with tabs[9]:
         _rcp_eakt(api)
         _ezd(api)

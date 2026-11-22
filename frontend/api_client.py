@@ -153,6 +153,10 @@ class Api:
     def absences(self, employee_number: int) -> list[dict]:
         return self._req("GET", f"/employees/{employee_number}/absences")
 
+    def add_absence(self, employee_number: int, od: date, do: date, typ: str) -> dict:
+        return self._req("POST", f"/employees/{employee_number}/absences",
+                         {"od": od.isoformat(), "do": do.isoformat(), "typ": typ})
+
     # ---- settings: my assistant, office, regulation, reminders, deputies --------------------------
     def my_assistant(self) -> dict:
         return self._req("GET", "/me/asystent")
@@ -291,6 +295,10 @@ class Api:
 
     def legacy_upload(self, name: str, data: bytes) -> dict:
         return self._req("POST", "/legacy-import", files={"file": (name, data)})
+
+    def legacy_fix(self, rid: int, **fields) -> dict:
+        return self._req("PUT", f"/legacy-import/{rid}", {k: (v.isoformat() if isinstance(v, date) else v)
+                                                           for k, v in fields.items()})
 
     def legacy_approve(self, rid: int, accept_discrepancies: bool = False) -> dict:
         return self._req("POST", f"/legacy-import/{rid}/approve", {"akceptuje_rozbieznosci": accept_discrepancies})

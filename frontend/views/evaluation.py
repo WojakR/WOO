@@ -280,14 +280,9 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
     st.markdown("#### Termin sporządzenia oceny")
     st.markdown(f"**{ui.fmt(ev['czesc_i']['termin_oceny'])}***")
     ui.footnote("Wyliczony przez system: 24 miesiące od początku cyklu, z pominięciem dni wolnych.")
-    if "termin_oceny" in ev["edytowalne_pola"]:
-        with st.popover(":material/edit_calendar: Zmień termin oceny"):
-            new = st.date_input("Nowy termin", to_date(ev["czesc_i"]["termin_oceny"]), key=f"ovr_{ev['id']}",
-                                format="DD.MM.YYYY", min_value=today)
-            if st.button("Zapisz termin", type="primary", key=f"ovr_save_{ev['id']}"):
-                if _call(api.patch, ev, termin_oceny=new, ok=f"Nowy termin oceny: {ui.fmt(new)}"):
-                    st.rerun()
-                st.rerun()
+    if ev["jako_oceniajacy"]:
+        st.caption("Zmiana terminu: w panelu po prawej, „Zmiana terminu oceny” – z powodem, pismem do akt i "
+                   "powiadomieniem pracownika.")
 
     if ev["jako_oceniajacy"] and current_stage(ev) == 1:
         with st.expander(":material/event: Zaproszenie na rozmowę inicjującą"):

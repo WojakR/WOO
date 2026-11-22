@@ -156,6 +156,47 @@ def _retention(api: Api) -> None:
                     st.rerun()
 
 
+def _legacy_fix(api: Api, d: dict) -> None:
+    """The reader can get a field wrong (a scan, an unusual layout): HR corrects it here; the server checks again."""
+    from frontend.process import to_date
+
+    f, rid = d["pola"], d["id"]
+    with st.popover("Popraw odczytane dane", icon=":material/edit:"):
+        data = _call(api.employees, na_strone=200) or {"pozycje": []}
+        people = {p["pracownik"]["id"]: p["pracownik"] for p in data["pozycje"]}
+        ids = [None] + list(people)
+        who = st.selectbox("Pracownik", ids, key=f"lf_who_{rid}",
+                           index=ids.index(f.get("pracownik_id")) if f.get("pracownik_id") in ids else 0,
+                           format_func=lambda i: "— nie rozpoznano —" if i is None else name(people[i]))
+        a, b = st.columns(2)
+        sheets = ["A", "B", "C"]
+        sheet = a.selectbox("Arkusz", sheets, key=f"lf_ark_{rid}",
+                            index=sheets.index(f["arkusz"]) if f.get("arkusz") in sheets else 2)
+        avg = b.number_input("Średnia w arkuszu", 0.0, 5.0, float(f.get("srednia") or 0.0), 0.01, key=f"lf_avg_{rid}")
+        a, b = st.columns(2)
+        od = a.date_input("Okres od", to_date(f.get("okres_od")), key=f"lf_od_{rid}", format="DD.MM.YYYY")
+        do = b.date_input("Okres do", to_date(f.get("okres_do")), key=f"lf_do_{rid}", format="DD.MM.YYYY")
+        a, b = st.columns(2)
+        made = a.date_input("Data sporządzenia", to_date(f.get("data_sporzadzenia")), key=f"lf_sp_{rid}",
+                            format="DD.MM.YYYY")
+        read = b.date_input("Data zapoznania", to_date(f.get("data_zapoznania")), key=f"lf_zap_{rid}",
+                            format="DD.MM.YYYY")
+        levels = d.get("poziomy") or list(LEVEL_LABEL)
+        a, b = st.columns(2)
+        level = a.selectbox("Poziom", levels, key=f"lf_lvl_{rid}", format_func=lambda x: LEVEL_LABEL.get(x, x),
+                            index=levels.index(f["poziom"]) if f.get("poziom") in levels else 0)
+        result = b.selectbox("Wynik", ["POZYTYWNA", "NEGATYWNA"], key=f"lf_res_{rid}",
+                             index=1 if f.get("wynik") == "NEGATYWNA" else 0, format_func=str.lower)
+        if st.button("Zapisz poprawki", type="primary", key=f"lf_go_{rid}"):
+            fix = {"arkusz": sheet, "srednia": avg or None, "poziom": level, "wynik": result, "okres_od": od,
+                   "okres_do": do, "data_sporzadzenia": made, "data_zapoznania": read}
+            if who is not None:
+                fix["pracownik_id"] = who
+            if _call(api.legacy_fix, rid, **{k: v for k, v in fix.items() if v is not None},
+                     ok="Zapisano poprawki – system sprawdził arkusz ponownie.") is not None:
+                st.rerun()
+
+
 def _legacy(api: Api) -> None:
     st.markdown("Wgraj stary arkusz (PDF albo tekst). System odczyta pola, przeliczy wynik według § 11 i pokaże "
                 "rozbieżności. Po zatwierdzeniu ocena trafia do historii pracownika.")
@@ -182,6 +223,7 @@ def _legacy(api: Api) -> None:
             if done:
                 st.success("Zatwierdzona – jest w historii pracownika.")
                 continue
+            _legacy_fix(api, d)
             blocking = any(p["waga"] == "BLAD" for p in d.get("rozbieznosci", []))
             accept = st.checkbox("Zatwierdzam zgodnie z oryginałem mimo rozbieżności", key=f"legacy_acc_{d['id']}") \
                 if blocking else False
