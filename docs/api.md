@@ -45,14 +45,13 @@ Nazwy pól i wartości enumów są zgodne z modelem danych (`model-danych.md`), 
 | Metoda i ścieżka | Wejście | Wyjście | Uwagi |
 |---|---|---|---|
 | 🟢 `POST /api/evaluations` | `EvaluationCreate` | `EvaluationOut` 201 | start cyklu; arkusz, kryteria obowiązkowe i terminy ustala serwer |
-| 🟢 `GET /api/evaluations?oceniany_id=&status=` | – | `EvaluationListItem[]` | historia ocen |
 | 🟢 `GET /api/evaluations/{id}` | – | `EvaluationOut` | cały arkusz + `dozwolone_akcje`, `edytowalne_pola`, `walidacje` |
 | 🟢 `PATCH /api/evaluations/{id}` | `EvaluationPatch` | `EvaluationOut` | tylko pola z `edytowalne_pola` |
 | 🟢 `PUT /api/evaluations/{id}/criteria/additional` | `AdditionalCriteriaIn` | `EvaluationOut` | 0–3 kryteria, pełna lista |
 | 🟢 `PUT /api/evaluations/{id}/scores` | `ScoresIn` | `ScoresOut` | **przeliczenie na żywo** (reguły, bez AI): średnia, poziom, wynik, walidacje |
 | 🟢 `POST /api/evaluations/{id}/actions/{akcja}` | `ActionIn` | `EvaluationOut` | przejście procesu; `Akcja` w schematach |
 | 🟢 `GET /api/evaluations/{id}/pdf` | – | `application/pdf` | arkusz zgodny ze wzorem (`backend/sheet_pdf.py`); przed zatwierdzeniem oznaczony jako wersja robocza |
-| 🟡 `GET /api/evaluations/{id}/history` | – | wpisy AuditLog | |
+| 🟢 `GET /api/evaluations/{id}/audit` | – | wpisy dziennika zmian | kto, kiedy, co zmienił (kadry i oceniający) |
 
 Akcje i kto je wykonuje:
 
@@ -176,7 +175,7 @@ Zaproszony dostaje powiadomienie `ZAPROSZENIE` / `ZAPROSZENIE_ODWOLANE`, a `noti
 |---|---|---|---|
 | 🟢 `POST /api/evaluations/{id}/ai/suggest-criteria` | `SuggestCriteriaIn` (opcjonalnie: `opis` obowiązków) | `SuggestCriteriaOut` | maks. 3, nic nie ustawia samo |
 | 🟢 `POST /api/evaluations/{id}/ai/conversation-prep` | `?rodzaj=OCENIAJACA` | `ConversationPrepOut` | notatka na rozmowę; bez punktów |
-| 🟢 `POST /api/evaluations/{id}/ai/draft` | `DraftIn` | `DraftOut` albo strumień SSE | `Accept: text/event-stream` = tekst po kawałku (`event: delta`, na końcu `event: done` z `DraftOut`) |
+| 🟢 `POST /api/evaluations/{id}/ai/draft` | `DraftIn` | `DraftOut` | szkic w całości; strumieniowanie (SSE) jest w `AiSuggestionService.draft_stream`, ale endpoint go jeszcze nie używa |
 | 🟢 `GET /api/evaluations/{id}/hr-partner` | – | `HrPartnerOut` | podpowiedzi dla przełożonego; także sygnały z historii (staż, trend ocen) z `dzialania_rozwojowe` – docs/asystent.md |
 | 🟢 `POST /api/hr-signals/{id}/decision` | `HrSignalDecision` | 204 | akceptuj / odrzuć |
 

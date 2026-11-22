@@ -324,9 +324,6 @@ class EvaluationCycle:
                             "nic nie zostało zmienione.")
         return problems
 
-    def can(self, step: str) -> bool:
-        return self.status in TRANSITIONS[step][0]
-
     def is_editable(self, field_name: str) -> bool:
         return self.status in EDITABLE_IN[field_name]
 

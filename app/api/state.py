@@ -30,7 +30,7 @@ from app.domain.deadlines import Absence
 from app.domain.employee import Employee
 from app.domain.notes import Note
 from app.domain.wellbeing import WellbeingCheck, overload_evidence as wellbeing_evidence
-from app.domain.worktime_signals import WorkDay, indicators, overload_evidence as worktime_evidence
+from app.domain.worktime_signals import indicators, overload_evidence as worktime_evidence
 from app.infrastructure.rcp_import import InMemoryWorkTimeStore
 from app.infrastructure.assistant_factory import build_assistant
 from app.infrastructure.kprm_adapter import KprmEmployeeDirectory, kprm_rulebook

@@ -1,12 +1,11 @@
 """Shared UI pieces: styles, badges, stepper, cards, date formatting."""
 from __future__ import annotations
 
-from datetime import date
 from html import escape
 
 import streamlit as st
 
-from frontend.process import DONE, STAGES, stage_date, stage_state, to_date
+from frontend.process import STAGES, stage_date, stage_state, to_date
 
 CSS = """
 <style>
@@ -422,17 +421,6 @@ def days_text(days: int) -> str:
     return f"za {days} dni"
 
 
-def urgency(days: int | None) -> str:
-    """Key of URGENCY: late / soon / ok / none."""
-    if days is None:
-        return "none"
-    if days < 0:
-        return "late"
-    if days <= 30:
-        return "soon"
-    return "ok"
-
-
 def urgency_badge(key: str) -> str:
     label, cls = URGENCY[key]
     return badge(label, cls)
@@ -446,10 +434,6 @@ def deadline_bar(label: str, due, today) -> None:
     left = (due - today).days
     cls = "late" if left < 0 else "warn" if left <= 30 else ""
     html(f'<div class="deadline {cls}"><b>{escape(label)}:</b> {fmt(due)} · {days_text(left)}</div>')
-
-
-def stage_label(stage: int) -> str:
-    return "Zakończona" if stage == DONE else f"{stage} · {STAGES[stage - 1]}"
 
 
 def stepper(ev: dict, selected: int, key: str) -> int:

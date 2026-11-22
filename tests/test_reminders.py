@@ -1,5 +1,5 @@
 """Configurable reminders: rules per stage, any number, working days and working hours only, own settings."""
-from datetime import date, time, timedelta
+from datetime import date, time
 
 import pytest
 from fastapi.testclient import TestClient

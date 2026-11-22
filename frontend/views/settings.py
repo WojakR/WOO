@@ -5,7 +5,6 @@ and deputies (/api/zastepstwa)."""
 from __future__ import annotations
 
 from datetime import date, timedelta
-from html import escape
 
 import streamlit as st
 

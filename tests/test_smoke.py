@@ -32,7 +32,3 @@ def test_parse_csv_semicolon():
     kind, df = parse_file("a;b\n1;2\n".encode(), "x.csv")
     assert kind == "table" and list(df.columns) == ["a", "b"]
 
-
-def test_upload_endpoint():
-    r = client.post("/upload", files={"file": ("t.txt", b"tekst testowy")})
-    assert r.status_code == 200 and r.json()["kind"] == "text"

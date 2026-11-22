@@ -2,10 +2,8 @@
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 
 from backend import llm
-from backend.main import app
 
 NOTE = "Notatka: Grzegorzowi Wzorowi i Janinie Kowalskiej, tel. 600 123 456, PESEL 85010112345, gw@urzad.gov.pl"
 LEAKS = ("Grzeg", "Wzor", "Wzór", "Janin", "Kowalsk", "600 123 456", "85010112345", "@")
@@ -66,9 +64,3 @@ def test_json_answer_gets_names_back(sent):
     assert llm.ask_llm_json("Kto to Janina Kowalska?") == {"osoba": "Janina Kowalska"}
     assert "Kowalsk" not in sent[0]["prompt"]
 
-
-def test_ask_endpoint_never_sends_names(sent):
-    sent.answer = "Brak danych."
-    r = TestClient(app).post("/ask", json={"prompt": "Co z oceną Grzegorza Wzora?", "context": NOTE})
-    assert r.status_code == 200 and r.json()["answer"] == "Brak danych."
-    assert not any(leak in sent[0]["prompt"] for leak in LEAKS)

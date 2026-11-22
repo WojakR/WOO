@@ -111,7 +111,7 @@ def test_no_objection_deadline_before_acknowledgement(svc):
 
 
 def test_reminders_after_acknowledgement(svc, clock):
-    c = _negative_evaluation_acknowledged(svc, clock, date(2026, 6, 22))
+    _negative_evaluation_acknowledged(svc, clock, date(2026, 6, 22))
     objection = [r for r in svc.reminders() if r.kind == "objection"]
     assert [(r.recipient_id, r.due, r.days_left) for r in objection] == [(EMP, date(2026, 6, 29), 7)]
     clock.set(date(2026, 6, 30))  # objection window over

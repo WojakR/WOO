@@ -376,17 +376,6 @@ class EvaluationOut(_Out):
     updated_at: datetime                        # send back as If-Unmodified-Since / `updated_at` to avoid lost updates
 
 
-class EvaluationListItem(_Out):
-    id: int
-    oceniany: OsobaRef
-    oceniajacy: OsobaRef
-    arkusz: Arkusz
-    status: StatusOceny
-    termin_oceny: date
-    wynik: Wynik | None = None
-    wersja: int
-
-
 class EvaluationCreate(BaseModel):
     """POST /api/evaluations – start a cycle. Arkusz, oceniający, terminy are derived by the server."""
     oceniany_id: int

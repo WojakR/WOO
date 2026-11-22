@@ -33,7 +33,7 @@ COOKIE = "asystent_sesja"
 # Reachable without a session in session mode (the login screen needs them)
 PUBLIC_PATHS = {"/api/auth/login", "/api/auth/logout", "/api/auth/status"}
 # Everything else under these prefixes needs a session in session mode
-PROTECTED_PREFIXES = ("/api/", "/ask", "/upload", "/documents")
+PROTECTED_PREFIXES = ("/api/",)
 DEMO_ONLY_PATHS = {"/api/users"}
 
 _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}
