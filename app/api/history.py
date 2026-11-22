@@ -17,7 +17,7 @@ from app.domain.errors import NotAuthorized
 
 from . import schemas as s
 from .access import actor as _actor
-from .state import DemoState, get_state
+from .state import HR, DemoState, get_state
 
 router = APIRouter(prefix="/api", tags=["kadry"])
 _FINISHED = (Status.ACKNOWLEDGED, Status.OBJECTION)
@@ -98,18 +98,51 @@ def promotion_requests(st: DemoState) -> list[HrTask]:
     return out
 
 
-def notifications_for(st: DemoState, who: str):
-    """HR / administrators: one notice per consequence, dated the day the evaluation was acknowledged."""
-    from datetime import datetime, time
+GRADE_REMINDER_DAYS_BEFORE = (7, 1)  # reminders to HR before the deadline of the obligatory grade (art. 89 ust. 2)
 
-    if not st.policy().is_admin(who):
-        return []
-    out = []
+
+def consequence_notices(st: DemoState) -> list[Notice]:
+    """Notices to HR about the consequences of consecutive evaluations (past and future – callers filter by date):
+    one on the day the evaluation was acknowledged, and for the obligatory grade (art. 89 ust. 2) reminders
+    GRADE_REMINDER_DAYS_BEFORE days before its deadline (moved to the working day before a day off). They stop
+    when HR records the new grade (`grade_since` after the evaluation – the signal disappears)."""
+    from datetime import datetime, time, timedelta
+
+    from app.application.notices import Notice
+
+    cal = st.evaluations.calendar
+    out: list[Notice] = []
     for e in st.directory.all():
         for sig in signals_for(st, e.id):
             c: EvaluationCycle | None = st.evaluations.cycles.get(sig.evaluation_id)
             day = (c.acknowledged_on if c and c.acknowledged_on else st.clock.today())
-            out.append((f"skutek-{sig.kind}-{sig.evaluation_id}", f"{e.full_name}: {sig.message}",
-                        int(sig.evaluation_id), datetime.combine(day, time(8, 0)), f"SKUTEK_{sig.kind}"))
+            subject = ("Obowiązek przyznania kolejnego stopnia służbowego" if sig.kind == "STOPIEN_OBLIGATORYJNY"
+                       else "Dwie kolejne negatywne oceny okresowe") + f" – {e.full_name}"
+            out.append(Notice(f"skutek-{sig.kind}-{sig.evaluation_id}", HR, f"SKUTEK_{sig.kind}", subject,
+                              f"{e.full_name}: {sig.message}", sig.evaluation_id, datetime.combine(day, time(8, 0))))
+            if sig.kind != "STOPIEN_OBLIGATORYJNY" or sig.due is None:
+                continue
+            for before in GRADE_REMINDER_DAYS_BEFORE:
+                when = sig.due - timedelta(days=before)
+                while cal.is_day_off(when) and when > day:
+                    when -= timedelta(days=1)
+                if when <= day:  # nothing to remind of on (or before) the day of the first notice
+                    continue
+                left = (sig.due - when).days
+                out.append(Notice(
+                    f"skutek-{sig.kind}-{sig.evaluation_id}-przed-{before}", HR,
+                    "PRZYPOMNIENIE_STOPIEN_OBLIGATORYJNY", f"Przypomnienie: {subject}",
+                    f"Przypomnienie: {e.full_name} – do {sig.due:%d.%m.%Y} (zostało {left} dni) należy przyznać kolejny "
+                    f"stopień służbowy ({sig.basis}). Po przyznaniu wpisz nowy stopień i datę w danych pracownika – "
+                    f"przypomnienia ustaną.",
+                    sig.evaluation_id, datetime.combine(when, time(8, 0))))
     return out
+
+
+def notifications_for(st: DemoState, who: str):
+    """HR / administrators: the consequence notices that are due (consequence_notices)."""
+    if not st.policy().is_admin(who):
+        return []
+    today = st.clock.today()
+    return [(n.key, n.text, int(n.cycle_id), n.when, n.kind) for n in consequence_notices(st) if n.when.date() <= today]
 

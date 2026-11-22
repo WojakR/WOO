@@ -212,6 +212,13 @@ class DemoState:
         e = self.directory.get(person_id)
         return e.email if e else None
 
+    def consequence_notices(self) -> list[Notice]:
+        """Notices to HR about consequences of evaluations (obligatory grade with reminders, two negatives) –
+        computed from the history, mailed by notify_job."""
+        from .history import consequence_notices
+
+        return consequence_notices(self)
+
     def add_notice(self, notice: Notice) -> None:
         if all(n.key != notice.key for n in self.notices):
             self.notices.append(notice)

@@ -69,7 +69,9 @@ def run(st: NotifyState, notifier: Notifier, now: datetime, hours: WorkingHours,
         out.sent.append((r.recipient_id, r.key))
     # notices about events: everything not mailed yet (invitations with their .ics; with e-mails switched off the
     # .ics is still in the app: GET /api/evaluations/{id}/zaproszenia/{n}.ics)
-    for n in sorted(getattr(st, "notices", []), key=lambda n: n.when):
+    # + notices computed from the history: consequences for HR, e.g. reminders of the obligatory grade (art. 89 ust. 2)
+    computed = st.consequence_notices() if hasattr(st, "consequence_notices") else []
+    for n in sorted([*getattr(st, "notices", []), *computed], key=lambda n: n.when):
         key = f"powiadomienie:{n.key}"
         if key in st.sent_email_keys or n.when > now:
             continue
