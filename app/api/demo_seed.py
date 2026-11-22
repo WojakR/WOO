@@ -1,7 +1,7 @@
 """Demo scenario for the running app: evaluations at every stage of the process (all people are fictional).
 
 Grzegorz Wzór (sheet C, evaluator Henryk Pryncypał) is at the review meeting: scores entered, justification
-and IPRZ conclusions still missing, the team's 30 hand-tagged test notes (server/data/kprm/notatki_testowe.json)
+and IPRZ conclusions still missing, the team's 30 hand-tagged test notes (data/kprm/notatki_testowe.json)
 spread over the period plus four untagged notes the HR partner rules react to (overtime, new duties).
 
 History for the personalised hints (app/domain/career_profile.py), as if from the HR system: Grzegorz – 11 years

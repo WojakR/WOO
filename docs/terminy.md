@@ -1,6 +1,6 @@
 # Terminy w ocenie okresowej
 
-Wszystkie wartości liczbowe są w `server/data/kprm/reguly.json` (`terminy`) i trafiają do kodu przez `RuleBook`;
+Wszystkie wartości liczbowe są w `data/kprm/reguly.json` (`terminy`) i trafiają do kodu przez `RuleBook`;
 zmiana przepisów = zmiana pliku. Kod: `app/domain/deadlines.py`, wpięcie w cykl: `app/domain/cycle.py`,
 przypadki użycia: `app/application/use_cases.py`. Przykłady KPRM jako testy: `tests/test_kprm_deadline_examples.py`.
 

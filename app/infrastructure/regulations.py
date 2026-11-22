@@ -1,6 +1,6 @@
 """Requirements of the regulation as data the office administrator can change when the law is amended.
 
-The defaults come from server/data/kprm/reguly.json (the regulation of 4.04.2016 and the Civil Service Act).
+The defaults come from data/kprm/reguly.json (the regulation of 4.04.2016 and the Civil Service Act).
 Overrides are kept in the application state (database) with who/when/why, and every deadline is computed from
 the current values – no term is written into the code. Only numeric terms and the additional-criteria limit are
 editable; the scale, levels and the positive-outcome rule are shown read-only (changing them means a new form).

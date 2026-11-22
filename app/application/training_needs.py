@@ -3,7 +3,7 @@
 1. per person – criteria of their latest drawn-up evaluation scored below the office threshold
    (config/ustawienia_urzedu.json "szkolenia") + the IPRZ conclusions;
 2. per unit / office – a ranking of the criteria with the most low scores;
-3. criterion -> training area is data (server/data/kprm/kryteria.json "obszar_szkoleniowy");
+3. criterion -> training area is data (data/kprm/kryteria.json "obszar_szkoleniowy");
 4. a recommendation worded by the assistant (only aggregates go to the model) or by a template.
 """
 from __future__ import annotations

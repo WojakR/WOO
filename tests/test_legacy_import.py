@@ -1,4 +1,4 @@
-"""T23: import of old evaluations – the filled KPRM sample sheets (server/data/kprm/przyklady/) are read back to
+"""T23: import of old evaluations – the filled KPRM sample sheets (data/kprm/przyklady/) are read back to
 the reference values (average, level, outcome, people), a deliberately broken average is caught, HR corrects
 fields and approves; the evaluation joins the history as an imported finished cycle with the original file."""
 from datetime import date

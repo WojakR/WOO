@@ -134,7 +134,7 @@ Na hackathon jeden rekord. Pozwala jednak pokazać, że jedna instalacja może o
 
 ### 🟢 CriterionDefinition (słownik kryteriów)
 
-Ładowane przy starcie z `server/data/kprm/kryteria.json` i `arkusze.json` (przez `backend/kprm.py`). Zmiana przepisów oznacza edycję tych plików, nie kodu.
+Ładowane przy starcie z `data/kprm/kryteria.json` i `arkusze.json` (przez `backend/kprm.py`). Zmiana przepisów oznacza edycję tych plików, nie kodu.
 
 | Pole | Typ | Uwagi |
 |---|---|---|

@@ -1,12 +1,12 @@
-# Asystent Ocen Okresowych – serwer urzędu jednym poleceniem (z katalogu projekt/):
+# Asystent Ocen Okresowych – serwer urzędu jednym poleceniem (z katalogu głównego repozytorium):
 #   docker compose up -d      -> http://localhost:8000
 #   docker compose down       (dane zostają w wolumenie "oceny-dane")
 # Ustawienia: plik .env obok (opcjonalny, wzór w .env.example); port: PORT=9000 docker compose up -d
 services:
   app:
     build:
-      context: ..
-      dockerfile: projekt/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     image: asystent-ocen:latest
     restart: unless-stopped
     ports:

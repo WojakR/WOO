@@ -3,8 +3,7 @@
 HackNation 2026 project (Python 3.11+). README.md (Polish) is the human guide.
 Task: KPRM "Cyfrowy Asystent Ocen Okresowych" – institution, demo scenario and MVP use cases in `docs/task.md`.
 Data model (entities, enums, computed values, 🟢/🟡 scope): `docs/model-danych.md` – read before changing `backend/db.py`.
-This is `projekt/` inside a monorepo; the agent-coordination toolkit is in `../server/` (do not edit it for app work).
-Run all commands below from `projekt/`.
+Run all commands below from the repository root.
 
 ## Run / test
 - Setup: `pip install -r requirements.txt`, copy `.env.example` to `.env`
@@ -58,8 +57,8 @@ Run all commands below from `projekt/`.
 - Access: `app/domain/access.py` (`AccessPolicy`) is the ONE place that decides who reads / writes an evaluation
   (supervisor subtree or direct reports per `config/ustawienia_urzedu.json`, deputies, HR). Routers call
   `app/api/access.py`; never write `actor == c.evaluator_id` checks by hand. Office settings (decisions of the office)
-  live in `config/`, rules of law in `server/data/kprm/reguly.json`.
-- `backend/kprm.py` – the ONLY reader of domain data in `../server/data/kprm/` (criteria, sheets A/B/C, rules and
+  live in `config/`, rules of law in `data/kprm/reguly.json`.
+- `backend/kprm.py` – the ONLY reader of domain data in `data/kprm/` (criteria, sheets A/B/C, rules and
   deadlines, sample employees, knowledge base, sample evaluations). Path: `KPRM_DATA_DIR`. Never hard-code values
   that come from regulations (thresholds, deadlines, criteria lists) – read them from `kprm.rules()` etc.
 - Deadlines (24 months, absences, criteria, re-evaluation, objection, change of position): rules, sources and the

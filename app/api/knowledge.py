@@ -3,7 +3,7 @@
 GET /api/knowledge                 – list (manual first, then regulations and KPRM materials)
 GET /api/knowledge/search?q=...    – full-text search on the server (fragments with the nearest heading)
 GET /api/knowledge/{slug}          – one document as Markdown (404 for an unknown slug)
-Texts: server/data/kprm/wiedza/*.md (read by backend/kprm.py) + docs/podrecznik.md (this project's manual).
+Texts: data/kprm/wiedza/*.md (read by backend/kprm.py) + docs/podrecznik.md (this project's manual).
 The UI renders Markdown itself and never inserts HTML from it.
 """
 from __future__ import annotations

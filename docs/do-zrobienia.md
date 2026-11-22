@@ -2,7 +2,7 @@
 
 Stan na 22.11.2026 (gałąź `chore/dead-code-cleanup`, po PR #36 i #37 – interfejsem aplikacji jest Streamlit,
 `frontend/web` usunięty). Lista zbiera to, co jeszcze otwarte:
-niezamknięte punkty z [`TODO.md`](../../TODO.md) i rzeczy znalezione przy przeglądzie demo, sprzątaniu kodu
+niezamknięte punkty z [`TODO.md`](../TODO.md) i rzeczy znalezione przy przeglądzie demo, sprzątaniu kodu
 i rozmowie o wdrożeniu w małym urzędzie. Zrobione rzeczy są w `TODO.md`; tutaj tylko to, co zostało.
 
 Priorytet: **P1** przed prezentacją · **P2** wdrożenie pilotażowe · **P3** później.
@@ -85,8 +85,6 @@ Przy sprzątaniu zostawione celowo: działa i ma testy, ale nic z aplikacji tego
   porównującym `app.openapi()` z tabelą w `docs/api.md`.
 - [ ] **P3** `app/api/state.py:329` – adnotacja `"RuleBook"` bez importu (ruff F821); dodać import pod
   `TYPE_CHECKING`.
-- [ ] **P3** Testy `server/` wymagają pakietu `mcp`, którego nie ma w środowisku aplikacji – opisać w README osobne
-  środowisko albo dodać do instrukcji.
 - [ ] **P3** Teksty szablonów: „realizował(a)”, „wyróżnił(a) się” – płeć z danych kadrowych zamiast nawiasów.
 - [ ] **P3** `docs/design.md` (w katalogu głównym) opisuje design system usuniętego `frontend/web/styles.css` –
   przepisać pod Streamlit (`frontend/ui.py`) albo usunąć.

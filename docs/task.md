@@ -1,7 +1,7 @@
 # Zadanie: Cyfrowy Asystent Ocen Okresowych (KPRM, zadanie 14)
 
 Pełna treść, regulamin i materiały: `hakaton/dane/KPRM - Cyfrowy Asystent Ocen Okresowych/` (poza repo).
-Dane domenowe w repo: `../server/data/kprm/` (opis: `server/data/README.md`).
+Dane domenowe w repo: `data/kprm/` (opis: `data/kprm/README.md`).
 
 ## Instytucja i problem
 - KPRM, Departament Służby Cywilnej. Ocena okresowa (co 24 miesiące, ok. 123 tys. osób w ok. 1740 urzędach)
@@ -28,10 +28,8 @@ Dane domenowe w repo: `../server/data/kprm/` (opis: `server/data/README.md`).
 - [x] UC8 Przesunięcie terminu przez nieobecność > 1 mies.
 - [x] UC9 Wniosek o kolejny stopień służbowy (część III)
 
-Zadania dla agentów: `server/tasks/kprm-demo.json` (demo), `server/tasks/kprm-wdrozenie.json` (dalsze wdrożenie, T1–T24).
-
 ## Zrobione ponad MVP
-Pierwotnie wyłączone z zakresu, ostatecznie zrealizowane (szczegóły: `../TODO.md`, `docs/api.md`, `docs/terminy.md`):
+Pierwotnie wyłączone z zakresu, ostatecznie zrealizowane (szczegóły: `docs/api.md`, `docs/terminy.md`):
 - Sprzeciw (7 dni od zapoznania), rozpatrzenie przez dyrektora generalnego / organ nadrzędny; po uwzględnieniu
   dwa tryby z przypadków użycia KPRM: zmiana oceny albo jej anulowanie i ponowne sporządzenie (bez obniżania ocen
   cząstkowych), z powiadomieniami; fikcja zapoznania przy odmowie podpisu.
@@ -56,6 +54,6 @@ Pierwotnie wyłączone z zakresu, ostatecznie zrealizowane (szczegóły: `../TOD
 - Podpis elektroniczny – obieg papierowy: wydruk PDF i rejestracja daty podpisu.
 
 ## Dane (skąd, format, czy syntetyczne)
-- `server/data/kprm/*.json` – kryteria, arkusze, reguły, terminy (z rozporządzenia i ustawy).
-- `server/data/kprm/pracownicy.json` – fikcyjne osoby z przykładowych arkuszy KPRM.
-- `server/data/kprm/wiedza/` – teksty przepisów i poradnika KPRM do RAG; `przyklady/` – 11 wypełnionych arkuszy.
+- `data/kprm/*.json` – kryteria, arkusze, reguły, terminy (z rozporządzenia i ustawy).
+- `data/kprm/pracownicy.json` – fikcyjne osoby z przykładowych arkuszy KPRM.
+- `data/kprm/wiedza/` – teksty przepisów i poradnika KPRM do RAG; `przyklady/` – 11 wypełnionych arkuszy.

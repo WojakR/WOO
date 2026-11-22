@@ -88,7 +88,7 @@ Jedna polityka dostępu (`app/domain/access.py`, używana przez wszystkie router
 | przełożony wyżej | całe poddrzewo (domyślnie) albo nic poza bezpośrednimi – ustawienie urzędu `zakres_widocznosci` | nie (tylko odczyt) |
 | kadry (`X-User-Id: kadry` albo brak nagłówka) | cały urząd | materiały robocze tak, wypełnianie nie |
 
-Ustawienia urzędu: `projekt/config/ustawienia_urzedu.json` (`PODDRZEWO` albo `BEZPOSREDNI`) – decyzje urzędu, oddzielone od przepisów w `reguly.json`.
+Ustawienia urzędu: `config/ustawienia_urzedu.json` (`PODDRZEWO` albo `BEZPOSREDNI`) – decyzje urzędu, oddzielone od przepisów w `reguly.json`.
 
 | Metoda i ścieżka | Wejście | Wyjście | Uwagi |
 |---|---|---|---|
@@ -249,13 +249,13 @@ Zakres jak w pozostałych raportach (kadry – urząd, przełożony – jego zes
 ## Do uzgodnienia między zespołami
 
 1. **Trzy słowniki statusów.** Model danych ma `StatusOceny` (`KRYTERIA_DO_WYZNACZENIA` … `ZAKONCZONA`, `SPRZECIW`,
-   `ANULOWANA`), domena (`app/domain/cycle.py`) ma `Status` z wartościami z `server/data/kprm/reguly.json`
+   `ANULOWANA`), domena (`app/domain/cycle.py`) ma `Status` z wartościami z `data/kprm/reguly.json`
    (`cykl_rozpoczety` … `ocena_zapoznana`). **Propozycja:** kanoniczny jest `StatusOceny` z modelu danych
    (ma etapy oczekiwania i sprzeciw); aktualizujemy `reguly.json["statusy_procesu"]` i `Status` w domenie.
    Do tego czasu mapowanie w warstwie `app/api`.
 2. **Identyfikatory:** domena używa `str`, model danych `int` – API wystawia `int`.
-3. **Kryteria:** model danych zakłada `config/kryteria.yaml`, a dane leżą w `server/data/kprm/kryteria.json`
-   (ze wskaźnikami behawioralnymi). Propozycja: jedno źródło – JSON z `server/data/kprm`, kody wielkimi literami
+3. **Kryteria:** model danych zakłada `config/kryteria.yaml`, a dane leżą w `data/kprm/kryteria.json`
+   (ze wskaźnikami behawioralnymi). Propozycja: jedno źródło – JSON z `data/kprm`, kody wielkimi literami
    (`RZETELNOSC`) jako alias `id` (`rzetelnosc`).
 4. **Wynik oceny:** w modelu danych `wynik = POZYTYWNA dla NA_POZIOMIE i wyżej` – brakuje warunku § 11 ust. 1 pkt 4:
    **jakakolwiek ocena cząstkowa = 1 → NEGATYWNA** (domena liczy to poprawnie).

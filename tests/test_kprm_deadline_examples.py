@@ -1,6 +1,6 @@
 """Every dated example from the KPRM materials, as a test (proof that deadlines are counted the way KPRM does).
 
-Sources (in server/data/kprm/wiedza/):
+Sources (in data/kprm/wiedza/):
 - L = liczenie-terminow.md ("KPRM – zasady liczenia terminów"),
 - P = poradnik-oceny-okresowe-kprm.md (KPRM guide on periodic evaluations), page numbers as printed in the guide.
 """

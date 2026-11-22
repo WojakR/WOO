@@ -1,5 +1,5 @@
 {
-  "_opis": "Decyzje urzędu (nie przepisy – te są w server/data/kprm/reguly.json). Zmienia administrator; aplikacja czyta przy starcie. Ścieżkę można podmienić zmienną USTAWIENIA_URZEDU.",
+  "_opis": "Decyzje urzędu (nie przepisy – te są w data/kprm/reguly.json). Zmienia administrator; aplikacja czyta przy starcie. Ścieżkę można podmienić zmienną USTAWIENIA_URZEDU.",
   "zakres_widocznosci": "PODDRZEWO",
   "_zakres_widocznosci": "PODDRZEWO = przełożony widzi (tylko do odczytu) oceny całego swojego poddrzewa; BEZPOSREDNI = tylko osoby, które sam ocenia. Wypełniać ocenę może zawsze tylko bezpośredni oceniający albo jego zastępca.",
   "przypomnienia": {
@@ -64,7 +64,7 @@
     }
   },
   "dobrostan": {
-    "_opis": "Lista kontrolna wypalenia (8 objawów, server/data/kprm/wellbeing.json): tyle odpowiedzi „często” daje sygnał przeciążenia dla HR partnera.",
+    "_opis": "Lista kontrolna wypalenia (8 objawów, data/kprm/wellbeing.json): tyle odpowiedzi „często” daje sygnał przeciążenia dla HR partnera.",
     "prog_odpowiedzi_czesto": 3
   },
   "rcp": {
@@ -82,7 +82,7 @@
     "minimalna_grupa": 5
   },
   "szkolenia": {
-    "_opis": "Analiza potrzeb szkoleniowych: ocena cząstkowa poniżej tej wartości (skala 1–9) oznacza potrzebę szkoleniową w obszarze kryterium (server/data/kprm/kryteria.json, obszar_szkoleniowy).",
+    "_opis": "Analiza potrzeb szkoleniowych: ocena cząstkowa poniżej tej wartości (skala 1–9) oznacza potrzebę szkoleniową w obszarze kryterium (data/kprm/kryteria.json, obszar_szkoleniowy).",
     "ocena_czastkowa_ponizej": 5
   },
   "archiwum": {

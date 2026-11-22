@@ -94,7 +94,7 @@ def _prepare(project: Path) -> Path:
 # Streamlit's own health check: answers "ok" once the server is up (the /api routes run in-process, not over HTTP)
 HEALTH_PATH = "_stcore/health"
 # Windows without long paths allows 260 characters; the deepest file in the venv (streamlit 1.67) is ~140
-# characters below projekt/, so a folder deeper than ~120 characters fails while pip installs.
+# characters below the project folder, so a folder deeper than ~120 characters fails while pip installs.
 WINDOWS_MAX_PATH = 260
 DEEPEST_VENV_FILE = 140
 

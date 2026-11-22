@@ -1,7 +1,7 @@
-# HackNation 2026 – Cyfrowy Asystent Ocen Okresowych (projekt)
+# HackNation 2026 – Cyfrowy Asystent Ocen Okresowych
 
-> Ten katalog to `projekt/` w monorepo: aplikacja konkursowa. Koordynator agentów jest w `../server/`,
-> a dane domenowe KPRM w `../server/data/kprm/`. Zadanie i scenariusz demo: [`docs/task.md`](docs/task.md).
+> Aplikacja konkursowa (zadanie KPRM). Dane domenowe KPRM (kryteria, arkusze, reguły, baza wiedzy) są w
+> [`data/kprm/`](data/kprm/README.md). Zadanie i scenariusz demo: [`docs/task.md`](docs/task.md).
 
 Python + FastAPI (API) + Streamlit (interfejs) + SQLite + asystent AI (model lokalny przez Ollamę, z wersją bez AI).
 
@@ -9,16 +9,16 @@ Python + FastAPI (API) + Streamlit (interfejs) + SQLite + asystent AI (model lok
 [Pythona 3.10+](https://www.python.org/downloads/) (Windows: zaznacz „Add python.exe to PATH”), pobierz repozytorium
 (`git clone` albo „Code → Download ZIP” i rozpakuj) i uruchom:
 
-- **Windows:** dwuklik w `projekt\Uruchom.bat`
-- **macOS / Linux:** `sh projekt/uruchom.sh`
+- **Windows:** dwuklik w `Uruchom.bat`
+- **macOS / Linux:** `sh uruchom.sh`
 
 Za pierwszym razem skrypt tworzy środowisko `.venv`, instaluje biblioteki (kilka minut, potrzebny internet) i plik
 ustawień `.env`; potem start trwa kilka sekund. Aplikacja otwiera się w przeglądarce (http://localhost:8000; gdy port
-jest zajęty – następny wolny). Zatrzymanie: zamknij okno albo Ctrl+C. Dane zostają w `projekt/data/app.db`.
+jest zajęty – następny wolny). Zatrzymanie: zamknij okno albo Ctrl+C. Dane zostają w `data/app.db`.
 Opcje: `--port 9000`, `--siec` (dostęp z innych komputerów w sieci urzędu), `--bez-przegladarki`.
 Asystent AI nie jest potrzebny – bez modelu działają szablony i reguły.
 
-**Dla programistów** (po instalacji z punktu 1, w katalogu `projekt/`):
+**Dla programistów** (po instalacji z punktu 1, w katalogu głównym repozytorium):
 ```bash
 streamlit run frontend/app.py
 ```
@@ -31,7 +31,7 @@ backend/
   parsers.py    # PDF, XML, CSV/XLSX, TXT, OCR -> tekst/dict/DataFrame
   db.py         # baza danych (SQLite, opcjonalnie PostgreSQL)
   main.py       # FastAPI: /api/...
-  kprm.py       # jedyny czytelnik danych KPRM z ../server/data/kprm
+  kprm.py       # jedyny czytelnik danych KPRM z data/kprm
   sheet_pdf.py  # PDF arkusza A/B/C zgodny ze wzorem z rozporządzenia
 app/
   domain/       # reguły oceny (§ 11), terminy, cykl oceny, dostęp – czysty Python
@@ -53,8 +53,8 @@ Wymagany Python 3.10+ (`python --version`) i git.
 
 **Windows (PowerShell):**
 ```powershell
-git clone https://github.com/Franio2018/Hacknation.git
-cd Hacknation/projekt
+git clone https://github.com/WojakR/WOO.git
+cd WOO
 python -m venv .venv
 .venv\Scripts\Activate.ps1      # błąd o skryptach? -> Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 pip install -r requirements.txt
@@ -63,8 +63,8 @@ copy .env.example .env
 
 **macOS / Linux:**
 ```bash
-git clone https://github.com/Franio2018/Hacknation.git
-cd Hacknation/projekt
+git clone https://github.com/WojakR/WOO.git
+cd WOO
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -82,7 +82,7 @@ Wszystko ma być ✅.
 
 ## 2. Uruchamianie
 
-Wszystkie polecenia z katalogu `projekt/`, z aktywnym `.venv`.
+Wszystkie polecenia z katalogu głównego repozytorium, z aktywnym `.venv`.
 
 ```bash
 streamlit run frontend/app.py            # aplikacja -> http://localhost:8501 (API w tym samym procesie)
@@ -95,7 +95,7 @@ Dostęp z innych komputerów w sieci urzędu: dodaj `--server.address 0.0.0.0` (
 
 ### Serwer urzędu w Dockerze
 
-Na serwerze z Dockerem, w katalogu `projekt/`:
+Na serwerze z Dockerem, w katalogu głównym repozytorium:
 
 ```bash
 docker compose up -d          # buduje obraz i startuje -> http://<serwer>:8000
@@ -113,7 +113,7 @@ docker compose down           # zatrzymanie; dane zostają w wolumenie "oceny-da
 
 ### Co zobaczysz
 
-Aplikacja startuje z danymi przykładowymi (osoby z `server/data/kprm/pracownicy.json`, notatki z
+Aplikacja startuje z danymi przykładowymi (osoby z `data/kprm/pracownicy.json`, notatki z
 `notatki_testowe.json`) i zegarem demo ustawionym na **25.05.2026**. Dane są zapisywane w bazie
 (`data/app.db`) i przetrwają restart.
 

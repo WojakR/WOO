@@ -1,6 +1,6 @@
 """Burnout checklist at the review meeting (spec, point 3) – the evaluator's working material.
 
-GET  /api/wellbeing/checklist            – the 8 areas and the instruction (server/data/kprm/wellbeing.json)
+GET  /api/wellbeing/checklist            – the 8 areas and the instruction (data/kprm/wellbeing.json)
 GET  /api/evaluations/{id}/wellbeing     – answers: evaluator, deputy, HR (never the evaluated person)
 PUT  /api/evaluations/{id}/wellbeing     – save answers: evaluator or deputy
 Never printed on the sheet (backend/sheet_pdf.py does not get it); feeds the HR partner's overload signal.

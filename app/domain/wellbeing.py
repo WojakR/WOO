@@ -1,5 +1,5 @@
 """Burnout checklist (spec, point 3): during the review meeting the evaluator goes through 8 symptoms and notes
-what they observe at work – not a diagnosis. The list itself is data (server/data/kprm/wellbeing.json).
+what they observe at work – not a diagnosis. The list itself is data (data/kprm/wellbeing.json).
 
 The answers are the evaluator's working material: only the evaluator, their deputy and the HR partner see them
 (AccessPolicy.can_see_working_material) – never the evaluated person, never the PDF of the sheet.

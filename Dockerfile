@@ -1,6 +1,6 @@
 # Asystent Ocen Okresowych – obraz aplikacji (interfejs Streamlit z API FastAPI w tym samym procesie + SQLite).
-# Kontekst budowania = katalog główny repozytorium (aplikacja czyta dane KPRM z server/data/kprm):
-#   docker compose up -d            (z katalogu projekt/, patrz docker-compose.yml)
+# Kontekst budowania = katalog główny repozytorium (aplikacja czyta dane KPRM z data/kprm):
+#   docker compose up -d            (patrz docker-compose.yml)
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -8,12 +8,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-WORKDIR /app/projekt
-COPY projekt/requirements.txt .
+WORKDIR /app
+COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY server/data/kprm /app/server/data/kprm
-COPY projekt/ .
+COPY . .
 
 # Database outside the code, on a volume; runs as a regular user
 ENV DB_PATH=/data/app.db \

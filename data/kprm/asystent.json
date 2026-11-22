@@ -1,0 +1,153 @@
+{
+  "zrodlo": "Opracowanie zespołu na podstawie wskaźników behawioralnych z załącznika nr 1 do rozporządzenia i poradnika KPRM. Treści pomocnicze – urząd może je edytować bez zmian w kodzie.",
+  "uwaga": "Używane przez asystenta jako wersja bez AI (fallback) i jako katalog, z którego AI dobiera propozycje.",
+  "pytania": {
+    "komunikacja": [
+      "Jak upewniasz się, że rozmówca dobrze zrozumiał przekazaną informację?",
+      "Opowiedz o sytuacji, w której musiałeś/musiałaś przekonać kogoś do swojego stanowiska.",
+      "Które pisma lub wypowiedzi z ostatniego okresu uważasz za najlepiej przygotowane i dlaczego?"
+    ],
+    "kreatywnosc": [
+      "Jakie usprawnienie zaproponowałeś/zaproponowałaś w ostatnim okresie?",
+      "W jakiej sytuacji standardowa procedura nie wystarczyła i jak sobie poradziłeś/poradziłaś?",
+      "Co zmienił(a)byś w sposobie pracy zespołu, gdybyś miał(a) wolną rękę?"
+    ],
+    "negocjowanie": [
+      "Jak przygotowujesz się do negocjacji – stanowisko, ustępstwa, argumenty?",
+      "Opowiedz o negocjacjach, których wynik był trudny do osiągnięcia.",
+      "Kiedy zdecydowałeś/zdecydowałaś się ustąpić i dlaczego?"
+    ],
+    "organizacja_pracy": [
+      "Jak ustalasz priorytety, gdy kilka zadań ma ten sam termin?",
+      "Które zadanie z ostatniego okresu było najtrudniejsze organizacyjnie i co pomogło je zrealizować?",
+      "Czego potrzebujesz, żeby realizować cele sprawniej?"
+    ],
+    "orientacja_na_klienta": [
+      "Jak rozpoznajesz, czego naprawdę potrzebuje interesant?",
+      "Opowiedz o sprawie, w której zaproponowałeś/zaproponowałaś rozwiązanie wykraczające poza standard.",
+      "Jak reagujesz na trudnego lub zdenerwowanego interesanta?"
+    ],
+    "podejmowanie_decyzji": [
+      "Jak analizujesz warianty i ryzyko przed podjęciem decyzji?",
+      "Opowiedz o decyzji, której skutki okazały się inne niż zakładałeś/zakładałaś.",
+      "W jakich sprawach chciał(a)byś mieć większą samodzielność decyzyjną?"
+    ],
+    "sytuacje_kryzysowe": [
+      "Jak rozpoznajesz, że sytuacja zaczyna się wymykać spod kontroli?",
+      "Opowiedz o kryzysie z ostatniego okresu i o tym, co zrobiłeś/zrobiłaś.",
+      "Jakie wnioski wyciągnąłeś/wyciągnęłaś z tej sytuacji?"
+    ],
+    "rzetelnosc": [
+      "Jak sprawdzasz jakość swojej pracy przed jej przekazaniem?",
+      "Co utrudniało dotrzymanie terminów w ostatnim okresie?",
+      "Które procedury są dla ciebie niejasne lub trudne do stosowania?"
+    ],
+    "myslenie_analityczne": [
+      "Jak oddzielasz informacje istotne od nieistotnych przy analizie sprawy?",
+      "Opowiedz o zależności, którą zauważyłeś/zauważyłaś jako pierwszy/pierwsza.",
+      "Jak formułujesz wnioski, gdy dane są niepełne?"
+    ],
+    "wykorzystywanie_wiedzy": [
+      "Czego nowego nauczyłeś/nauczyłaś się w ostatnim okresie i jak to wykorzystujesz?",
+      "Z jakich źródeł wiedzy i dobrych praktyk korzystasz najczęściej?",
+      "Jakie szkolenie albo wsparcie najbardziej pomogłoby ci w pracy?"
+    ],
+    "wspolpraca": [
+      "Jak układa się twoja współpraca z innymi komórkami?",
+      "Co utrudnia ci przepływ informacji w zespole lub między wydziałami?",
+      "W jaki sposób dzielisz się wiedzą z kolegami?"
+    ],
+    "wystapienia_publiczne": [
+      "Jak przygotowujesz się do wystąpień?",
+      "Jak radzisz sobie z trudnymi pytaniami i krytyką podczas wystąpienia?",
+      "Które wystąpienie z ostatniego okresu oceniasz najlepiej i dlaczego?"
+    ],
+    "zarzadzanie_ludzmi": [
+      "Jak delegujesz zadania i monitorujesz ich realizację?",
+      "Jak udzielasz informacji zwrotnej członkom zespołu?",
+      "Jak wspierasz rozwój swoich pracowników?"
+    ],
+    "zarzadzanie_strategiczne": [
+      "Jak przekładasz cele strategiczne na cele operacyjne zespołu?",
+      "Jakie ryzyka strategiczne widzisz w najbliższych dwóch latach?",
+      "Które decyzje z ostatniego okresu miały największy wpływ na kierunek działania urzędu?"
+    ]
+  },
+  "dzialania_rozwojowe": {
+    "komunikacja": ["szkolenie z komunikacji interpersonalnej", "warsztat z prostego języka w pismach urzędowych", "regularna informacja zwrotna po kluczowych spotkaniach"],
+    "kreatywnosc": ["udział w warsztatach z rozwiązywania problemów", "powierzenie zadania usprawnienia wybranego procesu", "wizyta studyjna w innym urzędzie"],
+    "negocjowanie": ["szkolenie z technik negocjacyjnych", "udział w negocjacjach jako obserwator u doświadczonego negocjatora"],
+    "organizacja_pracy": ["szkolenie z zarządzania czasem i priorytetami", "cotygodniowe krótkie spotkanie planujące z przełożonym", "przegląd obciążenia zadaniami"],
+    "orientacja_na_klienta": ["szkolenie z obsługi klienta / interesanta", "analiza przykładowych spraw z mentorem", "szkolenie z obsługi trudnego interesanta"],
+    "podejmowanie_decyzji": ["szkolenie z analizy ryzyka", "stopniowe zwiększanie zakresu samodzielnych decyzji", "omawianie decyzji z przełożonym po fakcie"],
+    "sytuacje_kryzysowe": ["szkolenie z zarządzania kryzysowego", "udział w ćwiczeniach kryzysowych urzędu"],
+    "rzetelnosc": ["przegląd procedur z doświadczonym pracownikiem", "lista kontrolna przed przekazaniem sprawy", "krótkie przeglądy postępu w terminach pośrednich"],
+    "myslenie_analityczne": ["szkolenie z analizy danych", "udział w zespole analitycznym przy wybranym projekcie"],
+    "wykorzystywanie_wiedzy": ["szkolenie merytoryczne z zakresu stanowiska", "udział w konferencji branżowej", "dostęp do baz wiedzy i e-learningu KSAP"],
+    "wspolpraca": ["udział w projekcie międzywydziałowym", "mentoring u doświadczonego kolegi z zespołu", "warsztat z pracy zespołowej"],
+    "wystapienia_publiczne": ["szkolenie z wystąpień publicznych", "prowadzenie krótkich prezentacji na spotkaniach zespołu"],
+    "zarzadzanie_ludzmi": ["szkolenie z udzielania informacji zwrotnej", "program rozwoju kadry kierowniczej", "coaching menedżerski"],
+    "zarzadzanie_strategiczne": ["szkolenie z zarządzania strategicznego", "udział w pracach nad strategią urzędu"]
+  },
+  "hr_partner": {
+    "okno_notatek_miesiecy": 6,
+    "nieobecnosc_dni_w_12_miesiacach": 30,
+    "min_notatek_dla_sygnalu": 2,
+    "min_pozytywnych_do_docenienia": 2,
+    "okno_docenienia_miesiecy": 3,
+    "sygnaly": {
+      "PRZECIAZENIE": {
+        "opis": "Notatki wskazują na możliwe przeciążenie pracą.",
+        "slowa_kluczowe": ["nadgodzin", "po godzinach", "w weekend", "przeciąż", "zmęczon", "nie wyrabia", "nie wyrabiał", "zaległoś", "wypalen", "presj"],
+        "rekomendacje": ["porozmawiaj o obciążeniu, zanim omówisz wyniki", "przejrzyj priorytety i odłóż mniej pilne zadania", "rozważ podział zadań w zespole", "zaproponuj rozmowę wspierającą"]
+      },
+      "DLUGA_NIEOBECNOSC": {
+        "opis": "Długie nieobecności w ostatnich 12 miesiącach.",
+        "rekomendacje": ["zapytaj, czy pracownik potrzebuje wsparcia przy powrocie", "uwzględnij nieobecność przy ocenie realizacji zadań", "sprawdź, czy termin oceny nie powinien się przesunąć"]
+      },
+      "ZMIANA_OBOWIAZKOW": {
+        "opis": "Zakres obowiązków zmienił się w trakcie okresu oceny.",
+        "slowa_kluczowe": ["nowe obowiązki", "zmiana zakresu", "przejął", "przejęła", "dodatkowe zadania", "nowy zakres", "zastępstwo"],
+        "rekomendacje": ["sprawdź, czy opis stanowiska jest aktualny", "zapytaj, czego brakuje do sprawnej realizacji nowych zadań", "rozważ mentoring na czas wdrożenia"]
+      },
+      "SPADEK_OCEN": {
+        "opis": "Wynik wypada niżej niż poprzednia ocena.",
+        "rekomendacje": ["zapytaj o przyczyny zmiany", "ustal konkretny plan poprawy z terminami", "zaplanuj bieżącą informację zwrotną co miesiąc"]
+      },
+      "DO_DOCENIENIA": {
+        "opis": "Ostatnio odnotowano kilka pozytywnych obserwacji.",
+        "rekomendacje": ["doceń konkretne zachowania na rozmowie", "rozważ powierzenie ambitniejszego zadania", "przekaż pochwałę także przy zespole, jeśli pracownik tego chce"]
+      }
+    }
+  },
+  "slowa_kluczowe_kryteriow": {
+    "orientacja_na_klienta": ["klient", "interesant", "obsług", "petent", "kontakt z obywatel"],
+    "myslenie_analityczne": ["analiz", "analityk", "dane", "statysty", "raport"],
+    "negocjowanie": ["negocj", "umow", "porozumie", "zamówie"],
+    "wystapienia_publiczne": ["rzecznik", "prezent", "szkolen", "wystąpie", "konferenc"],
+    "sytuacje_kryzysowe": ["kryzys", "bezpieczeń", "zarządzania kryzysowego", "awari", "dyżur"],
+    "kreatywnosc": ["innowac", "projekt", "usprawni", "cyfryzac", "rozwój"],
+    "podejmowanie_decyzji": ["decyz", "zatwierdz", "kierown", "koordyn"],
+    "zarzadzanie_ludzmi": ["kierownik", "naczelnik", "koordynator", "zespół"],
+    "zarzadzanie_strategiczne": ["dyrektor", "strateg", "planowan"],
+    "rzetelnosc": ["kontrol", "audyt", "księgow", "finans", "przekład", "tłumacz", "archiw"],
+    "wykorzystywanie_wiedzy": ["specjalist", "ekspert", "radca", "prawn", "inspektor"],
+    "komunikacja": ["korespondenc", "pism", "informac", "komunikac"],
+    "wspolpraca": ["współprac", "międzywydział", "koordyn"],
+    "organizacja_pracy": ["sekretariat", "organizac", "termin"]
+  },
+  "szablony": {
+    "uzasadnienie_negatywna": "W okresie od {okres_od} do {okres_do} {imie} realizował(a) obowiązki w sposób, który nie spełnia oczekiwań w zakresie: {slabe_kryteria}.\n\n{dowody_negatywne}\n\nJednocześnie należy odnotować: {mocne_strony}.\n\nZ tych względów przyznaję ocenę negatywną.",
+    "uzasadnienie_pozytywna": "W okresie od {okres_od} do {okres_do} {imie} realizował(a) obowiązki z wynikiem: {poziom}. Najmocniejsze strony: {mocne_strony}.\n\n{dowody_pozytywne}\n\nDo dalszej pracy: {slabe_kryteria}.",
+    "iprz": "Proponuję następujące działania rozwojowe na kolejny okres:\n{dzialania}\n\nPostępy omówimy na bieżących rozmowach z informacją zwrotną.",
+    "cel_rozmowy_negatywna": "Omówić kryteria poniżej oczekiwań ({slabe_kryteria}) na konkretnych przykładach i wspólnie ustalić plan poprawy.",
+    "cel_rozmowy_pozytywna": "Podsumować okres oceny, docenić mocne strony ({mocne_strony}) i ustalić kierunki dalszego rozwoju.",
+    "cel_rozmowy_rozpoczynajaca": "Omówić obowiązki z opisu stanowiska, kryteria oceny, oczekiwania i cele do terminu sporządzenia oceny ({termin_oceny}).",
+    "umotywowanie_stopnia": "Wnioskuję o przyznanie {imie} kolejnego stopnia służbowego. W okresie oceny wyróżnił(a) się w zakresie: {mocne_strony}.\n\n{dowody_pozytywne}"
+  },
+  "przyklady_klasyfikacji": [
+    {"notatka": "Przekazał sprawę do akceptacji dzień po terminie, nie informując wcześniej o opóźnieniu.", "etykiety": [{"kryterium": "rzetelnosc", "wskaznik": 2, "wydzwiek": "NEGATYWNY", "pewnosc": 0.9, "cytat": "Przekazał sprawę do akceptacji dzień po terminie"}]},
+    {"notatka": "Pomogła koledze z innego wydziału przygotować zestawienie, choć nie należało to do jej zadań.", "etykiety": [{"kryterium": "wspolpraca", "wskaznik": 1, "wydzwiek": "POZYTYWNY", "pewnosc": 0.85, "cytat": "Pomogła koledze z innego wydziału przygotować zestawienie"}]},
+    {"notatka": "Była na urlopie od poniedziałku.", "etykiety": []}
+  ]
+}

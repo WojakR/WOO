@@ -1,6 +1,6 @@
 """Change of the evaluator (the supervisor leaves, or someone else takes over the team) during the evaluated period.
 
-Law (server/data/kprm/wiedza/):
+Law (data/kprm/wiedza/):
 - art. 81 ust. 8 pkt 1 ustawy: on a change on the evaluator's post the evaluator MAY change the deadline – so the
   leaving supervisor may draw up the evaluation now – only if more than 6 months passed since the last evaluation
   (for a first evaluation: the evaluated period is longer than 6 months). The threshold is

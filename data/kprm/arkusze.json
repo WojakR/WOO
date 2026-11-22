@@ -1,0 +1,65 @@
+{
+  "zrodlo": "Rozporządzenie PRM z 4.04.2016 (Dz. U. poz. 470), § 3–4 i załączniki nr 2–4; schematy pól formularzy KPRM",
+  "max_kryteriow_dodatkowych": 3,
+  "kryteria_dodatkowe_bez_powtorzen": true,
+  "arkusze": {
+    "A": {
+      "opis": "Kierownik urzędu, którego stanowisko jest stanowiskiem pracy w służbie cywilnej",
+      "podstawa": "§ 3 ust. 2, § 4 ust. 1",
+      "kryteria_obowiazkowe": [
+        "zarzadzanie_ludzmi",
+        "podejmowanie_decyzji",
+        "organizacja_pracy",
+        "wspolpraca",
+        "komunikacja",
+        "zarzadzanie_strategiczne"
+      ]
+    },
+    "B": {
+      "opis": "Stanowisko polegające na bezpośrednim kierowaniu pracownikami (inne niż A)",
+      "podstawa": "§ 3 ust. 3, § 4 ust. 2",
+      "kryteria_obowiazkowe": [
+        "zarzadzanie_ludzmi",
+        "podejmowanie_decyzji",
+        "organizacja_pracy",
+        "wspolpraca",
+        "komunikacja"
+      ]
+    },
+    "C": {
+      "opis": "Pozostałe stanowiska pracy (inne niż A i B)",
+      "podstawa": "§ 3 ust. 4, § 4 ust. 3",
+      "kryteria_obowiazkowe": [
+        "wykorzystywanie_wiedzy",
+        "rzetelnosc",
+        "organizacja_pracy",
+        "wspolpraca",
+        "komunikacja"
+      ]
+    }
+  },
+  "kryteria_dodatkowe": "dowolne kryterium z kryteria.json, które nie jest obowiązkowe dla danego arkusza",
+  "dobor_arkusza": {
+    "_opis": "Podpowiedź arkusza ze stanowiska (§ 3 ust. 2–4 rozporządzenia): pierwsza spełniona reguła wygrywa. Pola pracownika w pracownicy.json: kierownik_urzedu, zarzadza_ludzmi.",
+    "reguly": [
+      {
+        "pole": "kierownik_urzedu",
+        "arkusz": "A",
+        "powod": "Oceniany jest kierownikiem urzędu – arkusz A (§ 3 ust. 2 rozporządzenia)."
+      },
+      {
+        "pole": "zarzadza_ludzmi",
+        "arkusz": "B",
+        "powod": "Stanowisko polega na bezpośrednim kierowaniu pracownikami – arkusz B (§ 3 ust. 3 rozporządzenia)."
+      }
+    ],
+    "pozostali": {
+      "arkusz": "C",
+      "powod": "Stanowisko bez kierowania pracownikami – arkusz C (§ 3 ust. 4 rozporządzenia)."
+    },
+    "brak_danych": {
+      "arkusz": "C",
+      "ostrzezenie": "Brak danych kadrowych o stanowisku (kierownik urzędu / kierowanie pracownikami) – przyjęto arkusz C. Sprawdź i w razie potrzeby zmień arkusz przed zatwierdzeniem kryteriów."
+    }
+  }
+}

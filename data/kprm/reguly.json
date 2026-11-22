@@ -1,0 +1,159 @@
+{
+  "zrodlo": "Ustawa o służbie cywilnej art. 81, 83, 89; rozporządzenie PRM z 4.04.2016 § 5–12; KPRM: „Skrócony opis procesu”, „liczenie terminów”, „use cases – warunki brzegowe”",
+  "uwaga": "Wartości trzymamy w konfiguracji, żeby zmiana przepisów nie wymagała zmian w kodzie.",
+  "skala_ocen_czastkowych": [
+    {
+      "punkty": 1,
+      "poziom": "znacznie poniżej oczekiwań"
+    },
+    {
+      "punkty": 3,
+      "poziom": "poniżej oczekiwań"
+    },
+    {
+      "punkty": 5,
+      "poziom": "na poziomie oczekiwań"
+    },
+    {
+      "punkty": 7,
+      "poziom": "powyżej oczekiwań"
+    },
+    {
+      "punkty": 9,
+      "poziom": "znacznie powyżej oczekiwań"
+    }
+  ],
+  "poziom_ogolny_ze_sredniej": [
+    {
+      "od_wylacznie": null,
+      "do_wlacznie": 2,
+      "poziom": "znacznie poniżej oczekiwań",
+      "uwaga": "od 1 do 2 punktów"
+    },
+    {
+      "od_wylacznie": 2,
+      "do_wlacznie": 4,
+      "poziom": "poniżej oczekiwań"
+    },
+    {
+      "od_wylacznie": 4,
+      "do_wlacznie": 6,
+      "poziom": "na poziomie oczekiwań"
+    },
+    {
+      "od_wylacznie": 6,
+      "do_wlacznie": 8,
+      "poziom": "powyżej oczekiwań"
+    },
+    {
+      "od_wylacznie": 8,
+      "do_wlacznie": 9,
+      "poziom": "znacznie powyżej oczekiwań"
+    }
+  ],
+  "ocena_pozytywna_gdy": {
+    "poziom_ogolny_w": [
+      "na poziomie oczekiwań",
+      "powyżej oczekiwań",
+      "znacznie powyżej oczekiwań"
+    ],
+    "i_zadna_ocena_czastkowa_rowna": 1,
+    "podstawa": "§ 11 ust. 1 pkt 3–4 rozporządzenia"
+  },
+  "uzasadnienie": {
+    "obowiazkowe_przy_negatywnej": true,
+    "opcjonalne_przy_pozytywnej": true,
+    "podstawa": "§ 11 ust. 3–4"
+  },
+  "wnioski_ipzr_obowiazkowe": true,
+  "terminy": {
+    "ocena_co_miesiecy": 24,
+    "wyznaczenie_kryteriow_dni_od_poprzedniej_oceny_lub_zatrudnienia": 30,
+    "wyznaczenie_kryteriow_dni_po_negatywnej": 7,
+    "ponowna_ocena_po_negatywnej_miesiecy": 6,
+    "nieobecnosc_przedluzajaca_termin_powyzej_miesiecy": 1,
+    "zmiana_terminu_mozliwa_po_miesiacach_od_ostatniej_oceny": 6,
+    "zmiana_stanowiska_ponowne_kryteria_dni": 30,
+    "zmiana_stanowiska_prog_miesiecy": 6,
+    "zmiana_stanowiska_ocena_najwczesniej_dni_przed": 7,
+    "zmiana_stanowiska_ocena_najpozniej_dni_po": 30,
+    "sprzeciw_dni_od_zapoznania": 7,
+    "rozpatrzenie_sprzeciwu_dni": 14,
+    "odwolanie_do_sadu_pracy_dni": 14,
+    "obligatoryjny_stopien_dni_od_zapoznania": 30
+  },
+  "liczenie_terminow": [
+    "Termin w miesiącach kończy się z upływem dnia, który datą odpowiada dniowi początkowemu; gdy takiego dnia nie ma – w ostatnim dniu miesiąca (31.01 + 1 mies. = 28/29.02).",
+    "Koniec terminu w sobotę, niedzielę lub święto przesuwa się na najbliższy dzień roboczy.",
+    "Terminu w dniach nie liczy się od dnia zdarzenia – pierwszy dzień to dzień następny.",
+    "Nieobecność usprawiedliwiona (L4, urlop wypoczynkowy, urlopy rodzicielskie) jest ciągła mimo weekendów i świąt pomiędzy okresami."
+  ],
+  "przyklad_testowy_nieobecnosci": {
+    "okresy": [
+      {
+        "od": "2026-10-05",
+        "do": "2026-10-16",
+        "typ": "zwolnienie lekarskie"
+      },
+      {
+        "od": "2026-10-19",
+        "do": "2026-11-06",
+        "typ": "urlop wypoczynkowy"
+      }
+    ],
+    "oczekiwany_wynik": {
+      "ciagla_od": "2026-10-05",
+      "ciagla_do": "2026-11-06",
+      "dluzsza_niz_miesiac": true
+    }
+  },
+  "stopnie_sluzbowe": {
+    "liczba": 9,
+    "tylko_dla": "urzędnik służby cywilnej (mianowany)",
+    "fakultatywny": "umotywowany wniosek przełożonego dołączony do pozytywnej oceny (art. 89 ust. 1)",
+    "obligatoryjny": "dwie kolejne pozytywne oceny na jednym z dwóch najwyższych poziomów (średnia > 6) od ostatniego stopnia (art. 89 ust. 2)",
+    "nazwy_kolejnych": [
+      "drugiego",
+      "trzeciego",
+      "czwartego",
+      "piątego",
+      "szóstego",
+      "siódmego",
+      "ósmego",
+      "dziewiątego"
+    ]
+  },
+  "statusy_procesu": [
+    "cykl_rozpoczety",
+    "kryteria_wyznaczone",
+    "kryteria_potwierdzone_przez_ocenianego",
+    "rozmowa_oceniajaca_odbyta",
+    "ocena_sporzadzona",
+    "ocena_zapoznana",
+    "fikcja_zapoznania",
+    "sprzeciw_zlozony",
+    "ocena_zmieniona",
+    "ocena_do_ponownego_sporzadzenia"
+  ],
+  "skutki_ocen": {
+    "_opis": "Skutki kolejnych ocen okresowych. System NIE zwalnia i NIE przyznaje stopni sam – tworzy zadanie dla kadr.",
+    "rozwiazanie_stosunku_pracy": {
+      "negatywnych_ocen_z_rzedu": 2,
+      "dotyczy": "URZEDNIK",
+      "okres_wypowiedzenia_miesiecy": 3,
+      "podstawa": "art. 71 ust. 1 pkt 1 ustawy o służbie cywilnej"
+    },
+    "stopien_sluzbowy": {
+      "najwyzszy_stopien": 9,
+      "wniosek_tylko_przy_ocenie_pozytywnej": true,
+      "podstawa_wniosku": "art. 89 ust. 1 ustawy o służbie cywilnej",
+      "obligatoryjny_po_ocenach_z_rzedu": 2,
+      "obligatoryjny_poziomy": [
+        "powyżej oczekiwań",
+        "znacznie powyżej oczekiwań"
+      ],
+      "obligatoryjny_liczone_od": "otrzymania ostatniego stopnia służbowego",
+      "podstawa_obligatoryjnego": "art. 89 ust. 2 ustawy o służbie cywilnej"
+    }
+  }
+}

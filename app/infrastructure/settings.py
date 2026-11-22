@@ -1,5 +1,5 @@
 """Office settings (decisions of the office, editable by its administrator) – kept apart from the rules of law
-in server/data/kprm/reguly.json. Read from config/ustawienia_urzedu.json (or the file in USTAWIENIA_URZEDU)."""
+in data/kprm/reguly.json. Read from config/ustawienia_urzedu.json (or the file in USTAWIENIA_URZEDU)."""
 from __future__ import annotations
 
 import json

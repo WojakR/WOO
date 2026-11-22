@@ -1,0 +1,15 @@
+# Build context = repository root (Dockerfile). Code is copied with the KPRM data in data/kprm.
+.git
+.github
+**/.venv
+**/venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.env
+**/*.db
+**/*.db-*
+data/uploads
+data/eakt
+data/ezd
+.claude

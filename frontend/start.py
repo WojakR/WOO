@@ -2,7 +2,7 @@
 
 Called by frontend/Uruchom.bat (Windows) / frontend/uruchom.sh (macOS, Linux) with the system Python, or
 directly: `python <path>/frontend/start.py`. Reuses scripts/uruchom.py for the setup (.venv, requirements,
-.env), then runs `streamlit run frontend/app.py` in projekt/ on a free port. Standard library only.
+.env), then runs `streamlit run frontend/app.py` in the project folder on a free port. Standard library only.
 """
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Cyfrowy Asystent Ocen Okresowych – Streamlit app. Run from projekt/: streamlit run frontend/app.py
+"""Cyfrowy Asystent Ocen Okresowych – Streamlit app. Run from the repository root: streamlit run frontend/app.py
 
 Everything goes through the backend's /api contract (frontend/api_client.py): the server keeps the data in
 the database and decides rules, permissions and allowed steps. Set API_URL=http://localhost:8000 to use

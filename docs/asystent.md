@@ -2,7 +2,7 @@
 
 Kod: `app/application/assistant.py` (`AiSuggestionService`), prompty: `app/application/prompts/*.md`,
 adaptery modeli: `app/infrastructure/ai_models.py`, składanie z konfiguracji: `app/infrastructure/assistant_factory.py`.
-Dane dla trybu bez AI: `server/data/kprm/asystent.json` (pytania, działania rozwojowe, reguły HR partnera, szablony).
+Dane dla trybu bez AI: `data/kprm/asystent.json` (pytania, działania rozwojowe, reguły HR partnera, szablony).
 
 ## Zasady
 - **AI tylko proponuje.** Żadna funkcja niczego nie zapisuje; decyduje oceniający.
@@ -84,7 +84,7 @@ wprost, że podpowiedź jest niepewna (gdy przedział > 0) i że ocenę cząstko
 python scripts/eval_classifier.py            # model z .env (local)
 python scripts/eval_classifier.py --mode off # punkt odniesienia bez AI
 ```
-Zestaw: 30 ręcznie oznaczonych notatek (`server/data/kprm/notatki_testowe.json`).
+Zestaw: 30 ręcznie oznaczonych notatek (`data/kprm/notatki_testowe.json`).
 Punkt odniesienia bez AI: kryterium trafione 50% (top-1) / 77% (top-3), bez wydźwięku.
 
 ## Tryb API (`AI_MODE=api`)

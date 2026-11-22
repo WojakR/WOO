@@ -1,4 +1,4 @@
-"""Measure note-classification accuracy on the hand-labelled set (server/data/kprm/notatki_testowe.json).
+"""Measure note-classification accuracy on the hand-labelled set (data/kprm/notatki_testowe.json).
 
     python scripts/eval_classifier.py                 # AI_MODE from .env (default: local / Ollama)
     python scripts/eval_classifier.py --mode off      # baseline: similarity fallback only

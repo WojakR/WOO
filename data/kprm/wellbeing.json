@@ -1,0 +1,19 @@
+{
+  "zrodlo": "Specyfikacja systemu ocen okresowych, pkt 3 (wellbeing / wypalenie zawodowe) – lista kontrolna dla przełożonego na rozmowę oceniającą. Treść opisów: zespół projektu na podstawie specyfikacji; nie jest to narzędzie diagnostyczne.",
+  "instrukcja": "Przejdź z pracownikiem przez poniższe obszary w trakcie rozmowy. Zaznacz, co obserwujesz w pracy na co dzień – nie stawiasz diagnozy i nie oceniasz zdrowia. Odpowiedzi widzisz tylko Ty, Twój zastępca i HR partner; nie trafiają do arkusza oceny ani do pracownika.",
+  "odpowiedzi": [
+    {"kod": "NIE_ZAUWAZAM", "nazwa": "nie zauważam"},
+    {"kod": "CZASAMI", "nazwa": "czasami"},
+    {"kod": "CZESTO", "nazwa": "często"}
+  ],
+  "objawy": [
+    {"id": "zmeczenie", "nazwa": "Zmęczenie", "opis": "Stałe zmęczenie i brak energii, także po dniach wolnych; trudność z rozpoczęciem dnia pracy."},
+    {"id": "koncentracja", "nazwa": "Koncentracja", "opis": "Kłopoty ze skupieniem uwagi, więcej pomyłek i przeoczeń niż zwykle, zapominanie o ustaleniach."},
+    {"id": "emocje", "nazwa": "Emocje", "opis": "Większa drażliwość, frustracja lub przygnębienie w kontaktach z zespołem i interesantami."},
+    {"id": "motywacja", "nazwa": "Motywacja", "opis": "Spadek zaangażowania i poczucia sensu pracy, brak inicjatywy, wykonywanie tylko minimum."},
+    {"id": "nastawienie", "nazwa": "Nastawienie", "opis": "Cynizm i dystans wobec pracy, współpracowników lub interesantów; negatywne komentarze o urzędzie."},
+    {"id": "efektywnosc", "nazwa": "Efektywność", "opis": "Wyraźny spadek tempa lub jakości pracy, zaległości mimo dłuższego czasu pracy."},
+    {"id": "regeneracja", "nazwa": "Regeneracja", "opis": "Brak odpoczynku: praca po godzinach, rezygnacja z przerw i urlopu, odbieranie wiadomości wieczorami."},
+    {"id": "zachowanie", "nazwa": "Zachowanie", "opis": "Wycofanie z kontaktów, unikanie spotkań, częstsze krótkie nieobecności lub spóźnienia."}
+  ]
+}

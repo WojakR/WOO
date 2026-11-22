@@ -1,4 +1,4 @@
-"""Read-only access to the KPRM domain data in server/data/kprm (see server/data/README.md).
+"""Read-only access to the KPRM domain data in data/kprm (see data/kprm/README.md).
 
 Everything that follows from regulations (criteria, sheets, thresholds, deadlines) is data,
 not code: change the JSON files when the law changes.
