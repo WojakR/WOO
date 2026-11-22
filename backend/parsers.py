@@ -1,8 +1,12 @@
 """Parsowanie typowych plików od instytucji: PDF, XML, CSV/XLSX, TXT, obrazy (OCR)."""
+from __future__ import annotations
+
 from io import BytesIO, StringIO
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pandas as pd
+if TYPE_CHECKING:  # pandas is loaded only when a table is parsed: it costs seconds at startup on a slow laptop
+    import pandas as pd
 
 
 def parse_pdf(data: bytes) -> str:
@@ -60,6 +64,8 @@ def parse_xml(data: bytes) -> dict:
 
 
 def parse_table(data: bytes, filename: str) -> pd.DataFrame:
+    import pandas as pd
+
     if filename.lower().endswith((".xlsx", ".xls")):
         return pd.read_excel(BytesIO(data))
     text = data.decode("utf-8-sig", errors="replace")

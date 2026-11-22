@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -12,6 +13,8 @@ def _secret(name: str, default: str = "") -> str:
     val = os.getenv(name)
     if val:
         return val
+    if "streamlit" not in sys.modules:  # st.secrets exist only under Streamlit; importing it costs ~2 s at startup
+        return default
     try:
         import streamlit as st
 
