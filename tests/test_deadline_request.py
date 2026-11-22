@@ -93,7 +93,7 @@ def test_letter_pdf_has_the_people_and_the_new_deadline(st):
 
 
 def test_only_the_evaluator_changes_and_only_in_the_cases_of_the_act(st):
-    assert request(st, who=EMP).status_code == 403
+    assert request(st, who="adam.wzor").status_code == 403  # someone else's evaluation
     r = request(st, reason="INNY")
     assert r.status_code == 422 and "art. 81 ust. 8" in r.json()["walidacje"][0]["komunikat"]
     assert request(st, text=" ").status_code == 422
@@ -132,3 +132,25 @@ def test_a_deputy_covering_the_absence_is_suggested_instead(st):
     hint = out["podpowiedzi"][0]
     assert hint["zastepca"]["imie"] == "Celina" and hint["proponowany_termin"] is None
     assert "zastępca" in out["komunikat"]
+
+
+def test_the_evaluated_person_asks_and_the_evaluator_decides(st):
+    r = request(st, who=EMP, reason="INNY", new="2026-07-10", text="Szkolenie wyjazdowe w czerwcu.")
+    assert r.status_code == 201
+    body = r.json()
+    assert body["status"] == "ZLOZONY" and body["powod"] == "WNIOSEK_OCENIANEGO" and body["nowy_termin"] == "2026-07-10"
+    assert deadline(st) == OLD  # nothing changes before the decision
+    assert any(n.kind == "WNIOSEK_O_ZMIANE_TERMINU" and n.recipient_id == BOSS for n in st.notices)
+    assert request(st, who=EMP).status_code == 409  # one request at a time
+    assert client.post(f"/api/deadline-changes/{body['id']}/decision", headers=as_("adam.wzor"),
+                       json={"status": "ZAAKCEPTOWANY"}).status_code == 403
+    ok = client.post(f"/api/deadline-changes/{body['id']}/decision", headers=as_(BOSS),
+                     json={"status": "ZAAKCEPTOWANY", "komentarz": "Zgoda."})
+    assert ok.status_code == 200 and deadline(st) == "2026-07-10"
+    assert any(n.kind == "DECYZJA_ZMIANA_TERMINU" and n.recipient_id == EMP and "przyjęty" in n.subject
+               for n in st.notices)
+
+
+def test_the_evaluated_person_must_give_a_date_and_a_reason(st):
+    assert request(st, who=EMP, new=None).status_code == 422
+    assert request(st, who=EMP, text=" ").status_code == 422

@@ -6,6 +6,7 @@ that something has happened:
   (art. 83 ust. 4) – to the evaluated person and the evaluator,
 - the evaluation changed, or drawn up a second time, as the director general ordered – to the evaluated person
   and HR,
+- the evaluation drawn up – to the evaluated person, to read and acknowledge it,
 - the request for the next grade (part III, art. 89 ust. 1) submitted with the evaluation – to HR,
 - an invitation to a meeting (with an .ics file for the calendar, app/application/invitations.py).
 
@@ -117,6 +118,11 @@ def notices_for(event: ProcessEvent, employee: Employee | None, name_of: Callabl
         add(HR, "OCENA_SPORZADZONA_PONOWNIE", f"Ocena sporządzona po raz drugi – {who}",
             f"Ocena okresowa {who} została sporządzona po raz drugi ({_d(day)}) po uwzględnieniu sprzeciwu. "
             f"Wynik: {_result(c)}.")
+    if event.kind == "OCENA_SPORZADZONA":
+        add(c.employee_id, "OCENA_DO_ZAPOZNANIA", "Twoja ocena okresowa czeka na zapoznanie",
+            f"{name_of(c.evaluator_id)} sporządził(a) Twoją ocenę okresową ({_d(day)}). Zapoznaj się z nią w aplikacji "
+            f"(Moja ocena) i potwierdź zapoznanie. Od dnia zapoznania masz 7 dni na sprzeciw (art. 83 ust. 1 ustawy "
+            f"o służbie cywilnej).")
     if event.kind in ("OCENA_SPORZADZONA", "OCENA_SPORZADZONA_PONOWNIE", "OCENA_ZMIENIONA") and c.promotion_request \
             and c.result is not None and c.result.outcome is Outcome.POSITIVE:
         held = c.held_grade if c.held_grade is not None else (employee.grade if employee else None)

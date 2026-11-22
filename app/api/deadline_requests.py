@@ -101,9 +101,11 @@ def request_change(evaluation_id: int, body: s.DeadlineChangeIn, x_user_id: str 
                    st: DemoState = Depends(get_state)) -> s.DeadlineChangeOut:
     who = _actor(st, x_user_id)
     c = _cycle(st, evaluation_id)
-    require_evaluator(st, who, c, "Termin oceny zmienia oceniający (art. 81 ust. 8) albo jego zastępca.")
     if any(r.cycle_id == c.id and r.status == s.StatusWniosku.ZLOZONY.value for r in st.deadline_changes):
         raise ApiProblem(409, "WNIOSEK_W_TOKU", "Ta ocena ma już wniosek o zmianę terminu czekający na decyzję.")
+    if who == c.employee_id:
+        return _employee_request(st, c, body)
+    require_evaluator(st, who, c, "Termin oceny zmienia oceniający (art. 81 ust. 8) albo jego zastępca.")
     reason, text = body.powod.value, (body.uzasadnienie or "")
     svc = st.evaluations
     immediate = st.settings.deadline_change_approver == "OCENIAJACY"
@@ -123,13 +125,45 @@ def request_change(evaluation_id: int, body: s.DeadlineChangeIn, x_user_id: str 
     return change_out(st, r)
 
 
+def _notify(st: DemoState, recipient: str, kind: str, subject: str, text: str, c: EvaluationCycle, key: str) -> None:
+    from app.application.notices import Notice
+
+    st.add_notice(Notice(f"{kind}-{key}", recipient, kind, subject, text, c.id,
+                         datetime.combine(st.clock.today(), datetime.min.time().replace(hour=8))))
+
+
+def _employee_request(st: DemoState, c: EvaluationCycle, body: s.DeadlineChangeIn) -> s.DeadlineChangeOut:
+    """The evaluated person asks for another deadline (KPRM use case): a request with a proposed date and the
+    reasons; the evaluator decides (art. 81 ust. 8). The date is checked now, and again when it is accepted."""
+    if not body.nowy_termin:
+        raise ValidationError(["Podaj proponowany termin oceny."])
+    if not (body.uzasadnienie or "").strip():
+        raise ValidationError(["Napisz, dlaczego prosisz o zmianę terminu."])
+    reason, text = s.PowodZmianyTerminu.WNIOSEK_OCENIANEGO.value, body.uzasadnienie.strip()
+    old, new = st.evaluations.check_deadline_change(c.id, c.evaluator_id, reason, body.nowy_termin, text)
+    r = DeadlineChangeRecord(id=max((x.id for x in st.deadline_changes), default=0) + 1, cycle_id=c.id,
+                             reason=reason, old=old, new=new, status=s.StatusWniosku.ZLOZONY.value,
+                             justification=text, decided_at=None, requested_by=c.employee_id, decided_by=None)
+    st.deadline_changes.append(r)
+    who = st.person_name(c.employee_id)
+    _notify(st, c.evaluator_id, "WNIOSEK_O_ZMIANE_TERMINU", f"Wniosek o zmianę terminu oceny – {who}",
+            f"{who} prosi o zmianę terminu oceny okresowej z {old:%d.%m.%Y} na {new:%d.%m.%Y}. Uzasadnienie: {text} "
+            "Decyzję podejmujesz w ocenie (Zmiana terminu oceny).", c, f"{r.id}-zlozony")
+    return change_out(st, r)
+
+
 @router.post("/deadline-changes/{change_id}/decision", response_model=s.DeadlineChangeOut)
 def decide(change_id: int, body: DecisionIn, x_user_id: str | None = Header(default=None),
            st: DemoState = Depends(get_state)) -> s.DeadlineChangeOut:
     who = _actor(st, x_user_id)
-    if not st.policy().is_admin(who):
-        raise NotAuthorized("O wniosku o zmianę terminu decyduje dział kadr.")
     r = _record(st, change_id)
+    c0 = _cycle(st, int(r.cycle_id))
+    from_employee = r.requested_by == c0.employee_id
+    # the evaluated person's request: their evaluator decides (art. 81 ust. 8); a request of the evaluator
+    # waiting for approval: HR (office setting zmiana_terminu.zatwierdza=KADRY)
+    if not st.policy().is_admin(who) and not (from_employee and st.policy().can_act_as_evaluator(
+            who, c0.employee_id, c0.evaluator_id)):
+        raise NotAuthorized("O wniosku ocenianego decyduje oceniający; o pozostałych wnioskach – dział kadr.")
     if r.status != s.StatusWniosku.ZLOZONY.value:
         raise ApiProblem(409, "WNIOSEK_ROZPATRZONY", "Ten wniosek został już rozpatrzony.")
     if body.status == "ZAAKCEPTOWANY":
@@ -140,6 +174,14 @@ def decide(change_id: int, body: DecisionIn, x_user_id: str | None = Header(defa
         st.touch(c.id)
     r.status, r.decided_at, r.decided_by, r.decision_note = body.status, _now(), who, body.komentarz
     register_letter(st, r)
+    if from_employee:
+        ok = body.status == "ZAAKCEPTOWANY"
+        note = f" Komentarz: {body.komentarz}" if body.komentarz else ""
+        _notify(st, c0.employee_id, "DECYZJA_ZMIANA_TERMINU",
+                "Wniosek o zmianę terminu oceny " + ("przyjęty" if ok else "odrzucony"),
+                (f"Twój wniosek o zmianę terminu oceny został przyjęty: nowy termin {r.new:%d.%m.%Y}." if ok else
+                 f"Twój wniosek o zmianę terminu oceny został odrzucony – termin bez zmian ({r.old:%d.%m.%Y}).")
+                + note, c0, f"{r.id}-decyzja")
     return change_out(st, r)
 
 

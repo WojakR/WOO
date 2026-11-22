@@ -59,8 +59,51 @@ def _requests(api: Api, me: dict) -> None:
     if not shown:
         st.info("Sprzeciw od oceny możesz złożyć w ciągu 7 dni od zapoznania się z oceną – teraz nie masz oceny, "
                 "od której przysługuje sprzeciw.")
-    st.caption("Chcesz przesunąć termin oceny (np. z powodu planowanej nieobecności)? Poproś przełożonego – składa "
-               "wniosek w systemie, a decyzja przychodzi do Ciebie jako powiadomienie.")
+    _deadline_request(api, [e for e in evs if e["status"] not in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA", "SPRZECIW")])
+
+
+def _deadline_request(api: Api, open_evs: list[dict]) -> None:
+    """Request another date of the evaluation (e.g. a planned absence): the evaluator decides (art. 81 ust. 8)."""
+    from frontend.views.evaluation import DEADLINE_STATUS
+
+    with st.container(border=True):
+        st.markdown("**:material/edit_calendar: Wniosek o zmianę terminu oceny**",
+                    help="Np. z powodu planowanej nieobecności. O zmianie decyduje Twój przełożony; decyzję dostaniesz "
+                         "jako powiadomienie.")
+        if not open_evs:
+            st.caption("Nie masz oceny w toku, której termin można zmienić.")
+            return
+        ev = open_evs[0]
+        eid = ev["id"]
+        try:
+            history = api.deadline_changes(eid)
+        except ApiError:
+            history = []
+        for r in history:
+            label, cls = DEADLINE_STATUS.get(r["status"], (r["status"], "b-grey"))
+            st.markdown(f"{ui.badge(label, cls)} {ui.fmt(r['stary_termin'])} → **{ui.fmt(r.get('nowy_termin'))}**"
+                        + (f" · {escape(r['komentarz_decyzji'])}" if r.get("komentarz_decyzji") else ""),
+                        unsafe_allow_html=True)
+        st.caption(f"Obecny termin oceny: {ui.fmt(ev['czesc_i']['termin_oceny'])}.")
+        if any(r["status"] == "ZLOZONY" for r in history):
+            st.info("Twój wniosek czeka na decyzję przełożonego.")
+            return
+        new = st.date_input("Proponowany termin", value=None, min_value=ui.to_date(api.meta()["dzis"]),
+                            key=f"emp_dc_new_{eid}",
+                            format="DD.MM.YYYY")
+        why = st.text_area("Dlaczego prosisz o zmianę?", key=f"emp_dc_why_{eid}", height=80,
+                           placeholder="np. planowany urlop rodzicielski od 1.06 do 31.08")
+        if st.button("Wyślij wniosek", type="primary", key=f"emp_dc_go_{eid}"):
+            if new is None or not why.strip():
+                st.error("Podaj proponowany termin i powód.")
+                return
+            try:
+                api.request_deadline_change(eid, "WNIOSEK_OCENIANEGO", new, why.strip())
+            except ApiError as e:
+                ui.api_error(e)
+                return
+            st.toast("Wysłano wniosek do przełożonego.")
+            st.rerun()
 
 
 def render(api: Api, me: dict, page: str = "ocena") -> None:
@@ -106,10 +149,12 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
                         avg = f"{c2['srednia']:.2f}".replace(".", ",")
                         ui.html(f'<div class="result {"pos" if c2["wynik"] == "POZYTYWNA" else "neg"}">Ocena '
                                 f'<b>{c2["wynik"]}</b> · średnia {avg} · {escape(LEVEL_LABEL.get(c2["poziom"], ""))}</div>')
+                    # keep the evaluator's line breaks and "– " lists (one string with newlines from the server)
                     if c2.get("uzasadnienie"):
-                        ui.html(f"<b>Uzasadnienie:</b><p>{escape(c2['uzasadnienie'])}</p>")
+                        ui.html("<b>Uzasadnienie:</b><p>" + escape(c2["uzasadnienie"]).replace("\n", "<br>") + "</p>")
                     if c2.get("wnioski_iprz"):
-                        ui.html(f"<b>Wnioski rozwojowe (IPRZ):</b><p>{escape(c2['wnioski_iprz'])}</p>")
+                        ui.html("<b>Wnioski rozwojowe (IPRZ):</b><p>" + escape(c2["wnioski_iprz"]).replace("\n", "<br>")
+                                + "</p>")
                 key = f"emp_confirm_{eid}_{akcja}"
                 if st.session_state.get(key):
                     st.warning(f"Czy na pewno: **{ACTION_LABEL.get(akcja, akcja).lower()}**?")

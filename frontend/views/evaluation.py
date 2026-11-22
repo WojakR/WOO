@@ -728,10 +728,10 @@ def _wellbeing(api: Api, ev: dict) -> None:
             out = {}
             for sym in check["objawy"]:
                 prev = saved["odpowiedzi"].get(sym["id"], {})
-                c1, c2 = st.columns([2.2, 1.6], vertical_alignment="center")
-                c1.markdown(f"**{sym['nazwa']}**", help=sym.get("opis") or None)
-                val = c2.segmented_control(sym["nazwa"], codes, format_func=answers.get, key=f"wb_{eid}_{sym['id']}",
-                                           default=prev.get("odpowiedz"), label_visibility="collapsed")
+                # the name above, the three answers below at full width: on a narrow column "często" was cut off
+                val = st.segmented_control(f"**{sym['nazwa']}**", codes, format_func=answers.get,
+                                           key=f"wb_{eid}_{sym['id']}", default=prev.get("odpowiedz"),
+                                           help=sym.get("opis") or None)
                 if val:
                     out[sym["id"]] = {"odpowiedz": val, "komentarz": prev.get("komentarz") or ""}
             if saved.get("zaktualizowano"):
@@ -739,6 +739,10 @@ def _wellbeing(api: Api, ev: dict) -> None:
                            f"(sygnał od {saved['prog_sygnalu']}).")
             if st.button(":material/save: Zapisz listę", key=f"wb_save_{eid}"):
                 if _call(api.set_wellbeing, eid, out, ok="Zapisano listę kontrolną.") is not None:
+                    # the HR partner reads the checklist: forget its remembered answer for this evaluation
+                    cache = st.session_state.get("ai_cache", {})
+                    for k in [k for k in cache if isinstance(k, tuple) and k[:2] == ("hr", eid)]:
+                        cache.pop(k, None)
                     st.rerun()
 
 
@@ -886,7 +890,20 @@ def _deadline_changes(api: Api, ev: dict, today: date) -> None:
                 st.caption("Termin nie był zmieniany.")
             return
         if pending:
-            st.info("Wniosek o zmianę terminu czeka na decyzję kadr.")
+            req = next(r for r in history if r["status"] == "ZLOZONY")
+            if (req.get("zlozyl") or {}).get("id") == ev["oceniany"]["id"]:
+                st.info(f"{name(ev['oceniany'])} prosi o zmianę terminu na {ui.fmt(req.get('nowy_termin'))}"
+                        + (f": {req['uzasadnienie']}" if req.get("uzasadnienie") else "."))
+                note = st.text_input("Komentarz do decyzji", key=f"dcd_note_ev_{req['id']}")
+                a, b = st.columns(2)
+                for col, status, label in ((a, "ZAAKCEPTOWANY", "Przyjmij"), (b, "ODRZUCONY", "Odrzuć")):
+                    if col.button(label, key=f"dcd_ev_{status}_{req['id']}", use_container_width=True,
+                                  type="primary" if status == "ZAAKCEPTOWANY" else "secondary"):
+                        if _call(api.decide_deadline_change, req["id"], status, note.strip(),
+                                 ok="Zapisano decyzję.") is not None:
+                            st.rerun()
+            else:
+                st.info("Wniosek o zmianę terminu czeka na decyzję kadr.")
             return
         if history:
             st.divider()

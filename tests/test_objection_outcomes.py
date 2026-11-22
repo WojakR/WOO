@@ -100,6 +100,11 @@ def test_upholding_never_lowers_a_partial_score(st):
     assert "SPRZECIW_OBNIZENIE" in codes
 
 
+def test_the_evaluated_person_is_told_the_evaluation_waits_for_them(st):
+    [n] = notices(st, EMP, "OCENA_DO_ZAPOZNANIA")
+    assert "zapoznaj się" in n.text.casefold() and "7 dni na sprzeciw" in n.text
+
+
 def test_not_upheld_notifies_about_the_labour_court(st):
     st.evaluations.decide_objection(st.cid, HR, False, "Ocena oparta na udokumentowanych błędach.")
     text = notices(st, EMP, "SPRZECIW_NIEUWZGLEDNIONY")[0].text

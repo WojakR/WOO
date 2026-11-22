@@ -119,14 +119,17 @@ def _hr_tasks(api: Api) -> None:
                             args=(t["evaluation_id"],), use_container_width=True)
 
 
-def _deadline_requests(api: Api) -> None:
-    """Requests to change the evaluation deadline waiting for HR (office setting: zmiana_terminu.zatwierdza=KADRY)."""
+def _deadline_requests(api: Api, own_requests_only: bool = False) -> None:
+    """Requests to change the evaluation deadline waiting for a decision: HR decides the evaluators' requests
+    (office setting zmiana_terminu.zatwierdza=KADRY), the evaluator decides the evaluated person's own request."""
     from frontend.views.evaluation import DEADLINE_REASON
 
     try:
         rows = api.deadline_requests("ZLOZONY")
     except ApiError:
         return
+    if own_requests_only:  # an evaluator: only the requests the evaluated people filed themselves
+        rows = [r for r in rows if (r.get("zlozyl") or {}).get("id") == (r.get("oceniany") or {}).get("id")]
     if not rows:
         return
     with st.expander(f"Wnioski o zmianę terminu oceny ({len(rows)})", icon=":material/edit_calendar:", expanded=True):
@@ -245,6 +248,7 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
         _deadline_requests(api)
     else:
         _withheld_notes(api)
+        _deadline_requests(api, own_requests_only=True)
     # a supervisor higher up also sees the evaluations of their managers' teams (office setting PODDRZEWO);
     # by default only the people they evaluate themselves – the rest on demand
     mine = _direct_reports(api, me)
@@ -311,7 +315,8 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
                     st.button(f"Otwórz ocenę: {name(i['oceniany'])}", key=f"rowbtn_{eid}", on_click=open_evaluation,
                               args=(eid,))
                 c = st.columns(widths, vertical_alignment="center")
-                c[0].markdown(ui.urgency_badge(_urgency(i)), unsafe_allow_html=True)
+                c[0].markdown(ui.badge("Nierozpoczęta", "b-amber") if i["status"] is None
+                              else ui.urgency_badge(_urgency(i)), unsafe_allow_html=True)
                 c[1].markdown(f"**{name(i['oceniany'])}**" + (" →" if eid else ""))
                 c[1].caption((i["oceniany"].get("stanowisko") or "")
                              + (f" · {i['_label']}" if i.get("_label") else "")

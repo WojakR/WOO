@@ -443,7 +443,13 @@ class AiSuggestionService:
                 for n in bucket[:2]:
                     used.append(n.id)
                     lines.append(f"– {self.rules.criterion_name(cid)}: {n.text} ({n.on:%d.%m.%Y})")
-            return "\n".join(lines) or "– brak notatek z okresu oceny przypisanych do tych kryteriów"
+            if not lines:  # no criterion stands out (all scores in the middle): one example per criterion
+                for cid in ctx["ids"]:
+                    bucket = ev[cid].positive if positive else ev[cid].negative
+                    if bucket:
+                        used.append(bucket[0].id)
+                        lines.append(f"– {self.rules.criterion_name(cid)}: {bucket[0].text} ({bucket[0].on:%d.%m.%Y})")
+            return "\n".join(lines) or "– (dopisz konkretne przykłady zachowań z okresu oceny)"
 
         values = {
             "imie": employee.full_name,
