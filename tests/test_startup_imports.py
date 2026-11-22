@@ -9,8 +9,9 @@ PROJECT = Path(__file__).resolve().parent.parent
 def test_web_app_starts_without_pandas_and_streamlit():
     code = ("import sys, backend.main; "
             "print(','.join(m for m in ('pandas', 'streamlit') if m in sys.modules))")
+    # stdin=DEVNULL: on Windows the inherited stdin may not be duplicable (WinError 50 when the runner has no console)
     out = subprocess.run([sys.executable, "-c", code], cwd=PROJECT, capture_output=True, text=True, timeout=120,
-                         env={**__import__("os").environ, "AI_MODE": "off"})
+                         stdin=subprocess.DEVNULL, env={**__import__("os").environ, "AI_MODE": "off"})
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == ""  # loaded later, only when a table is parsed / under `streamlit run`
 
