@@ -400,6 +400,42 @@ class Api:
     def ezd_retry(self) -> dict:
         return self._req("POST", "/admin/ezd/retry")
 
+    # ---- UC1: criteria suggestion ---------------------------------------------------------------------
+    def suggest_criteria(self, eid: int, duties: str = "") -> dict:
+        return self._req("POST", f"/evaluations/{eid}/ai/suggest-criteria", {"opis": duties})
+
+    # ---- deadline changes (art. 81 ust. 8), evaluator absence, planned evaluator change -------------
+    def request_deadline_change(self, eid: int, reason: str, new: date | None, justification: str) -> dict:
+        return self._req("POST", f"/evaluations/{eid}/deadline-changes",
+                         {"powod": reason, "nowy_termin": new.isoformat() if new else None,
+                          "uzasadnienie": justification or None})
+
+    def deadline_requests(self, status: str | None = None) -> list[dict]:
+        return self._req("GET", "/deadline-changes", params={"status": status})
+
+    def decide_deadline_change(self, change_id: int, status: str, comment: str = "") -> dict:
+        return self._req("POST", f"/deadline-changes/{change_id}/decision", {"status": status, "komentarz": comment})
+
+    def deadline_letter(self, change_id: int) -> bytes:
+        return self._req("GET", f"/deadline-changes/{change_id}/pdf", raw=True).content
+
+    def evaluator_absences(self) -> list[dict]:
+        return self._req("GET", "/evaluator-absences")
+
+    def add_evaluator_absence(self, evaluator_number: int, od: date, do: date) -> dict:
+        return self._req("POST", "/evaluator-absences", {"oceniajacy_id": evaluator_number, "od": od.isoformat(),
+                                                         "do": do.isoformat()})
+
+    def apply_evaluator_change(self, change_id: int, early: bool = False) -> dict:
+        return self._req("POST", f"/evaluator-changes/{change_id}/apply", {"ocena_przed_zmiana": early})
+
+    # ---- the predecessor's notes (withheld after a change of the evaluator) --------------------------
+    def withheld_notes(self) -> list[dict]:
+        return self._req("GET", "/me/notatki-poprzednie")
+
+    def hand_over_note(self, nid: int) -> dict:
+        return self._req("POST", f"/notes/{nid}/przekaz")
+
     # ---- help (T21) --------------------------------------------------------------------------------
     def knowledge(self) -> list[dict]:
         return self._req("GET", "/knowledge")
@@ -410,7 +446,3 @@ class Api:
     def knowledge_doc(self, slug: str) -> dict:
         return self._req("GET", f"/knowledge/{slug}")
 
-
-def as_hr() -> Api:
-    """Read-only helper for lookups the contract has no endpoint for yet (e.g. "my evaluation" id)."""
-    return Api("kadry")

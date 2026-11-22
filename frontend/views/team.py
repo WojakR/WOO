@@ -119,6 +119,75 @@ def _hr_tasks(api: Api) -> None:
                             args=(t["evaluation_id"],), use_container_width=True)
 
 
+def _deadline_requests(api: Api) -> None:
+    """Requests to change the evaluation deadline waiting for HR (office setting: zmiana_terminu.zatwierdza=KADRY)."""
+    from frontend.views.evaluation import DEADLINE_REASON
+
+    try:
+        rows = api.deadline_requests("ZLOZONY")
+    except ApiError:
+        return
+    if not rows:
+        return
+    with st.expander(f"Wnioski o zmianę terminu oceny ({len(rows)})", icon=":material/edit_calendar:", expanded=True):
+        for r in rows:
+            with st.container(border=True):
+                st.markdown(f"**{name(r.get('oceniany'))}** · {ui.fmt(r['stary_termin'])} → "
+                            f"**{ui.fmt(r.get('nowy_termin')) if r.get('nowy_termin') else 'termin do ustalenia'}** · "
+                            f"{DEADLINE_REASON.get(r['powod'], r['powod'])} · złożył(a): {name(r.get('zlozyl'))}")
+                if r.get("uzasadnienie"):
+                    st.caption(r["uzasadnienie"])
+                c = st.columns([3, 1, 1, 1], vertical_alignment="bottom")
+                note = c[0].text_input("Komentarz do decyzji", key=f"dcd_note_{r['id']}")
+                for col, status, label in ((c[1], "ZAAKCEPTOWANY", "Zatwierdź"), (c[2], "ODRZUCONY", "Odrzuć")):
+                    if col.button(label, key=f"dcd_{status}_{r['id']}", type="primary" if status == "ZAAKCEPTOWANY"
+                                  else "secondary", use_container_width=True):
+                        try:
+                            api.decide_deadline_change(r["id"], status, note.strip())
+                            st.toast("Zapisano decyzję.")
+                        except ApiError as e:
+                            ui.api_error(e)
+                            continue
+                        st.rerun()
+                if r.get("evaluation_id"):
+                    c[3].button("Otwórz ocenę", key=f"dcd_open_{r['id']}", on_click=open_evaluation,
+                                args=(r["evaluation_id"],), use_container_width=True)
+
+
+def _withheld_notes(api: Api) -> None:
+    """After a change of the evaluator my notes on that person wait until I hand them over (§ 9 ust. 3)."""
+    try:
+        notes = api.withheld_notes()
+    except ApiError:
+        return
+    if not notes:
+        return
+    with st.expander(f"Notatki do przekazania nowemu oceniającemu ({len(notes)})", icon=":material/forward_to_inbox:",
+                     expanded=True):
+        st.caption("Po zmianie oceniającego Twoje notatki o tej osobie są wstrzymane – nowy oceniający zobaczy je "
+                   "dopiero, gdy je przekażesz. Notatek, których nie chcesz przekazać, nie przekazuj.")
+        if st.button("Przekaż wszystkie", icon=":material/send:", key="ho_all"):
+            for n in notes:
+                try:
+                    api.hand_over_note(n["id"])
+                except ApiError as e:
+                    ui.api_error(e)
+                    break
+            else:
+                st.toast("Przekazano notatki.")
+                st.rerun()
+        for n in notes:
+            c1, c2 = st.columns([5, 1], vertical_alignment="center")
+            c1.markdown(f"<span class='lock'>{ui.fmt(n['data'])}</span> {escape(n['tresc'])}", unsafe_allow_html=True)
+            if c2.button("Przekaż", key=f"ho_{n['id']}", use_container_width=True):
+                try:
+                    api.hand_over_note(n["id"])
+                    st.toast("Przekazano notatkę.")
+                except ApiError as e:
+                    ui.api_error(e)
+                st.rerun()
+
+
 def _one_row_per_case(items: list[dict]) -> list[dict]:
     """After acknowledgement the server starts the next period at once, so a person can have two evaluations.
     A finished one next to a newer one goes to Archiwum; two open ones (e.g. an evaluation drawn up again after an
@@ -150,6 +219,9 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
         return
     if hr:
         _hr_tasks(api)
+        _deadline_requests(api)
+    else:
+        _withheld_notes(api)
 
     units = sorted({i.get("komorka") for i in items if i.get("komorka")})
     s1, s2, s3 = st.columns([1.4, 1.4, 0.6], vertical_alignment="bottom")

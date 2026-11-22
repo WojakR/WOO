@@ -135,6 +135,7 @@ def _office(api: Api, me: dict, users: list[dict], today: date) -> None:
     settings._visibility(api, me)
     settings._reminders(api, me)
     settings._deputies(api, me, users, today)
+    settings._evaluator_absence(api, me, today)
 
 
 def _people(api: Api) -> None:
@@ -186,6 +187,18 @@ def _staff_changes(api: Api, today: date, kind: str) -> None:
         with st.container(border=True):
             st.markdown(f"**:material/task_alt: {last['tytul']}**")
             st.markdown(last["tekst"])
+            if last.get("planowana_id"):
+                st.caption("Zmiana wejdzie w życie w dniu zmiany – wtedy kliknij „Wykonaj zmianę”. Dotychczasowy "
+                           "oceniający dostał powiadomienie.")
+                early = st.checkbox("Dotychczasowy oceniający sporządził ocenę przed zmianą",
+                                    key=f"adm_apply_early_{kind}")
+                if st.button("Wykonaj zmianę", icon=":material/play_arrow:", key=f"adm_apply_{kind}"):
+                    done = _call(api.apply_evaluator_change, last["planowana_id"], early)
+                    if done is not None:
+                        st.session_state[rkey] = {"tytul": "Zmiana oceniającego wykonana",
+                                                  "tekst": done.get("wyjasnienie") or "",
+                                                  "evaluation_id": done.get("evaluation_id")}
+                        st.rerun()
             if last.get("evaluation_id"):
                 from frontend.views.team import open_evaluation
 
@@ -251,8 +264,12 @@ def _staff_changes(api: Api, today: date, kind: str) -> None:
                     "NOWY_CYKL": "Rozpoczęto nową ocenę u nowego oceniającego."}.get(out.get("wariant"), "")
             held = (f" Notatki poprzedniego oceniającego ({out['notatki_wstrzymane']}) czekają na przekazanie."
                     if out.get("notatki_wstrzymane") else "")
+            planned = out.get("status") == "PLANOWANA"
             st.session_state[rkey] = {
-                "tytul": f"Zmiana oceniającego zapisana: {name(p)} – od {ui.fmt(when)} ocenia {name(options[new])}",
+                "planowana_id": out.get("id") if planned else None,
+                "tytul": (f"Zmiana oceniającego zaplanowana: {name(p)} – od {ui.fmt(when)} oceniać będzie "
+                          f"{name(options[new])}" if planned else
+                          f"Zmiana oceniającego zapisana: {name(p)} – od {ui.fmt(when)} ocenia {name(options[new])}"),
                 "tekst": f"{what}{held} {out.get('wyjasnienie') or ''}",
                 "evaluation_id": out.get("evaluation_id") or cur["evaluation_id"]}
             st.rerun()

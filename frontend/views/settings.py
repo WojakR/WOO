@@ -197,6 +197,47 @@ def _deputies(api: Api, me: dict, users: list[dict], today: date) -> None:
                 st.rerun()
 
 
+def _evaluator_absence(api: Api, me: dict, today: date) -> None:
+    """A planned absence of the evaluator: the server lists the deadlines falling inside it and says what to do –
+    a deputy covering it, or a change of the deadline (art. 81 ust. 8)."""
+    hr = me["rola"] == "KADRY"
+    if not (hr or me["czy_oceniajacy"]):
+        return
+    with st.container(border=True):
+        st.markdown("#### :material/beach_access: Planowana nieobecność oceniającego",
+                    help="Zgłoś urlop lub inną dłuższą nieobecność – system sprawdzi, które terminy ocen na nią "
+                         "przypadają, i podpowie zastępstwo albo zmianę terminu.")
+        if hr:
+            people = api.employees(na_strone=200)["pozycje"]
+            bosses = {p["pracownik"]["id"]: p["pracownik"] for p in people}
+            who = st.selectbox("Oceniający", list(bosses), key="abs_who",
+                               format_func=lambda i: f"{name(bosses[i])} · {bosses[i].get('stanowisko') or ''}")
+        else:
+            who = me["pracownik"]["id"]
+        a, b, c = st.columns([1, 1, 1], vertical_alignment="bottom")
+        od = a.date_input("Od", today, key="abs_od", format="DD.MM.YYYY")
+        do = b.date_input("Do", today + timedelta(days=14), key="abs_do", format="DD.MM.YYYY")
+        if c.button("Zgłoś nieobecność", type="primary", key="abs_go", use_container_width=True):
+            if _ok(api.add_evaluator_absence, who, od, do, ok="Zapisano nieobecność."):
+                st.rerun()
+        try:
+            rows = api.evaluator_absences()
+        except ApiError:
+            rows = []
+        for r in reversed(rows[-5:]):
+            st.markdown(f"**{name(r['oceniajacy'])}**: {ui.fmt(r['od'])} – {ui.fmt(r['do'])}")
+            st.caption(r["komunikat"])
+            for h in r.get("podpowiedzi", []):
+                what = ("termin oceny" if h["rodzaj_terminu"] == "OCENA" else "termin kryteriów")
+                if h.get("zastepca"):
+                    tip = f"zastępuje {name(h['zastepca'])} – nic nie trzeba robić"
+                elif h.get("mozna_zmienic_termin"):
+                    tip = f"proponowany nowy termin: {ui.fmt(h.get('proponowany_termin'))} (zmień w ocenie)"
+                else:
+                    tip = "ustal zastępstwo – " + "; ".join(h.get("dlaczego_nie") or [])
+                st.markdown(f"- {name(h['oceniany'])}: {what} {ui.fmt(h['termin'])} – {tip}")
+
+
 def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
     hr = me["rola"] == "KADRY"
     st.subheader(":material/settings: Ustawienia", help="Domyślny harmonogram przypomnień, asystent AI i wymagania urzędu." if hr
@@ -206,4 +247,5 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
         _visibility(api, me)
     _reminders(api, me)
     _deputies(api, me, users, to_date(meta["dzis"]))
+    _evaluator_absence(api, me, to_date(meta["dzis"]))
     _rules(api, me)

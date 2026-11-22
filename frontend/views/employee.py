@@ -6,29 +6,36 @@ from html import escape
 import streamlit as st
 
 from frontend import ui
-from frontend.api_client import Api, ApiError, as_hr
+from frontend.api_client import Api, ApiError
 from frontend.process import ACTION_DONE, ACTION_LABEL, LEVEL_LABEL, STATUS_LABEL, name
 
 
-def _my_evaluation_id(me: dict) -> int | None:
-    """The contract has no "my evaluations" endpoint yet (docs/api.md: GET /api/evaluations?oceniany_id=):
-    look the id up in the office list, then read the evaluation as the user (the server checks access)."""
-    mine = [i for i in as_hr().dashboard()["pozycje"] if i["oceniany"]["id"] == me["pracownik"]["id"]]
-    return mine[0]["evaluation_id"] if mine else None
+def _mine(api: Api) -> list[dict]:
+    """My own evaluations as the evaluated person – `moje` in GET /api/dashboard (oldest first)."""
+    try:
+        return [i for i in api.dashboard().get("moje", []) if i.get("evaluation_id")]
+    except ApiError:
+        return []
+
+
+def _my_evaluation_id(api: Api) -> int | None:
+    """The evaluation to show: the one waiting for my step, else the open one, else the newest."""
+    items = _mine(api)
+    for test in (lambda i: i.get("kto_dziala") == "OCENIANY", lambda i: i["status"] != "ZAKONCZONA", lambda i: True):
+        hit = [i for i in items if test(i)]
+        if hit:
+            return hit[-1]["evaluation_id"]
+    return None
 
 
 def _my_evaluations(api: Api, me: dict) -> list[dict]:
-    """All my evaluations, newest first. No list endpoint yet, so read ids up to the newest one in the office list
-    as the user – the server returns only what I may see (403 for the others)."""
-    top = max((i["evaluation_id"] or 0 for i in as_hr().dashboard()["pozycje"]), default=0)
+    """All my evaluations, newest first (full sheets read as me – the server checks access)."""
     out = []
-    for eid in range(top + 3, 0, -1):
+    for i in reversed(_mine(api)):
         try:
-            ev = api.evaluation(eid)
+            out.append(api.evaluation(i["evaluation_id"]))
         except ApiError:
             continue
-        if ev["oceniany"]["id"] == me["pracownik"]["id"]:
-            out.append(ev)
     return out
 
 
@@ -50,8 +57,8 @@ def _requests(api: Api, me: dict) -> None:
     if not shown:
         st.info("Sprzeciw od oceny możesz złożyć w ciągu 7 dni od zapoznania się z oceną – teraz nie masz oceny, "
                 "od której przysługuje sprzeciw.")
-    st.caption("Wniosek o zmianę terminu oceny: w API jest już podgląd zmian terminu, ale nie ma jeszcze składania "
-               "wniosku przez pracownika – pojawi się tutaj, gdy koledzy go dodadzą.")
+    st.caption("Chcesz przesunąć termin oceny (np. z powodu planowanej nieobecności)? Poproś przełożonego – składa "
+               "wniosek w systemie, a decyzja przychodzi do Ciebie jako powiadomienie.")
 
 
 def render(api: Api, me: dict, page: str = "ocena") -> None:
@@ -62,7 +69,7 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
     if page == "wnioski":
         _requests(api, me)
         return
-    eid = _my_evaluation_id(me)
+    eid = _my_evaluation_id(api)
     if eid is None:
         st.info("Nie masz jeszcze rozpoczętego cyklu oceny.")
         return

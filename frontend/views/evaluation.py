@@ -272,6 +272,8 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
                      on_change=save_slot, args=(i,),
                      help=_indicators(crit.get(slots[i])) or None)
     ui.footnote("Najwyżej 3, bez powtórzeń; puste pole oznacza brak kryterium.")
+    if editable and ai and ev["jako_oceniajacy"]:
+        _criteria_hint(api, ev, chosen, crit)
     if not editable:
         _locked("Kryteria można zmieniać do zatwierdzenia ich przez oceniającego.")
 
@@ -767,6 +769,96 @@ def _paper(api: Api, ev: dict) -> None:
                 _inline_action(api, eid, "FIKCJA_ZAPOZNANIA", komentarz=note.strip())
 
 
+def _criteria_hint(api: Api, ev: dict, chosen: list[str], crit: dict) -> None:
+    """UC1: up to 3 additional criteria proposed from the position and the duties – nothing is set by itself."""
+    eid = ev["id"]
+    ckey = f"crit_hint_{eid}"
+    with st.container(key=f"aibox_crit_{eid}"):
+        st.markdown("**:material/auto_awesome: Asystent AI: podpowiedz kryteria dodatkowe**")
+        duties = st.text_area("Główne zadania na stanowisku (opcjonalnie)", key=f"crit_duties_{eid}", height=80,
+                              placeholder="np. obsługa interesantów, przygotowywanie umów, koordynacja projektu…",
+                              help="Asystent dobiera kryteria do stanowiska i opisu zadań. Bez AI dopasowuje słowa "
+                                   "kluczowe. Kryteria dodajesz sam(a) – nic nie zmienia się automatycznie.")
+        if st.button("Podpowiedz kryteria", icon=":material/auto_awesome:", key=f"dr_crit_{eid}"):
+            out = _call(api.suggest_criteria, eid, duties.strip())
+            if out is not None:
+                st.session_state[ckey] = out
+        out = st.session_state.get(ckey)
+        if not out:
+            return
+        ui.html(ui.source_note("AI" if out.get("zrodlo") == "AI" else "REGULY"))
+        if not out.get("sugestie"):
+            st.caption("Brak propozycji – dopisz zadania na stanowisku i spróbuj ponownie.")
+        for sgg in out.get("sugestie", []):
+            c1, c2 = st.columns([4, 1], vertical_alignment="center")
+            label = sgg.get("nazwa") or crit.get(sgg["kod"], {}).get("nazwa", sgg["kod"])
+            c1.markdown(f"**{label}** – {sgg['uzasadnienie']}")
+            taken = sgg["kod"] in chosen
+            full = len(chosen) >= 3
+            if c2.button("Dodano" if taken else "Dodaj", key=f"acc_crit_{eid}_{sgg['kod']}", disabled=taken or full,
+                         use_container_width=True, help="Najwyżej 3 kryteria dodatkowe." if full and not taken else None):
+                if _call(api.additional, eid, chosen + [sgg["kod"]], ok=f"Dodano kryterium: {label}.") is not None:
+                    st.rerun()
+
+
+DEADLINE_REASON = {
+    "PRZEWIDYWANA_NIEOBECNOSC_OCENIANEGO": "Przewidywana nieobecność ocenianego",
+    "PRZEWIDYWANA_NIEOBECNOSC_OCENIAJACEGO": "Przewidywana nieobecność oceniającego",
+    "WNIOSEK_OCENIANEGO": "Wniosek ocenianego",
+    "INNY": "Inny powód",
+    "NIEOBECNOSC_OCENIANEGO_AUTO": "Nieobecność ocenianego (automatycznie)",
+    "ZMIANA_STANOWISKA": "Zmiana stanowiska",
+    "ZMIANA_OCENIAJACEGO": "Zmiana oceniającego",
+}
+DEADLINE_STATUS = {"ZLOZONY": ("czeka na decyzję kadr", "b-amber"), "ZAAKCEPTOWANY": ("zmieniony", "b-green"),
+                   "ODRZUCONY": ("odrzucony", "b-red"), "AUTO": ("zmieniony automatycznie", "b-blue")}
+
+
+def _deadline_changes(api: Api, ev: dict, today: date) -> None:
+    """Change of the evaluation deadline (art. 81 ust. 8): the evaluator files it; depending on the office settings it
+    takes effect at once or HR decides. Accepted changes have a letter (§ 8) to download."""
+    eid = ev["id"]
+    try:
+        history = api.deadline_changes(eid)
+    except ApiError:
+        history = []
+    pending = any(r["status"] == "ZLOZONY" for r in history)
+    with st.expander(":material/edit_calendar: Zmiana terminu oceny" + (" · wniosek czeka" if pending else "")):
+        for r in history:
+            label, cls = DEADLINE_STATUS.get(r["status"], (r["status"], "b-grey"))
+            st.markdown(f"{ui.badge(label, cls)} {ui.fmt(r['stary_termin'])} → **{ui.fmt(r.get('nowy_termin'))}** · "
+                        f"{DEADLINE_REASON.get(r['powod'], r['powod'])}", unsafe_allow_html=True)
+            if r.get("komentarz_decyzji"):
+                st.caption(f"Decyzja: {r['komentarz_decyzji']}")
+            if r.get("pismo_pdf"):
+                st.download_button("Pismo o zmianie terminu (PDF)", lambda rid=r["id"]: api.deadline_letter(rid),
+                                   icon=":material/description:", file_name=f"zmiana-terminu-{r['id']}.pdf",
+                                   mime="application/pdf", on_click="ignore", key=f"dl_letter_{r['id']}")
+        if not ev["jako_oceniajacy"] or ev["status"] in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA"):
+            if not history:
+                st.caption("Termin nie był zmieniany.")
+            return
+        if pending:
+            st.info("Wniosek o zmianę terminu czeka na decyzję kadr.")
+            return
+        if history:
+            st.divider()
+        reasons = ["PRZEWIDYWANA_NIEOBECNOSC_OCENIANEGO", "PRZEWIDYWANA_NIEOBECNOSC_OCENIAJACEGO", "WNIOSEK_OCENIANEGO",
+                   "INNY"]
+        reason = st.selectbox("Powód", reasons, format_func=DEADLINE_REASON.get, key=f"dc_reason_{eid}")
+        new = st.date_input("Nowy termin oceny", value=None, min_value=today, key=f"dc_new_{eid}", format="DD.MM.YYYY",
+                            help="Przy wniosku ocenianego możesz zostawić puste – termin ustalisz przy decyzji.")
+        why = st.text_area("Uzasadnienie", key=f"dc_why_{eid}", height=70)
+        st.caption("Zależnie od ustawień urzędu zmiana działa od razu albo czeka na decyzję kadr. Pracownik dostanie "
+                   "powiadomienie, a do akt – pismo o zmianie terminu.")
+        if st.button("Zapisz zmianę terminu", type="primary", key=f"dc_go_{eid}"):
+            if reason != "WNIOSEK_OCENIANEGO" and new is None:
+                st.error("Wybierz nowy termin oceny.")
+            elif _call(api.request_deadline_change, eid, reason, new, why.strip(), ok="Zapisano zmianę terminu.") \
+                    is not None:
+                st.rerun()
+
+
 # ---------------------------------------------------------------- stage 5
 
 def _stage_ack(api: Api, ev: dict) -> None:
@@ -1064,6 +1156,7 @@ def render(api: Api, me: dict, meta: dict, evaluation_id: int, ai: bool) -> None
         _progress(ev)
         _summary(ev)
         _timeline(api, ev)
+        _deadline_changes(api, ev, today)
     # HR partner: a round button fixed in the bottom-right corner, the same place however far you scroll
     if (ai and ev["jako_oceniajacy"] and meta.get("funkcje_ai", {}).get("hr_partner")
             and ev["status"] not in ("OCENA_DO_ZAPOZNANIA", "ZAKONCZONA")):
