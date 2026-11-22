@@ -410,9 +410,10 @@ def _absences(api: Api, today: date) -> None:
     last = st.session_state.pop("adm_abs_msg", None)
     if last:
         st.success(last)
-    pid = st.selectbox("Pracownik", list(rows), key="adm_abs_who",
-                       format_func=lambda i: f"{name(rows[i]['pracownik'])} · termin oceny "
-                                             f"{ui.fmt(rows[i]['biezaca_ocena'].get('termin_oceny'))}")
+    # the deadline is not part of the option label: with a fixed key the list kept showing the old deadline after
+    # an absence had moved it – shown below instead, read from the server on every run
+    pid = st.selectbox("Pracownik", list(rows), key="adm_abs_who", format_func=lambda i: name(rows[i]["pracownik"]))
+    st.caption(f"Termin oceny: **{ui.fmt(rows[pid]['biezaca_ocena'].get('termin_oceny'))}**")
     a, b, c = st.columns([1, 1, 1.4])
     od = a.date_input("Od", today, key="adm_abs_od", format="DD.MM.YYYY")
     do = b.date_input("Do", today + timedelta(days=30), key="adm_abs_do", format="DD.MM.YYYY")
