@@ -133,6 +133,32 @@ section[data-testid="stSidebar"] { background: var(--band) !important; }
   line-height: 1; vertical-align: -0.18em; display: inline-block; letter-spacing: normal; text-transform: none;
   white-space: nowrap; direction: ltr; -webkit-font-feature-settings: "liga"; font-feature-settings: "liga"; }
 /* side menu tiles: icon + label */
+/* folded side menu: a slim navy rail with the same tiles, icon only (hover = name) */
+section[data-testid="stSidebar"][data-collapsed="true"] {
+  width: 4.6rem !important; min-width: 4.6rem !important; max-width: 4.6rem !important;
+  margin-left: 0 !important; transform: none !important; left: 0 !important; visibility: visible !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] > div { width: 4.6rem !important; transform: none !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarHeader"],
+section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarUserContent"] [data-testid="stElementContainer"]:not([class*="st-key-nav_"]) {
+  display: none !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarUserContent"] {
+  padding: 4.2rem .45rem 1rem !important; width: 4.6rem !important; min-width: 4.6rem !important;
+  max-width: 4.6rem !important; box-sizing: border-box !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarContent"] { padding: 0 !important;
+  overflow-x: hidden; }
+section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarUserContent"] > div,
+section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] {
+  width: 100% !important; min-width: 0 !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"],
+section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"] > div,
+section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"] .stButton,
+section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"] .stButton > div { width: 100% !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"] button {
+  width: 100% !important; justify-content: center !important; padding: .55rem 0 !important; min-height: 3.1rem; border-radius: 10px; }
+section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"] button [data-testid="stMarkdownContainer"] {
+  display: none !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] [class*="st-key-nav_"] [data-testid="stIconMaterial"] {
+  margin: 0 !important; font-size: 1.5rem; }
 section[data-testid="stSidebar"] [class*="st-key-nav_"] [data-testid="stIconMaterial"] { font-size: 1.3rem; margin-right: .35rem; }
 section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
 section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] b,

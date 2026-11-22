@@ -166,48 +166,96 @@ def _people(api: Api) -> None:
 
 
 def _staff_changes(api: Api, today: date) -> None:
-    """Change of position (§ 9) and of the evaluator (art. 81 ust. 8) – the server works out the consequences."""
+    """Change of position (§ 9) or of the evaluator (art. 81 ust. 8) for a person with an evaluation in progress.
+    The server works out the consequences; the result stays on screen until the next change."""
     data = _call(api.employees, na_strone=200)
     if not data:
         return
-    people = {p["pracownik"]["id"]: p["pracownik"] for p in data["pozycje"]}
-    pid = st.selectbox("Pracownik", list(people), key="adm_staff_who",
-                       format_func=lambda i: f"{name(people[i])} · {people[i].get('stanowisko') or ''}")
-    person = people[pid]
-    boss = person.get("przelozony") or {}
-    st.caption(f"Stanowisko: {person.get('stanowisko') or '—'} · arkusz {person.get('arkusz') or '—'} · "
-               f"oceniający: {name(boss) if boss else '—'}")
-    with st.container(border=True):
-        st.markdown("#### Zmiana stanowiska", help="Istotna zmiana obowiązków: system policzy, czy trzeba wyznaczyć "
-                    "nowe kryteria (§ 9 ust. 1), czy sporządzić ocenę za dotychczasowe stanowisko (art. 81 ust. 6).")
-        a, b, c = st.columns([1, 2, 1.2])
-        on = a.date_input("Data zmiany", value=today, key=f"pos_on_{pid}", format="DD.MM.YYYY")
-        pos = b.text_input("Nowe stanowisko", key=f"pos_new_{pid}")
-        sheet = c.selectbox("Arkusz", [None, "A", "B", "C"], key=f"pos_sheet_{pid}",
-                            format_func=lambda x: "bez zmiany" if x is None else f"arkusz {x}")
-        if st.button("Zapisz zmianę stanowiska", key=f"pos_go_{pid}", type="primary"):
+    rows = {r["pracownik"]["id"]: r for r in data["pozycje"]
+            if r.get("biezaca_ocena") and r["pracownik"].get("przelozony")}
+    st.markdown("Gdy pracownik **zmienia stanowisko** albo **dostaje innego przełożonego (oceniającego)**, przepisy "
+                "mówią, co dzieje się z jego oceną. Wpisz zmianę – system policzy skutki i pokaże je poniżej.")
+    if not rows:
+        st.info("Nikt nie ma teraz oceny w toku – zmiany dotyczą osób z rozpoczętą oceną.")
+        return
+    last = st.session_state.get("adm_staff_result")
+    if last:
+        with st.container(border=True):
+            st.markdown(f"**:material/task_alt: {last['tytul']}**")
+            st.markdown(last["tekst"])
+            if last.get("evaluation_id"):
+                from frontend.views.team import open_evaluation
+
+                st.button("Otwórz ocenę", icon=":material/open_in_new:", key="adm_staff_open",
+                          on_click=open_evaluation, args=(last["evaluation_id"],))
+
+    def label(i: int) -> str:
+        p = rows[i]["pracownik"]
+        return f"{name(p)} · {p.get('stanowisko') or '—'}"
+
+    a, b = st.columns([2, 1.3])
+    pid = a.selectbox("1. Pracownik", list(rows), format_func=label, key="adm_staff_who",
+                      help="Lista pokazuje osoby, które mają ocenę w toku.")
+    kind = b.radio("2. Co się zmienia?", ["stanowisko", "oceniajacy"], horizontal=True, key="adm_staff_kind",
+                   format_func={"stanowisko": "Stanowisko", "oceniajacy": "Oceniający"}.get)
+    row = rows[pid]
+    p, cur = row["pracownik"], row["biezaca_ocena"]
+    ui.html(ui.kv([("Stanowisko teraz", p.get("stanowisko") or "—"), ("Arkusz", p.get("arkusz") or "—"),
+                   ("Oceniający teraz", name(p["przelozony"])),
+                   ("Ocena w toku", f"termin {ui.fmt(cur.get('termin_oceny'))}")]))
+
+    if kind == "stanowisko":
+        st.markdown("**3. Nowe stanowisko**")
+        a, b, c = st.columns([2, 1, 1.2])
+        pos = a.text_input("Nazwa nowego stanowiska", key=f"pos_new_{pid}", placeholder="np. starszy specjalista")
+        on = b.date_input("Od kiedy", value=today, key=f"pos_on_{pid}", format="DD.MM.YYYY")
+        sheet = c.selectbox("Arkusz oceny", [None, "A", "B", "C"], key=f"pos_sheet_{pid}",
+                            format_func=lambda x: "bez zmiany" if x is None else f"zmień na {x}",
+                            help="A – kierownik urzędu; B – stanowisko kierujące ludźmi; C – pozostałe stanowiska (§ 3 rozporządzenia). "
+                                 "Zmień tylko, jeśli nowe stanowisko wymaga innego arkusza.")
+        st.caption("Co zrobi system: jeśli od ostatniej oceny minęło mniej niż 6 miesięcy – wyznaczasz nowe kryteria "
+                   "(§ 9 ust. 1); jeśli więcej – sporządzasz ocenę za dotychczasowe stanowisko (art. 81 ust. 6).")
+        if st.button("Zapisz zmianę stanowiska", type="primary", key=f"pos_go_{pid}"):
             if not pos.strip():
-                st.error("Wpisz nowe stanowisko.")
-            else:
-                out = _call(api.position_change, pid, on, pos.strip(), sheet)
-                if out is not None:
-                    st.success(out.get("wyjasnienie") or "Zapisano zmianę stanowiska.")
-    with st.container(border=True):
-        st.markdown("#### Zmiana oceniającego", help="Art. 81 ust. 8 pkt 1 i § 9 ust. 3: system sprawdza, czy "
-                    "odchodzący oceniający może sporządzić ocenę przed zmianą.")
-        options = {i: name(p) for i, p in people.items() if i not in (pid, boss.get("id"))}
-        a, b = st.columns([2, 1])
-        new = a.selectbox("Nowy oceniający", list(options), format_func=options.get, key=f"evc_new_{pid}")
-        when = b.date_input("Od dnia", value=today, key=f"evc_on_{pid}", format="DD.MM.YYYY")
-        chk = _call(api.evaluator_change_check, pid, when) if boss else None
-        if chk:
-            st.caption(chk["wyjasnienie"])
-        early = st.checkbox("Odchodzący oceniający sporządza ocenę przed zmianą", key=f"evc_early_{pid}",
-                            disabled=not (chk or {}).get("mozliwa_wczesniejsza_ocena"))
-        if st.button("Zmień oceniającego", key=f"evc_go_{pid}", type="primary") and new:
-            out = _call(api.evaluator_change, pid, new, when, early)
+                st.error("Wpisz nazwę nowego stanowiska.")
+                return
+            out = _call(api.position_change, pid, on, pos.strip(), sheet)
             if out is not None:
-                st.success(out.get("wyjasnienie") or "Zmieniono oceniającego.")
+                ev = out.get("ocena") or {}
+                st.session_state.adm_staff_result = {
+                    "tytul": f"Zmiana stanowiska zapisana: {name(p)} → {pos.strip()}",
+                    "tekst": out.get("wyjasnienie") or "", "evaluation_id": ev.get("id") or cur["evaluation_id"]}
+                st.rerun()
+        return
+
+    st.markdown("**3. Nowy oceniający**")
+    boss = p["przelozony"]
+    options = {i: r["pracownik"] for i, r in
+               {x["pracownik"]["id"]: x for x in data["pozycje"]}.items() if i not in (pid, boss["id"])}
+    a, b = st.columns([2, 1])
+    new = a.selectbox("Kto będzie oceniał", list(options), key=f"evc_new_{pid}",
+                      format_func=lambda i: f"{name(options[i])} · {options[i].get('stanowisko') or ''}")
+    when = b.date_input("Od kiedy", value=today, key=f"evc_on_{pid}", format="DD.MM.YYYY")
+    chk = _call(api.evaluator_change_check, pid, when)
+    early = False
+    if chk:
+        st.info(chk["wyjasnienie"])
+        if chk.get("mozliwa_wczesniejsza_ocena"):
+            early = st.checkbox(f"{name(boss)} sporządza ocenę przed odejściem", key=f"evc_early_{pid}",
+                                help="Zaznacz, jeśli dotychczasowy oceniający sporządzi ocenę przed zmianą "
+                                     "(art. 81 ust. 8 pkt 1). Bez zaznaczenia nowy oceniający przejmuje ocenę.")
+    if st.button("Zapisz zmianę oceniającego", type="primary", key=f"evc_go_{pid}"):
+        out = _call(api.evaluator_change, pid, new, when, early)
+        if out is not None:
+            what = {"PRZEJECIE": "Nowy oceniający przejmuje trwającą ocenę.",
+                    "NOWY_CYKL": "Rozpoczęto nową ocenę u nowego oceniającego."}.get(out.get("wariant"), "")
+            held = (f" Notatki poprzedniego oceniającego ({out['notatki_wstrzymane']}) czekają na przekazanie."
+                    if out.get("notatki_wstrzymane") else "")
+            st.session_state.adm_staff_result = {
+                "tytul": f"Zmiana oceniającego zapisana: {name(p)} – od {ui.fmt(when)} ocenia {name(options[new])}",
+                "tekst": f"{what}{held} {out.get('wyjasnienie') or ''}",
+                "evaluation_id": out.get("evaluation_id") or cur["evaluation_id"]}
+            st.rerun()
 
 
 def _rcp_eakt(api: Api) -> None:
@@ -252,7 +300,7 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
         return
     today = to_date(meta["dzis"])
     tabs = st.tabs([":material/policy: Terminy", ":material/checklist: Kryteria i etapy", ":material/apartment: Urząd i przypomnienia", ":material/groups: Import pracowników",
-                    ":material/swap_horiz: Zmiany stanowisk", ":material/inventory_2: Archiwum kadr", ":material/timer: RCP i e-Akt"])
+                    ":material/swap_horiz: Zmiana stanowiska / oceniającego", ":material/inventory_2: Archiwum kadr", ":material/timer: RCP i e-Akt"])
     with tabs[0]:
         _terms(api, today)
     with tabs[1]:
