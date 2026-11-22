@@ -64,7 +64,7 @@ Akcje i kto je wykonuje:
 | `POTWIERDZ_ZAPOZNANIE` | oceniany | `OCENA_DO_ZAPOZNANIA` → `ZAKONCZONA` |
 | `FIKCJA_ZAPOZNANIA` | oceniający | `OCENA_DO_ZAPOZNANIA` → `ZAKONCZONA` |
 | 🟡 `ZLOZ_SPRZECIW` | oceniany | `ZAKONCZONA` → `SPRZECIW` (do 7 dni) |
-| 🟡 `ROZPATRZ_SPRZECIW` | DG / kadry | `SPRZECIW` → `ZAKONCZONA` / `ROZMOWA_OCENIAJACA` |
+| 🟡 `ROZPATRZ_SPRZECIW` | DG / kadry / przełożony oceniającego (ustawienie) | `SPRZECIW` → `ZAKONCZONA` / `ROZMOWA_OCENIAJACA` |
 
 ### Notatki i dowody: UC4, UC5
 
@@ -141,7 +141,7 @@ Akcje `POST /api/evaluations/{id}/actions/{akcja}` (body `ActionIn`):
 | Akcja | Kto | Body | Skutek |
 |---|---|---|---|
 | `ZLOZ_SPRZECIW` | oceniany, do 7 dni od zapoznania | `komentarz` (treść, wymagana) | status `SPRZECIW`; termin rozpatrzenia 14 dni (`sprzeciw.termin_rozpatrzenia`) |
-| `ROZPATRZ_SPRZECIW` | rozpatrujący z ustawień urzędu (`sprzeciw.rozpatruje`, domyślnie `kadry`; ustawowo dyrektor generalny) | `uwzglednij` (wymagane), `tryb` (wymagany przy uwzględnieniu: `ZMIANA_OCENY` / `PONOWNE_SPORZADZENIE`), `komentarz` (uzasadnienie, wymagane) | uwzględniony → `ROZMOWA_OCENIAJACA` (polecenie dla oceniającego, automatycznie rozpoczęty kolejny cykl usuwany); nieuwzględniony → `ZAKONCZONA` + `sprzeciw.termin_odwolania_do_sadu` (14 dni) |
+| `ROZPATRZ_SPRZECIW` | rozpatrujący z ustawień urzędu: `sprzeciw.tryb=DYREKTOR_GENERALNY` (domyślnie) → `sprzeciw.rozpatruje` (domyślnie `kadry`; ustawowo dyrektor generalny); `PRZELOZONY_PRZELOZONEGO` → przełożony oceniającego, a gdy go nie ma – jak w trybie domyślnym (zmiana: `PUT /api/ustawienia/urzad` `{tryb_sprzeciwu}`) | `uwzglednij` (wymagane), `tryb` (wymagany przy uwzględnieniu: `ZMIANA_OCENY` / `PONOWNE_SPORZADZENIE`), `komentarz` (uzasadnienie, wymagane) | uwzględniony → `ROZMOWA_OCENIAJACA` (polecenie dla oceniającego, automatycznie rozpoczęty kolejny cykl usuwany); nieuwzględniony → `ZAKONCZONA` + `sprzeciw.termin_odwolania_do_sadu` (14 dni) |
 
 Uwzględnienie sprzeciwu (art. 83 ust. 4, przypadki użycia KPRM) – oba tryby wykonuje oceniający (Poradnik KPRM):
 - `ZMIANA_OCENY`: oceniający zastępuje kwestionowane fragmenty i klika `ZATWIERDZ_OCENE` – ocena od razu wraca do

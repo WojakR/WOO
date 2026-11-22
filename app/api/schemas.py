@@ -865,12 +865,15 @@ class UstawieniaUrzeduOut(_Out):
     hr_partner: bool                            # office-wide switch of the virtual HR partner
     tryb_ai_serwera: TrybAI                     # AI_MODE of the server (OFF = no model configured at all)
     moze_edytowac: bool
+    # who decides objections: DG (art. 83 ust. 1) or the evaluator's supervisor (falls back to DG at the top)
+    tryb_sprzeciwu: Literal["DYREKTOR_GENERALNY", "PRZELOZONY_PRZELOZONEGO"] = "DYREKTOR_GENERALNY"
 
 
 class UstawieniaUrzeduIn(BaseModel):
     zakres_widocznosci: Literal["PODDRZEWO", "BEZPOSREDNI"] | None = None
     asystent_ai: bool | None = None
     hr_partner: bool | None = None
+    tryb_sprzeciwu: Literal["DYREKTOR_GENERALNY", "PRZELOZONY_PRZELOZONEGO"] | None = None
 
 
 class MojAsystentOut(_Out):

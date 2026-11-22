@@ -27,6 +27,8 @@ class AccessPolicy:
     scope: VisibilityScope = VisibilityScope.SUBTREE
     deputies: Mapping[str, frozenset[str]] = field(default_factory=dict)  # evaluator -> deputies active today
     admins: frozenset[str] = frozenset()  # HR / office administrator: read everything
+    # employee -> reviewers of their pending objection (read that evaluation whatever the scope)
+    objection_readers: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
     # ---- tree -------------------------------------------------------------------------------------
     def direct_reports(self, manager: str) -> set[str]:
@@ -58,6 +60,7 @@ class AccessPolicy:
         out: set[str] = set()
         for who in self.acts_for(user):
             out |= self.subtree(who) if self.scope is VisibilityScope.SUBTREE else self.direct_reports(who)
+        out |= {e for e, readers in self.objection_readers.items() if user in readers}
         out.discard(user)
         return out
 
