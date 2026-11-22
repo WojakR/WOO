@@ -115,8 +115,27 @@ def _hr_tasks(api: Api) -> None:
                             args=(t["evaluation_id"],), use_container_width=True)
 
 
+def _one_row_per_case(items: list[dict]) -> list[dict]:
+    """After acknowledgement the server starts the next period at once, so a person can have two evaluations.
+    A finished one next to a newer one goes to Archiwum; two open ones (e.g. an evaluation drawn up again after an
+    objection, a re-evaluation + the next period) both stay, numbered by deadline."""
+    by_person: dict[int, list[dict]] = {}
+    for i in items:
+        by_person.setdefault(i["oceniany"]["id"], []).append(i)
+    out = []
+    for rows in by_person.values():
+        if len(rows) > 1:
+            rows = [r for r in rows if r["status"] != "ZAKONCZONA"] or rows[-1:]
+        if len(rows) > 1:
+            rows = sorted(rows, key=lambda r: r["termin"] or "")
+            for n, r in enumerate(rows, start=1):
+                r["_label"] = f"ocena {n} z {len(rows)} w toku"
+        out.extend(rows)
+    return out
+
+
 def render(api: Api, me: dict, ai: bool = True) -> None:
-    items = api.dashboard()["pozycje"]
+    items = _one_row_per_case(api.dashboard()["pozycje"])
     hr = me["rola"] == "KADRY"
     st.subheader("Oceny okresowe – cały urząd" if hr else "Mój zespół",
                  help="Stan ocen okresowych w urzędzie (dane przykładowe)." if hr else
@@ -185,7 +204,8 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
                 c = st.columns(widths, vertical_alignment="center")
                 c[0].markdown(ui.urgency_badge(_urgency(i)), unsafe_allow_html=True)
                 c[1].markdown(f"**{name(i['oceniany'])}**" + (" →" if eid else ""))
-                c[1].caption(i["oceniany"].get("stanowisko") or "")
+                c[1].caption((i["oceniany"].get("stanowisko") or "")
+                             + (f" · {i['_label']}" if i.get("_label") else ""))
                 c[2].markdown(i.get("komorka") or "—")
                 c[3].markdown(i["arkusz"])
                 status = STATUS_LABEL.get(i["status"], "Nierozpoczęta") if i["status"] else "Nierozpoczęta"
