@@ -69,14 +69,14 @@ def _terms(api: Api, today: date) -> None:
     if r["zmienione"] and b.button("Przywróć wartości z rozporządzenia", use_container_width=True):
         if _call(api.reset_rules, ok="Przywrócono wartości z rozporządzenia.") is not None:
             st.rerun()
-    with st.expander(f"🗂️ Wersje wymagań ({len(r.get('wersje', []))})"):
+    with st.expander(f":material/folder_open: Wersje wymagań ({len(r.get('wersje', []))})"):
         for v in reversed(r.get("wersje", [])):
             tag = " · obowiązuje" if v.get("aktualna") else " · zaplanowana" if v.get("przyszla") else ""
             st.markdown(f"**Wersja {v['id']}**{tag} · od {ui.fmt(v.get('obowiazuje_od'))} · {v['opis']} "
                         f"<span class='lock'>· ocen w tej wersji: {v.get('oceny', 0)}</span>", unsafe_allow_html=True)
             for z in v.get("zmiany", []):
                 st.caption(f"{z.get('nazwa', z.get('klucz'))}: {z.get('stara')} → {z.get('nowa')}")
-    with st.expander("📜 Pozostałe wymagania (z ustawy – tylko do odczytu)"):
+    with st.expander(":material/policy: Pozostałe wymagania (z ustawy – tylko do odczytu)"):
         for w in r["wymagania"]:
             st.markdown(f"**{w['tytul']}**")
             st.markdown(w["tresc"])
@@ -103,7 +103,7 @@ def _criteria(api: Api, today: date) -> None:
         tag = f"obowiązkowe w arkuszu {', '.join(mand)}" if mand else "dodatkowe"
         if sheet not in (None, "Wszystkie") and sheet not in mand:
             tag = "dodatkowe w tym arkuszu"
-        with st.expander(f"{'✅' if c.get('dostepne') else '⛔'} {c['nazwa']} · {tag}"):
+        with st.expander(f"{':material/check_circle:' if c.get('dostepne') else ':material/block:'} {c['nazwa']} · {tag}"):
             name = st.text_input("Nazwa", value=c["nazwa"], key=f"adm_cn_{c['id']}")
             ind = st.text_area("Wskaźniki (jeden w wierszu)", value="\n".join(c.get("wskazniki", [])),
                                key=f"adm_ci_{c['id']}", height=130)
@@ -146,8 +146,8 @@ def _people(api: Api) -> None:
     if up is None:
         return
     a, b = st.columns(2)
-    preview = a.button("👁️ Podgląd (bez zapisu)", use_container_width=True, key="adm_hr_prev")
-    save = b.button("📥 Importuj", type="primary", use_container_width=True, key="adm_hr_go")
+    preview = a.button(":material/visibility: Podgląd (bez zapisu)", use_container_width=True, key="adm_hr_prev")
+    save = b.button(":material/upload_file: Importuj", type="primary", use_container_width=True, key="adm_hr_go")
     if not (preview or save):
         return
     out = _call(api.import_employees, up.name, up.getvalue(), preview=preview, start_cycles=start)
@@ -212,10 +212,10 @@ def _staff_changes(api: Api, today: date) -> None:
 
 def _rcp_eakt(api: Api) -> None:
     with st.container(border=True):
-        st.markdown("#### ⏱️ Rejestracja czasu pracy (RCP)", help="Dane o nadgodzinach i przerwach trafiają do HR "
+        st.markdown("#### :material/timer: Rejestracja czasu pracy (RCP)", help="Dane o nadgodzinach i przerwach trafiają do HR "
                     "partnera jako sygnał przeciążenia.")
         up = st.file_uploader("Plik z RCP (CSV / XLSX)", type=["csv", "xlsx"], key="adm_rcp_file")
-        if up is not None and st.button("📥 Importuj RCP", type="primary", key="adm_rcp_go"):
+        if up is not None and st.button(":material/upload_file: Importuj RCP", type="primary", key="adm_rcp_go"):
             out = _call(api.rcp_import, up.name, up.getvalue())
             if out is not None:
                 st.success(f"Zaimportowano dni: {out['zaimportowano']} (osób: {out['pracownicy']}).")
@@ -225,14 +225,14 @@ def _rcp_eakt(api: Api) -> None:
         if rows:
             st.dataframe(pd.DataFrame([{"Pracownik": r["pracownik"], "Dni": r["dni"], "Nadgodziny (dni)": r["dni_nadgodziny"],
                                         "Krótka przerwa (dni)": r["dni_krotka_przerwa"], "Po godzinach (dni)": r["dni_po_godzinach"],
-                                        "Sygnał przeciążenia": "⚠️ tak" if r["sygnal"] else "—"} for r in rows]),
+                                        "Sygnał przeciążenia": ":material/warning: tak" if r["sygnal"] else "—"} for r in rows]),
                          hide_index=True, use_container_width=True)
         else:
             st.caption("Brak danych z RCP z ostatniego roku.")
     with st.container(border=True):
-        st.markdown("#### 📁 e-Akta", help="Zatwierdzone oceny trafiają do elektronicznych akt osobowych. Status "
+        st.markdown("#### :material/folder: e-Akta", help="Zatwierdzone oceny trafiają do elektronicznych akt osobowych. Status "
                     "eksportu widać w ocenie (Historia zmian).")
-        if st.button("🔁 Ponów nieudane eksporty", key="adm_eakt"):
+        if st.button(":material/refresh: Ponów nieudane eksporty", key="adm_eakt"):
             out = _call(api.eakt_retry)
             if out is not None:
                 if out.get("tryb") == "off":
@@ -245,14 +245,14 @@ def _rcp_eakt(api: Api) -> None:
 
 
 def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
-    st.subheader("🛠️ Panel administratora", help="Ustawienia całego urzędu. Zmiany zapisuje serwer w bazie; "
+    st.subheader(":material/admin_panel_settings: Panel administratora", help="Ustawienia całego urzędu. Zmiany zapisuje serwer w bazie; "
                  "przepisy zmieniasz jako nowe wersje z datą i podstawą prawną.")
     if me["rola"] != "KADRY":
         st.info("Panel administratora jest dostępny dla działu kadr.")
         return
     today = to_date(meta["dzis"])
-    tabs = st.tabs(["📜 Terminy", "📋 Kryteria i etapy", "🏢 Urząd i przypomnienia", "👥 Import pracowników",
-                    "🔀 Zmiany stanowisk", "🗄️ Archiwum kadr", "⏱️ RCP i e-Akt"])
+    tabs = st.tabs([":material/policy: Terminy", ":material/checklist: Kryteria i etapy", ":material/apartment: Urząd i przypomnienia", ":material/groups: Import pracowników",
+                    ":material/swap_horiz: Zmiany stanowisk", ":material/inventory_2: Archiwum kadr", ":material/timer: RCP i e-Akt"])
     with tabs[0]:
         _terms(api, today)
     with tabs[1]:
@@ -264,7 +264,7 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
     with tabs[4]:
         _staff_changes(api, today)
     with tabs[5]:
-        inner = st.tabs(["🧊 Zamrożone oceny", "⏳ Okresy przechowywania", "📥 Import starych ocen"])
+        inner = st.tabs([":material/ac_unit: Zamrożone oceny", ":material/hourglass_top: Okresy przechowywania", ":material/upload_file: Import starych ocen"])
         with inner[0]:
             archive._frozen(api)
         with inner[1]:

@@ -9,7 +9,7 @@ from frontend import ui
 from frontend.api_client import Api, ApiError
 
 def render(api: Api) -> None:
-    st.subheader("❓ Pomoc", help="Podręcznik użytkownika aplikacji.")
+    st.subheader(":material/help: Pomoc", help="Podręcznik użytkownika aplikacji.")
     try:
         docs = [d for d in api.knowledge() if d["rodzaj"] == "PODRECZNIK"]
     except ApiError as e:

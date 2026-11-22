@@ -98,7 +98,7 @@ def _outcomes(api: Api, rok: int | None, unit: str | None) -> None:
     if o is None:
         return
     if o.get("ukryte"):
-        st.info(f"🔒 Ocenionych osób: {o['ocenieni']}. Wyniki pokazujemy dopiero dla grup od {o['minimalna_grupa']} "
+        st.info(f":material/lock: Ocenionych osób: {o['ocenieni']}. Wyniki pokazujemy dopiero dla grup od {o['minimalna_grupa']} "
                 "osób – mniejsze grupy są ukryte, żeby nie dało się rozpoznać ocen konkretnych osób.")
     else:
         a, b = st.columns(2, gap="large")
@@ -146,9 +146,9 @@ def _training(api: Api, unit: str | None, ai: bool) -> None:
     with b:
         if ai and t.get("rekomendacja"):
             with st.container(key="aibox_training"):
-                ui.html(f"<b class='ai-text'>🤖 Rekomendacja asystenta AI</b><br>{ui.source_note(t.get('zrodlo') or 'SZABLON')}")
+                ui.html(f"<b class='ai-text'>:material/smart_toy: Rekomendacja asystenta AI</b><br>{ui.source_note(t.get('zrodlo') or 'SZABLON')}")
                 st.markdown(t["rekomendacja"])
-        st.download_button("⬇️ Pobierz CSV (osoby i potrzeby)", lambda: api.report_training_csv(unit),
+        st.download_button(":material/download: Pobierz CSV (osoby i potrzeby)", lambda: api.report_training_csv(unit),
                            file_name="potrzeby-szkoleniowe.csv", mime="text/csv", on_click="ignore",
                            use_container_width=True)
     if t.get("osoby"):
@@ -160,7 +160,7 @@ def _training(api: Api, unit: str | None, ai: bool) -> None:
 
 
 def render(api: Api, me: dict, ai: bool = True) -> None:
-    st.subheader("📊 Dashboard", help="Statystyki ocen z serwera. Kadry widzą cały urząd, przełożony – osoby, których "
+    st.subheader(":material/bar_chart: Dashboard", help="Statystyki ocen z serwera. Kadry widzą cały urząd, przełożony – osoby, których "
                  "oceny widzi. Wyniki małych grup są ukryte (ochrona prywatności).")
     base = _get(api.report_progress)
     if base is None:
@@ -173,7 +173,7 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
     rok = None if year == "Wszystkie" else int(year)
     komorka = None if unit == "Wszystkie" else unit
     st.caption(f"Zakres: {base['zakres']}.")
-    tabs = st.tabs(["📈 Postęp ocen", "🎯 Wyniki", "🎓 Potrzeby szkoleniowe"])
+    tabs = st.tabs([":material/trending_up: Postęp ocen", ":material/track_changes: Wyniki", ":material/school: Potrzeby szkoleniowe"])
     with tabs[0]:
         _progress(api, rok, komorka)
     with tabs[1]:

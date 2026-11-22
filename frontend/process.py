@@ -68,11 +68,11 @@ ACTION_DONE = {
 WHO_LABEL = {"OCENIAJACY": "oceniający", "OCENIANY": "oceniany", "KADRY": "kadry", "NIKT": "–"}
 EMPLOYMENT_LABEL = {"PRACOWNIK": "Pracownik służby cywilnej", "URZEDNIK": "Urzędnik służby cywilnej"}
 SIGNAL_LABEL = {
-    "PRZECIAZENIE": ("⚠️ Możliwe przeciążenie", "c-amber"),
-    "DLUGA_NIEOBECNOSC": ("🏥 Długa nieobecność", "c-blue"),
-    "ZMIANA_OBOWIAZKOW": ("🔄 Zmiana zakresu obowiązków", "c-blue"),
-    "SPADEK_OCEN": ("📉 Wynik niższy niż poprzednio", "c-red"),
-    "DO_DOCENIENIA": ("👏 Warto docenić", "c-green"),
+    "PRZECIAZENIE": (":material/warning: Możliwe przeciążenie", "c-amber"),
+    "DLUGA_NIEOBECNOSC": (":material/medical_services: Długa nieobecność", "c-blue"),
+    "ZMIANA_OBOWIAZKOW": (":material/sync: Zmiana zakresu obowiązków", "c-blue"),
+    "SPADEK_OCEN": (":material/trending_down: Wynik niższy niż poprzednio", "c-red"),
+    "DO_DOCENIENIA": (":material/celebration: Warto docenić", "c-green"),
 }
 SENTIMENTS = {"POZYTYWNY": "+ pozytywna", "NEUTRALNY": "neutralna", "NEGATYWNY": "− negatywna"}
 

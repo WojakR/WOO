@@ -12,8 +12,8 @@ from frontend.process import DONE, STAGE_OF_STATUS, STAGES, STATUS_LABEL, WHO_LA
 
 URGENCY_KEY = {"PO_TERMINIE": "late", "PILNE": "soon", "WKROTCE": "soon", "OK": "ok"}
 WYNIK = {"POZYTYWNA": ("pozytywna", "b-green"), "NEGATYWNA": ("negatywna", "b-red")}
-SIGNAL_SHORT = {"PRZECIAZENIE": "⚠️ przeciążenie", "DLUGA_NIEOBECNOSC": "🏥 nieobecność",
-                "ZMIANA_OBOWIAZKOW": "🔄 nowe obowiązki", "SPADEK_OCEN": "📉 spadek ocen", "DO_DOCENIENIA": "👏 docenić"}
+SIGNAL_SHORT = {"PRZECIAZENIE": ":material/warning: przeciążenie", "DLUGA_NIEOBECNOSC": ":material/medical_services: nieobecność",
+                "ZMIANA_OBOWIAZKOW": ":material/sync: nowe obowiązki", "SPADEK_OCEN": ":material/trending_down: spadek ocen", "DO_DOCENIENIA": ":material/celebration: docenić"}
 
 
 def _signals(api: Api, item: dict) -> list[str]:
@@ -69,7 +69,7 @@ def _attention(items: list[dict]) -> None:
     not_started = [i for i in items if i["evaluation_id"] is None]
     objections = [i for i in items if i["status"] == "SPRZECIW"]
     count = len(upcoming) + len(waiting) + len(not_started) + len(objections)
-    with st.expander(f"🔎 Wymaga uwagi ({count})", expanded=False):
+    with st.expander(f":material/search: Wymaga uwagi ({count})", expanded=False):
         sections = (
             ("Najbliższe terminy", upcoming, "Brak zbliżających się terminów.",
              lambda i: f"{ui.fmt(i['termin'])} · {ui.days_text(i['dni_do_terminu'])}"),
@@ -91,7 +91,7 @@ def _attention(items: list[dict]) -> None:
                     col.caption(label)
 
 
-TASK_KIND = {"DWIE_NEGATYWNE": "⚠️ Dwie negatywne oceny z rzędu", "STOPIEN_OBLIGATORYJNY": "🎖️ Obligatoryjny kolejny stopień"}
+TASK_KIND = {"DWIE_NEGATYWNE": ":material/warning: Dwie negatywne oceny z rzędu", "STOPIEN_OBLIGATORYJNY": ":material/military_tech: Obligatoryjny kolejny stopień"}
 
 
 def _hr_tasks(api: Api) -> None:
@@ -102,7 +102,7 @@ def _hr_tasks(api: Api) -> None:
         return
     if not tasks:
         return
-    with st.expander(f"📌 Zadania kadr ({len(tasks)})", expanded=True):
+    with st.expander(f":material/push_pin: Zadania kadr ({len(tasks)})", expanded=True):
         for t in tasks:
             c = st.columns([4.5, 1], vertical_alignment="center")
             due = f" · termin {ui.fmt(t['termin'])}" if t.get("termin") else ""
@@ -131,7 +131,7 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
     s1, s2, s3 = st.columns([1.4, 1.4, 0.6], vertical_alignment="bottom")
     q_name = s1.text_input("Pracownik", placeholder="imię lub nazwisko", key="team_q_name")
     q_pos = s2.text_input("Stanowisko", placeholder="np. specjalista", key="team_q_pos")
-    s3.button("🔍 Szukaj", key="team_search", use_container_width=True)
+    s3.button(":material/search: Szukaj", key="team_search", use_container_width=True)
     f0, f2, f3, f4 = st.columns([1.3, 1.4, 1.1, 1.1], vertical_alignment="bottom")
     unit = f0.selectbox("Komórka", ["Wszystkie"] + units)
     scoped = [i for i in items if unit == "Wszystkie" or i.get("komorka") == unit]
@@ -194,7 +194,7 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
                 c[5].markdown(f"{ui.fmt(i['termin'])}{days}", unsafe_allow_html=True)
                 if ai:
                     sig = _signals(api, i)
-                    c[7].markdown("<span class='ai-text'>" + "<br>".join(sig) + "</span>" if sig
+                    c[7].markdown(ui.icons("<span class='ai-text'>" + "<br>".join(sig) + "</span>") if sig
                                   else "<span class='lock'>—</span>", unsafe_allow_html=True)
                 w = WYNIK.get(i.get("wynik"))
                 c[6].markdown(ui.badge(*w) if w else "<span class='lock'>—</span>", unsafe_allow_html=True)
@@ -204,7 +204,7 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
 
 def render_schedule(api: Api, me: dict) -> None:
     items = api.dashboard()["pozycje"]
-    st.subheader("🗓️ Terminy", help="Terminy liczone przez system (24 miesiące, dni wolne, nieobecności), "
+    st.subheader(":material/calendar_month: Terminy", help="Terminy liczone przez system (24 miesiące, dni wolne, nieobecności), "
                  "od najbliższego. Kliknij pozycję, aby przejść do oceny.")
     rows = sorted((i for i in items if _urgency(i) != "none"), key=lambda i: i["dni_do_terminu"])
     with st.container(border=True):

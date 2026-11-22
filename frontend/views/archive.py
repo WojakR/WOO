@@ -107,7 +107,7 @@ def _frozen(api: Api) -> None:
     a, b = st.columns([3, 1.3], vertical_alignment="center")
     a.markdown("Zamknięte oceny zamrożone razem z PDF. Suma kontrolna (SHA-256) pokazuje, że nikt ich później "
                "nie zmienił.")
-    if b.button("🧊 Zamroź zakończone oceny", use_container_width=True, key="arch_run"):
+    if b.button(":material/ac_unit: Zamroź zakończone oceny", use_container_width=True, key="arch_run"):
         out = _call(api.archive_run)
         if out is not None:
             st.toast(f"Zamrożono: {len(out['zamrozono'])}.")
@@ -127,9 +127,9 @@ def _frozen(api: Api) -> None:
         c[0].markdown(r["pracownik"])
         c[1].markdown(f"nr {r['evaluation_id']}")
         c[2].markdown(ui.fmt(r["zamrozono"]))
-        c[3].markdown((ui.badge("✓ zgodna", "b-green") if r["zgodny"] else ui.badge("⚠ niezgodna", "b-red"))
+        c[3].markdown((ui.badge("✓ zgodna", "b-green") if r["zgodny"] else ui.badge(":material/warning: niezgodna", "b-red"))
                       + f" <span class='lock'>{r['sha256_pdf'][:12]}…</span>", unsafe_allow_html=True)
-        c[4].download_button("⬇️ PDF", lambda rid=r["id"]: api.archive_pdf(rid)[0],
+        c[4].download_button(":material/download: PDF", lambda rid=r["id"]: api.archive_pdf(rid)[0],
                              file_name=f"archiwum-ocena-{r['evaluation_id']}.pdf", mime="application/pdf",
                              key=f"arch_pdf_{r['id']}", on_click="ignore", use_container_width=True)
 
@@ -149,7 +149,7 @@ def _retention(api: Api) -> None:
             st.markdown(f"**{i['pracownik']}** · {kind} · termin przechowywania minął {ui.fmt(i['termin_przechowywania'])}")
             st.caption(i["powod"])
             sure = st.checkbox("Potwierdzam trwałe usunięcie (nie da się cofnąć)", key=f"ret_ok_{i['rodzaj']}_{i['id']}")
-            if st.button("🗑️ Usuń", key=f"ret_del_{i['rodzaj']}_{i['id']}", disabled=not sure):
+            if st.button(":material/delete: Usuń", key=f"ret_del_{i['rodzaj']}_{i['id']}", disabled=not sure):
                 fn = api.archive_delete if i["rodzaj"] == "AKTA" else api.archive_delete_notes
                 arg = i["id"] if i["rodzaj"] == "AKTA" else i["evaluation_id"]
                 if _call(fn, arg, ok="Usunięto.") is not None:
@@ -160,7 +160,7 @@ def _legacy(api: Api) -> None:
     st.markdown("Wgraj stary arkusz (PDF albo tekst). System odczyta pola, przeliczy wynik według § 11 i pokaże "
                 "rozbieżności. Po zatwierdzeniu ocena trafia do historii pracownika.")
     up = st.file_uploader("Arkusz oceny", type=["pdf", "txt"], key="legacy_up")
-    if up is not None and st.button("📥 Odczytaj arkusz", type="primary", key="legacy_go"):
+    if up is not None and st.button(":material/upload_file: Odczytaj arkusz", type="primary", key="legacy_go"):
         if _call(api.legacy_upload, up.name, up.getvalue(), ok="Odczytano arkusz.") is not None:
             st.rerun()
     drafts = _call(api.legacy_imports)
@@ -169,7 +169,7 @@ def _legacy(api: Api) -> None:
     for d in reversed(drafts):
         f = d["pola"]
         done = d["status"] == "ZATWIERDZONY"
-        title = f"{'✅' if done else '📝'} {d['plik']} · {f.get('pracownik') or f.get('oceniany') or 'nie rozpoznano osoby'}"
+        title = f"{':material/check_circle:' if done else ':material/edit_note:'} {d['plik']} · {f.get('pracownik') or f.get('oceniany') or 'nie rozpoznano osoby'}"
         with st.expander(title, expanded=not done):
             ui.html(ui.kv([("Arkusz", f.get("arkusz") or "—"), ("Okres", f"{ui.fmt(f.get('okres_od'))} – {ui.fmt(f.get('okres_do'))}"),
                            ("Data oceny", ui.fmt(f.get("data_sporzadzenia"))),
@@ -194,7 +194,7 @@ def _legacy(api: Api) -> None:
 def render(api: Api, me: dict) -> None:
     hr = me["rola"] == "KADRY"
     evaluator = hr or me.get("czy_oceniajacy")
-    st.subheader("🗄️ Archiwum", help="Historia ocen z serwera: oceny z systemu, zaimportowane z PDF i wpisane w danych "
+    st.subheader(":material/inventory_2: Archiwum", help="Historia ocen z serwera: oceny z systemu, zaimportowane z PDF i wpisane w danych "
                  "kadrowych." + (" Zamrażanie ocen, okresy przechowywania i import starych ocen są w panelu administratora."
                                  if hr else ""))
     if not evaluator:

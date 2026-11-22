@@ -74,7 +74,7 @@ def _cached(key: tuple, compute):
 
 
 def _locked(text: str = "Pole zablokowane po zatwierdzeniu etapu.") -> None:
-    ui.html(f'<p class="lock">🔒 {escape(text)}</p>')
+    ui.html(f'<p class="lock">:material/lock: {escape(text)}</p>')
 
 
 def _crit_dict(api: Api, sheet: str) -> dict[str, dict]:
@@ -118,7 +118,7 @@ def _action(api: Api, ev: dict, akcja: str, before=None, note: str = "") -> None
         st.session_state[ckey] = True
         st.rerun()
     if blocks:
-        st.caption("⚠️ Aby zatwierdzić, uzupełnij: " + ", ".join(CHECK_LABEL.get(w["kod"], w["komunikat"])
+        st.caption(":material/warning: Aby zatwierdzić, uzupełnij: " + ", ".join(CHECK_LABEL.get(w["kod"], w["komunikat"])
                                                                   for w in blocks) + ".")
 
 
@@ -154,7 +154,7 @@ def _person(ev: dict) -> None:
             ("Poprzednia ocena", prev_text), ("Oceniający", name(ev["oceniajacy"]))]
     locks = ""
     if c1["potw_oceniany"].get("at"):
-        locks = (f"<p class='lock'>🔒 Kryteria i termin zatwierdził(a) {escape(name(c1['potw_oceniajacy'].get('osoba')))} "
+        locks = (f"<p class='lock'>:material/lock: Kryteria i termin zatwierdził(a) {escape(name(c1['potw_oceniajacy'].get('osoba')))} "
                  f"{ui.fmt(c1['potw_oceniajacy'].get('at'))}, oceniany potwierdził(a) {ui.fmt(c1['potw_oceniany']['at'])}.</p>")
     ui.html(f'<div class="card person-card"><div class="avatar">{escape(initials)}</div><div>'
             f'<h4>{escape(name(o))}</h4><p class="lock">{escape(o.get("stanowisko") or "")} · '
@@ -201,7 +201,7 @@ def _invite(ev: dict, today: date, stage: int, title: str, minutes: int) -> None
     d = c1.date_input("Data rozmowy", today + timedelta(days=3), key=f"inv_d_{ev['id']}_{stage}", format="DD.MM.YYYY")
     t = c2.time_input("Godzina", time(10, 0), key=f"inv_t_{ev['id']}_{stage}", step=900)
     when = datetime.combine(d, t)
-    st.download_button("📅 Pobierz zaproszenie do kalendarza (.ics – Outlook, Thunderbird)",
+    st.download_button(":material/event: Pobierz zaproszenie do kalendarza (.ics – Outlook, Thunderbird)",
                        ics_invite(f"{title} – {name(ev['oceniany'])}", when, minutes,
                                   f"{title} w ramach oceny okresowej (arkusz {ev['arkusz']})."),
                        file_name=f"zaproszenie-{ev['id']}-{stage}.ics", mime="text/calendar",
@@ -249,7 +249,7 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
     st.markdown(f"**{ui.fmt(ev['czesc_i']['termin_oceny'])}***")
     ui.footnote("Wyliczony przez system: 24 miesiące od początku cyklu, z pominięciem dni wolnych.")
     if "termin_oceny" in ev["edytowalne_pola"]:
-        with st.popover("📆 Zmień termin oceny"):
+        with st.popover(":material/edit_calendar: Zmień termin oceny"):
             new = st.date_input("Nowy termin", to_date(ev["czesc_i"]["termin_oceny"]), key=f"ovr_{ev['id']}",
                                 format="DD.MM.YYYY", min_value=today)
             if st.button("Zapisz termin", type="primary", key=f"ovr_save_{ev['id']}"):
@@ -258,14 +258,14 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
                 st.rerun()
 
     if ev["jako_oceniajacy"] and current_stage(ev) == 1:
-        with st.expander("📅 Zaproszenie na rozmowę inicjującą"):
+        with st.expander(":material/event: Zaproszenie na rozmowę inicjującą"):
             _invite(ev, today, 1, "Rozmowa inicjująca ocenę okresową", 45)
         if ai:
             with st.container(key="aiprep_start"):
-                with st.expander("🤖 Wskazówki asystenta AI do rozmowy inicjującej"):
+                with st.expander(":material/smart_toy: Wskazówki asystenta AI do rozmowy inicjującej"):
                     _prep(api, ev, "ROZPOCZYNAJACA")
     if ev["status"] == "KRYTERIA_DO_POTWIERDZENIA":
-        st.info("⏳ Kryteria przekazane ocenianemu – czeka na potwierdzenie rozmowy i zapoznania się z kryteriami.")
+        st.info(":material/hourglass_top: Kryteria przekazane ocenianemu – czeka na potwierdzenie rozmowy i zapoznania się z kryteriami.")
     st.divider()
     _action(api, ev, "ZATWIERDZ_KRYTERIA")
 
@@ -309,17 +309,17 @@ def _note_row(api: Api, ev: dict, n: dict, crit: dict, can_edit: bool, ai: bool)
                   else "dopasowanie słów kluczowych, bez AI")
         if s0.get("wydzwiek"):
             cols = st.columns([3, 1], vertical_alignment="center")
-            cols[0].caption(f"✨ Propozycja ({source}): **{crit_name}**, {SENTIMENTS[s0['wydzwiek']]} "
+            cols[0].caption(f":material/auto_awesome: Propozycja ({source}): **{crit_name}**, {SENTIMENTS[s0['wydzwiek']]} "
                             f"({int(s0['pewnosc'] * 100)}%)")
             if cols[1].button("Przyjmij", key=f"acc_{n['id']}", use_container_width=True):
                 _call(api.patch_note, n["id"], zaakceptuj_sugestie=True, ok="Przypisano notatkę.")
                 st.rerun()
         else:
             # rule-based proposals name the criterion only – the evaluator picks the sentiment with one click
-            st.caption(f"✨ Propozycja ({source}): **{crit_name}**. Wybierz wydźwięk, aby przyjąć:")
+            st.caption(f":material/auto_awesome: Propozycja ({source}): **{crit_name}**. Wybierz wydźwięk, aby przyjąć:")
             cols = st.columns(3)
-            for col, (val, label) in zip(cols, (("POZYTYWNY", "👍 pozytywna"), ("NEUTRALNY", "neutralna"),
-                                               ("NEGATYWNY", "👎 negatywna"))):
+            for col, (val, label) in zip(cols, (("POZYTYWNY", ":material/thumb_up: pozytywna"), ("NEUTRALNY", "neutralna"),
+                                               ("NEGATYWNY", ":material/thumb_down: negatywna"))):
                 if col.button(f"Przyjmij – {label}", key=f"acc_{n['id']}_{val}", use_container_width=True):
                     _call(api.patch_note, n["id"], zaakceptuj_sugestie=True, wydzwiek=val, ok="Przypisano notatkę.")
                     st.rerun()
@@ -341,7 +341,7 @@ def _note_row(api: Api, ev: dict, n: dict, crit: dict, can_edit: bool, ai: bool)
 def _stage_observation(api: Api, ev: dict, me: dict, ai: bool, today: date) -> None:
     crit = _crit_dict(api, ev["arkusz"])
     work = ev["jako_oceniajacy"] or me["rola"] == "KADRY"
-    tab_notes, tab_crit, tab_period = st.tabs(["📝 Notatnik", "📊 Wg kryteriów", "📆 Zmiana okresu"])
+    tab_notes, tab_crit, tab_period = st.tabs([":material/edit_note: Notatnik", ":material/bar_chart: Wg kryteriów", ":material/edit_calendar: Zmiana okresu"])
     with tab_notes:
         if not work:
             st.caption("Notatki przełożonego są materiałem roboczym – widzi je oceniający i kadry.")
@@ -401,7 +401,7 @@ TALK_PHRASES = [
 
 def _talk_tips() -> None:
     """Communication tips for the review meeting – fixed guidance, independent of the AI assistant."""
-    with st.expander("💬 Jak rozmawiać – dobre sformułowania", expanded=True):
+    with st.expander(":material/chat: Jak rozmawiać – dobre sformułowania", expanded=True):
         rows = "".join(f"<tr><td>{escape(bad)}</td><td>{escape(good)}</td></tr>" for bad, good in TALK_PHRASES)
         ui.html(f'<table class="tips"><thead><tr><th>Zamiast mówić…</th><th>Lepiej powiedzieć…</th></tr></thead>'
                 f"<tbody>{rows}</tbody></table>")
@@ -415,13 +415,13 @@ def _stage_review(api: Api, ev: dict, ai: bool, today: date) -> None:
         _locked()
         return
     if ev["jako_oceniajacy"]:
-        with st.expander("📅 Zaproszenie na rozmowę oceniającą"):
+        with st.expander(":material/event: Zaproszenie na rozmowę oceniającą"):
             _invite(ev, today, 3, "Rozmowa oceniająca", 60)
         st.markdown("#### Przygotowanie do rozmowy")
         _talk_tips()
         if ai:
             with st.container(key="aiprep_review"):
-                with st.expander("🤖 Wskazówki asystenta AI do rozmowy oceniającej", expanded=True):
+                with st.expander(":material/smart_toy: Wskazówki asystenta AI do rozmowy oceniającej", expanded=True):
                     _prep(api, ev, "OCENIAJACA")
         else:
             st.caption("Asystent AI jest wyłączony – wskazówki asystenta AI do rozmowy są ukryte.")
@@ -529,8 +529,8 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
         if ai and work and sug is not None:  # a hint of the assistant: hidden when it is off
             s1, s2 = box.columns([3, 1], vertical_alignment="center")
             why = (e or {}).get("uzasadnienie_sugestii") or ""
-            s1.markdown(f"<span class='ai-text'>✨ Sugerowane: <b>{sug} pkt</b> · {escape(why)}"
-                        + (" · zgodne z oceną" if val == sug else "") + "</span>", unsafe_allow_html=True)
+            s1.markdown(ui.icons(f"<span class='ai-text'>:material/auto_awesome: Sugerowane: <b>{sug} pkt</b> · {escape(why)}"
+                        + (" · zgodne z oceną" if val == sug else "") + "</span>"), unsafe_allow_html=True)
             if can_score and val != sug:
                 s2.button("Przyjmij", key=f"acc_sc_{eid}_{code}", on_click=accept, args=(code, key, sug),
                           help=f"Ustaw ocenę {sug} pkt dla kryterium {k['nazwa']}")
@@ -564,14 +564,14 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
         h, btn = st.columns([3, 1], vertical_alignment="bottom")
         h.markdown(f"#### {title}*")
         if editable and drafts_on:
-            btn.button("✨ Szkic od asystenta AI", key=f"dr_{tkey}", use_container_width=True,
+            btn.button(":material/auto_awesome: Szkic od asystenta AI", key=f"dr_{tkey}", use_container_width=True,
                        on_click=request_draft, args=(kind, dkey))
         d = st.session_state.get(dkey)
         if d and editable:
             with st.container(key=f"aibox_{dkey}"):
                 src = "Wygenerowane przez model lokalny" if d["zrodlo"] == "AI" else "Szablon z danych (model niedostępny)"
                 based = f" · na podstawie {len(d.get('oparte_na_notatkach') or [])} notatek" if d.get("oparte_na_notatkach") else ""
-                ui.html(f"{ui.badge('✨ Propozycja asystenta AI', 'b-violet')} <span class='lock'>{src}{based} · nic nie "
+                ui.html(f"{ui.badge(':material/auto_awesome: Propozycja asystenta AI', 'b-violet')} <span class='lock'>{src}{based} · nic nie "
                         f"zostanie zapisane bez Twojej decyzji.</span>")
                 st.markdown(d["tekst"])
                 a, b, c = st.columns(3)
@@ -584,7 +584,7 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
                         _call(api.patch, fresh, **{field: st.session_state[tkey]}, ok="Wstawiono i zapisano.")
 
                 a.button("Wstaw", key=f"use_{dkey}", type="primary", use_container_width=True, on_click=use, args=(True,))
-                b.button("✏️ Edytuj", key=f"edit_{dkey}", use_container_width=True, on_click=use, args=(False,))
+                b.button(":material/edit: Edytuj", key=f"edit_{dkey}", use_container_width=True, on_click=use, args=(False,))
                 c.button("✖ Odrzuć", key=f"rej_{dkey}", use_container_width=True,
                          on_click=lambda dkey=dkey: st.session_state.pop(dkey, None))
         st.text_area(title, key=tkey, height=170, disabled=not editable, label_visibility="collapsed",
@@ -620,7 +620,7 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
     st.divider()
     a, b = st.columns([1, 1.6], vertical_alignment="top")
     if any(f in ev["edytowalne_pola"] for f in TEXT_FIELDS):
-        if a.button("💾 Zapisz roboczo", key=f"save_{eid}", use_container_width=True):
+        if a.button(":material/save: Zapisz roboczo", key=f"save_{eid}", use_container_width=True):
             if not dirty():
                 st.toast("Brak zmian do zapisania.")
             elif save_texts():
@@ -644,7 +644,7 @@ def _sheet_choice(api: Api, ev: dict) -> None:
         st.caption(f"Zmiana arkusza {ui.fmt(z['data'])}: {z['z']} → {z['na']} · {z['uzasadnienie']}")
     if not d.get("mozna_zmienic"):
         return
-    with st.expander("🔁 Zmień arkusz (kadry)"):
+    with st.expander(":material/refresh: Zmień arkusz (kadry)"):
         eid = ev["id"]
         others = [a for a in ("A", "B", "C") if a != ev["arkusz"]]
         a, b = st.columns([1, 2.5], vertical_alignment="bottom")
@@ -667,9 +667,9 @@ def _wellbeing(api: Api, ev: dict) -> None:
         return
     answers = {o["kod"]: o["nazwa"] for o in check["odpowiedzi"]}
     codes = list(answers)
-    title = "🌱 Lista kontrolna dobrostanu (8 objawów)"
+    title = ":material/spa: Lista kontrolna dobrostanu (8 objawów)"
     if saved.get("sygnal_przeciazenia"):
-        title += " · ⚠️ sygnał przeciążenia"
+        title += " · :material/warning: sygnał przeciążenia"
     with st.container(key=f"aiprep_wb_{eid}"):
         with st.expander(title):
             st.caption(check.get("instrukcja", ""))
@@ -685,7 +685,7 @@ def _wellbeing(api: Api, ev: dict) -> None:
             if saved.get("zaktualizowano"):
                 st.caption(f"Zapisano {ui.fmt(saved['zaktualizowano'])} · „często”: {saved['liczba_czesto']} "
                            f"(sygnał od {saved['prog_sygnalu']}).")
-            if st.button("💾 Zapisz listę", key=f"wb_save_{eid}"):
+            if st.button(":material/save: Zapisz listę", key=f"wb_save_{eid}"):
                 if _call(api.set_wellbeing, eid, out, ok="Zapisano listę kontrolną.") is not None:
                     st.rerun()
 
@@ -701,7 +701,7 @@ def _paper(api: Api, ev: dict) -> None:
         if c2.get("adnotacja_odmowy"):
             st.caption(f"Adnotacja o odmowie podpisu: {c2['adnotacja_odmowy']}")
         return
-    with st.expander("🖨️ Obieg papierowy i odmowa podpisu"):
+    with st.expander(":material/print: Obieg papierowy i odmowa podpisu"):
         st.caption("Jeśli oceniany podpisał wydrukowany arkusz, wpisz daty – data podpisu jest datą zapoznania "
                    "i od niej liczy się termin sprzeciwu.")
         a, b = st.columns(2)
@@ -709,7 +709,7 @@ def _paper(api: Api, ev: dict) -> None:
                                format="DD.MM.YYYY")
         signed = b.date_input("Data podpisu", value=ui.to_date(c2.get("data_podpisu")), key=f"pap_sg_{eid}",
                               format="DD.MM.YYYY")
-        if st.button("💾 Zapisz daty", key=f"pap_save_{eid}"):
+        if st.button(":material/save: Zapisz daty", key=f"pap_save_{eid}"):
             if _call(api.paper, eid, printed, signed, ok="Zapisano obieg papierowy.") is not None:
                 st.session_state.pop(f"sel_{eid}", None)
                 st.rerun()
@@ -731,7 +731,7 @@ def _stage_ack(api: Api, ev: dict) -> None:
     scored = sum(k.get("punkty") is not None for k in ev["kryteria"])
     _result_box(c2, scored, len(ev["kryteria"]))
     if ev["status"] == "OCENA_DO_ZAPOZNANIA":
-        st.info(f"⏳ Ocena sporządzona {ui.fmt(c2.get('data_sporzadzenia'))} i przekazana ocenianemu – czeka na "
+        st.info(f":material/hourglass_top: Ocena sporządzona {ui.fmt(c2.get('data_sporzadzenia'))} i przekazana ocenianemu – czeka na "
                 "potwierdzenie zapoznania się z oceną.")
     elif c2.get("zapoznanie", {}).get("at"):
         st.success(f"✔ Oceniany zapoznał się z oceną {ui.fmt(c2['zapoznanie']['at'])}"
@@ -762,7 +762,7 @@ def objection_panel(api: Api, ev: dict) -> None:
     eid = ev["id"]
     if o:
         with st.container(border=True):
-            st.markdown("**⚖️ Sprzeciw od oceny**")
+            st.markdown("**:material/gavel: Sprzeciw od oceny**")
             ui.html(ui.kv([("Złożony", ui.fmt(o["zlozony"])), ("Termin rozstrzygnięcia", ui.fmt(o["termin_rozpatrzenia"])),
                            ("Rozstrzygnięcie", {"UWZGLEDNIONY": "uwzględniony", "NIEUWZGLEDNIONY": "nieuwzględniony"}
                             .get(o.get("decyzja"), "czeka na decyzję dyrektora generalnego"))]))
@@ -773,7 +773,7 @@ def objection_panel(api: Api, ev: dict) -> None:
                 st.caption(f"Odwołanie do sądu pracy możliwe do {ui.fmt(o['termin_odwolania_do_sadu'])} (art. 83 ust. 5).")
     if "ZLOZ_SPRZECIW" in ev["dozwolone_akcje"]:
         with st.container(border=True):
-            st.markdown("**⚖️ Sprzeciw od oceny***")
+            st.markdown("**:material/gavel: Sprzeciw od oceny***")
             text = st.text_area("Treść sprzeciwu", key=f"obj_text_{eid}",
                                 placeholder="Napisz, z czym się nie zgadzasz i dlaczego.")
             ui.footnote(f"Możesz złożyć do {ui.fmt(ev['czesc_ii'].get('termin_sprzeciwu'))}; rozstrzyga dyrektor generalny.")
@@ -784,7 +784,7 @@ def objection_panel(api: Api, ev: dict) -> None:
                     _inline_action(api, eid, "ZLOZ_SPRZECIW", komentarz=text.strip())
     if "ROZPATRZ_SPRZECIW" in ev["dozwolone_akcje"]:
         with st.container(border=True):
-            st.markdown("**⚖️ Rozstrzygnięcie sprzeciwu**")
+            st.markdown("**:material/gavel: Rozstrzygnięcie sprzeciwu**")
             reason = st.text_area("Uzasadnienie rozstrzygnięcia", key=f"obj_dec_{eid}")
             a, b = st.columns(2)
             for col, upheld, label in ((a, True, "Uwzględnij sprzeciw"), (b, False, "Nie uwzględniaj")):
@@ -829,7 +829,7 @@ def _next_step(ev: dict) -> str:
 def _progress(ev: dict) -> None:
     cur = current_stage(ev)
     done = cur == DONE
-    with st.expander("🧭 Postęp" + (" · proces zakończony" if done else f" · krok {cur} z {len(STAGES)}"),
+    with st.expander(":material/explore: Postęp" + (" · proces zakończony" if done else f" · krok {cur} z {len(STAGES)}"),
                      expanded=False):
         st.progress(min(cur - 1, len(STAGES)) / len(STAGES) if not done else 1.0)
         st.markdown(f"**Co teraz:** {_next_step(ev)}")
@@ -839,20 +839,20 @@ def _progress(ev: dict) -> None:
             missing = sum(k.get("punkty") is None for k in ev["kryteria"])
             items = ([f"🔴 Oceny cząstkowe: brakuje {missing}"] if missing else []) + \
                 [f"🔴 {CHECK_LABEL.get(w['kod'], w['komunikat'])}" for w in blocks if w["kod"] != "BRAK_OCENY"]
-            for line in items or ["✅ Wszystko gotowe do zatwierdzenia."]:
+            for line in items or [":material/check_circle: Wszystko gotowe do zatwierdzenia."]:
                 st.markdown(line)
         for w in [w for w in ev["walidacje"] if w["waga"] == "OSTRZEZENIE"]:
-            st.caption(f"⚠️ {w['komunikat']}")
+            st.caption(f":material/warning: {w['komunikat']}")
 
 
-TIMELINE_STATE = {"SPELNIONY": ("✅", "spełniony"), "AKTUALNY": ("🕒", "bieżący"), "PO_TERMINIE": ("🔴", "po terminie"),
+TIMELINE_STATE = {"SPELNIONY": (":material/check_circle:", "spełniony"), "AKTUALNY": (":material/schedule:", "bieżący"), "PO_TERMINIE": ("🔴", "po terminie"),
                   "NASTEPNY_OKRES": ("⏭️", "następny okres")}
 
 
 def _timeline(api: Api, ev: dict) -> None:
     """Every deadline of the evaluation as computed by the server, and the reminder plan of the current stage."""
     with st.container(border=True):
-        st.markdown("**🗓️ Terminy oceny**")
+        st.markdown("**:material/calendar_month: Terminy oceny**")
         for t in ev.get("terminy") or []:
             icon, label = TIMELINE_STATE.get(t["stan"], ("•", t["stan"]))
             when = ui.fmt(t["data"]) if t.get("data") else "niezwłocznie"
@@ -896,10 +896,10 @@ def _hr_partner(api: Api, ev: dict) -> None:
     report = _cached(hr_key, lambda: api.hr_partner(ev["id"]))
     with st.container(border=True, key="hrpanel"):
         if isinstance(report, ApiError):
-            st.markdown("**🤝 HR partner**")
+            st.markdown("**:material/handshake: HR partner**")
             st.caption(report.komunikat)
             return
-        ui.html(f"<b class='ai-text'>🤖 HR partner</b><br>{ui.source_note('AI' if report['zrodlo_tekstow'] == 'AI' else 'REGULY')}<br>"
+        ui.html(f"<b class='ai-text'>:material/smart_toy: HR partner</b><br>{ui.source_note('AI' if report['zrodlo_tekstow'] == 'AI' else 'REGULY')}<br>"
                 "<span class='lock'>Podpowiedzi dla przełożonego przed rozmową – nie są oceną pracownika.</span>")
         if not report["sygnaly"]:
             st.caption("Brak sygnałów. HR partner reaguje na notatki z ostatnich 6 miesięcy (np. praca po godzinach, "
@@ -995,6 +995,6 @@ def render(api: Api, me: dict, meta: dict, evaluation_id: int, ai: bool) -> None
         report = _cached(hr_key, lambda: api.hr_partner(ev["id"]))
         open_signals = 0 if isinstance(report, ApiError) else sum(sg["status"] == "NOWY" for sg in report["sygnaly"])
         with st.container(key="hrfab"):
-            with st.popover("🤖", help="HR partner – podpowiedzi o dobrostanie i docenianiu"
+            with st.popover(":material/smart_toy:", help="HR partner – podpowiedzi o dobrostanie i docenianiu"
                             + (f" ({open_signals} nowe)" if open_signals else "")):
                 _hr_partner(api, ev)

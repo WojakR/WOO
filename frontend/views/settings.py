@@ -34,7 +34,7 @@ def _ok(fn, *args, ok: str, **kw) -> bool:
 def _assistant(api: Api, me: dict) -> None:
     hr = me["rola"] == "KADRY"
     with st.container(border=True):
-        st.markdown("#### 🤖 Asystent AI i HR partner", help="Asystenta AI włączasz przełącznikiem w prawym górnym "
+        st.markdown("#### :material/smart_toy: Asystent AI i HR partner", help="Asystenta AI włączasz przełącznikiem w prawym górnym "
                     "rogu – ustawienie zapisuje się na Twoim koncie. Wyłączenie przez kadry obowiązuje cały urząd.")
         if hr:
             o = api.office()
@@ -60,7 +60,7 @@ def _assistant(api: Api, me: dict) -> None:
 def _visibility(api: Api, me: dict) -> None:
     o = api.office()
     with st.container(border=True):
-        st.markdown("#### 👁️ Widoczność ocen")
+        st.markdown("#### :material/visibility: Widoczność ocen")
         opts = {"PODDRZEWO": "Przełożony widzi oceny całego swojego pionu (podwładnych i ich podwładnych)",
                 "BEZPOSREDNI": "Przełożony widzi tylko oceny osób, które bezpośrednio ocenia"}
         choice = st.radio("Kto widzi oceny", list(opts), format_func=opts.get,
@@ -74,7 +74,7 @@ def _visibility(api: Api, me: dict) -> None:
 def _rules(api: Api, me: dict) -> None:
     r = api.rules()
     with st.container(border=True):
-        st.markdown("#### 📜 Wymagania z rozporządzenia", help="To, czego pilnuje system. Po nowelizacji przepisów "
+        st.markdown("#### :material/policy: Wymagania z rozporządzenia", help="To, czego pilnuje system. Po nowelizacji przepisów "
                     "administrator (kadry) zmienia tu terminy – bez przebudowy aplikacji. Każda zmiana jest zapisywana "
                     "razem z podstawą prawną.")
         if r["zmienione"]:
@@ -115,7 +115,7 @@ def _reminders(api: Api, me: dict) -> None:
     hr = me["rola"] == "KADRY"
     data = api.reminders(office=hr)
     with st.container(border=True):
-        st.markdown("#### 🔔 Przypomnienia" + (" – domyślne dla urzędu" if hr else ""), help=(
+        st.markdown("#### :material/notifications: Przypomnienia" + (" – domyślne dla urzędu" if hr else ""), help=(
             ("Domyślny harmonogram urzędu – każdy pracownik może ustawić własny. " if hr else
              ("Używasz własnego harmonogramu. " if data["wlasne"] else "Używasz domyślnego harmonogramu urzędu. "))
             + f"Przypomnienia przychodzą tylko w dni robocze, w godzinach pracy urzędu "
@@ -167,7 +167,7 @@ def _deputies(api: Api, me: dict, users: list[dict], today: date) -> None:
     if not (hr or me["czy_oceniajacy"]):
         return
     with st.container(border=True):
-        st.markdown("#### 🤝 Zastępstwa",
+        st.markdown("#### :material/handshake: Zastępstwa",
                     help="W czasie zastępstwa zastępca może prowadzić rozmowy i sporządzić ocenę za oceniającego.")
         rows = api.deputies()
         for d in rows:
@@ -200,7 +200,7 @@ def _deputies(api: Api, me: dict, users: list[dict], today: date) -> None:
 
 def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
     hr = me["rola"] == "KADRY"
-    st.subheader("⚙️ Ustawienia", help="Domyślny harmonogram przypomnień, asystent AI i wymagania urzędu." if hr
+    st.subheader(":material/settings: Ustawienia", help="Domyślny harmonogram przypomnień, asystent AI i wymagania urzędu." if hr
                  else "Twoje przypomnienia, asystent AI i zastępstwa.")
     _assistant(api, me)
     if hr:

@@ -86,13 +86,13 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
         for akcja in [a for a in ev["dozwolone_akcje"] if a != "ZLOZ_SPRZECIW"]:  # objection: own page
             with st.container(border=True):
                 if akcja == "POTWIERDZ_KRYTERIA":
-                    st.markdown("**✍️ Do potwierdzenia: rozmowa i kryteria oceny**")
+                    st.markdown("**:material/draw: Do potwierdzenia: rozmowa i kryteria oceny**")
                     ui.html("<b>Kryteria:</b>" + ui.ul(f"{k['nazwa']}{'' if k['typ'] == 'OBOWIAZKOWE' else ' (dodatkowe)'}"
                                                          for k in ev["kryteria"])
                             + f"<p>Termin sporządzenia oceny: <b>{ui.fmt(ev['czesc_i']['termin_oceny'])}</b></p>")
                 elif akcja == "POTWIERDZ_ZAPOZNANIE":
                     c2 = ev["czesc_ii"]
-                    st.markdown("**✍️ Do potwierdzenia: zapoznanie się z oceną**")
+                    st.markdown("**:material/draw: Do potwierdzenia: zapoznanie się z oceną**")
                     if c2.get("wynik"):
                         avg = f"{c2['srednia']:.2f}".replace(".", ",")
                         ui.html(f'<div class="result {"pos" if c2["wynik"] == "POZYTYWNA" else "neg"}">Ocena '
@@ -125,7 +125,7 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
         objectable = [e for e in _my_evaluations(api, me) if "ZLOZ_SPRZECIW" in e["dozwolone_akcje"]]
         for e in objectable[:1]:
             with st.container(border=True):
-                st.markdown(f"**⚖️ Nie zgadzasz się z oceną?** Sprzeciw do dyrektora generalnego możesz złożyć do "
+                st.markdown(f"**:material/gavel: Nie zgadzasz się z oceną?** Sprzeciw do dyrektora generalnego możesz złożyć do "
                             f"**{ui.fmt(e['czesc_ii'].get('termin_sprzeciwu'))}**.")
                 st.button("Złóż sprzeciw", type="primary", key=f"to_objection_{e['id']}", on_click=_open_requests)
 

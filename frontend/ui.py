@@ -19,7 +19,8 @@ CSS = """
 div[data-testid="stToastContainer"] { top: 3rem !important; bottom: auto !important; right: 24px !important; }
 /* the invisible style blocks injected at the top take no room (otherwise ~80 px of gaps above the content) */
 [data-testid="stMain"] [data-testid="stElementContainer"]:has(style):not(:has(p, h1, h2, h3, h4, table, img, button)),
-section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(iframe[height="1"]) { display: none !important; }
+section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(iframe[height="1"]),
+section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(style):not(:has(p, button, input)) { display: none !important; }
 div[data-testid="stToast"] { min-width: 460px; max-width: 560px; padding: 18px 22px; font-size: 1.2rem;
                              border: 2px solid var(--blue); border-left: 8px solid var(--blue);
                              box-shadow: 0 10px 32px rgba(0,0,0,.35); }
@@ -127,39 +128,12 @@ section[data-testid="stSidebar"] [data-stale="true"] button[data-testid="stBaseB
           display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; }
 /* ---- identity: navy side band, navy primary actions (instead of Streamlit's default red) ---- */
 section[data-testid="stSidebar"] { background: var(--band) !important; }
-/* side menu = one radio drawn as tiles */
-section[data-testid="stSidebar"] .st-key-nav, section[data-testid="stSidebar"] .st-key-nav [data-testid="stRadio"],
-section[data-testid="stSidebar"] .st-key-nav [data-testid="stRadio"] > div { width: 100% !important; }
-section[data-testid="stSidebar"] .st-key-nav [data-testid="stRadioGroup"] { align-items: stretch !important; width: 100%; }
-section[data-testid="stSidebar"] .st-key-nav [data-testid="stRadioGroup"] > div { width: 100% !important; }
-section[data-testid="stSidebar"] .st-key-nav [role="radiogroup"] { gap: .4rem; width: 100%; display: flex;
-  flex-direction: column; align-items: stretch; }
-section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"] {
-  width: 100%; margin: 0; padding: .65rem .85rem; border-radius: 8px; min-height: 2.8rem; cursor: pointer;
-  border: 1px solid var(--band-line); align-items: center; }
-section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"] > div > div:first-child:not([data-testid]) {
-  display: none !important; }
-section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"] p {
-  color: var(--band-ink) !important; font-weight: 600; margin: 0; white-space: nowrap; }
-section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"]:hover { background: rgba(255,255,255,.10); }
-section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"]:has(input:checked) {
-  background: #ffffff; border-color: #ffffff; }
-section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"]:has(input:checked) p { color: #1c3460 !important; }
-section[data-testid="stSidebar"] .st-key-nav label:has(input:focus-visible) { outline: 3px solid #ffbf47; }
-/* folded side menu: a narrow rail with the icons stays on the left (click an icon to change the page) */
-section[data-testid="stSidebar"][data-collapsed="true"] {
-  width: 4.4rem !important; min-width: 4.4rem !important; max-width: 4.4rem !important;
-  margin-left: 0 !important; transform: none !important; left: 0 !important; visibility: visible !important; }
-section[data-testid="stSidebar"][data-collapsed="true"] > div { width: 4.4rem !important; transform: none !important;
-  left: 0 !important; }
-section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarHeader"],
-section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarUserContent"] [data-testid="stElementContainer"]:not(.st-key-nav) {
-  display: none !important; }
-section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarUserContent"] { padding: 4rem .45rem 1rem !important; }
-section[data-testid="stSidebar"][data-collapsed="true"] .st-key-nav label[data-testid="stRadioOption"] {
-  padding: .55rem 0; justify-content: center; }
-section[data-testid="stSidebar"][data-collapsed="true"] .st-key-nav label[data-testid="stRadioOption"] p {
-  width: 1.45em; overflow: hidden; font-size: 1.25rem; text-align: center; }
+/* Material Symbols inside our own HTML (badges, notes, titles) – the font Streamlit already loads */
+.msi { font-family: "Material Symbols Rounded"; font-weight: normal; font-style: normal; font-size: 1.15em;
+  line-height: 1; vertical-align: -0.18em; display: inline-block; letter-spacing: normal; text-transform: none;
+  white-space: nowrap; direction: ltr; -webkit-font-feature-settings: "liga"; font-feature-settings: "liga"; }
+/* side menu tiles: icon + label */
+section[data-testid="stSidebar"] [class*="st-key-nav_"] [data-testid="stIconMaterial"] { font-size: 1.3rem; margin-right: .35rem; }
 section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
 section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] b,
 section[data-testid="stSidebar"] .app-title, section[data-testid="stSidebar"] label,
@@ -281,8 +255,8 @@ div[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 10px; }
 </style>
 """
 
-STATE_ICON = {"done": "✔", "active": "●", "waiting": "⏳", "todo": "○"}
-SOURCE_STYLE = {"AI": ("b-violet", "✨ AI"), "SZABLON": ("b-violet", "✨ SZABLON"), "REGULY": ("b-violet", "✨ REGUŁY")}
+STATE_ICON = {"done": "✔", "active": "●", "waiting": ":material/hourglass_top:", "todo": "○"}
+SOURCE_STYLE = {"AI": ("b-violet", ":material/auto_awesome: AI"), "SZABLON": ("b-violet", ":material/auto_awesome: SZABLON"), "REGULY": ("b-violet", ":material/auto_awesome: REGUŁY")}
 SOURCE_TEXT = {
     "AI": "wygenerowane przez model językowy (AI) na podstawie danych, po pseudonimizacji",
     "SZABLON": "przygotowane z gotowego szablonu i danych oceny – bez udziału AI",
@@ -372,17 +346,32 @@ def fmt(d) -> str:
     return d.strftime("%d.%m.%Y") if d else "—"
 
 
+_ICON = __import__("re").compile(r":material/([a-z0-9_]+):")
+
+
+def icons(markup: str) -> str:
+    """:material/name: inside raw HTML is not drawn by Streamlit – turn it into a Material Symbols span."""
+    return _ICON.sub(r'<span class="msi" aria-hidden="true">\1</span>', markup)
+
+
 def badge(text: str, cls: str = "b-grey") -> str:
-    return f'<span class="badge {cls}">{escape(text)}</span>'
+    return f'<span class="badge {cls}">{icons(escape(text))}</span>'
 
 
 def source_badge(source: str) -> str:
     cls, label = SOURCE_STYLE.get(source, ("b-grey", source))
-    return f'<span class="badge {cls}" title="{escape(SOURCE_TEXT.get(source, ""))}">{escape(label)}</span>'
+    return f'<span class="badge {cls}" title="{escape(SOURCE_TEXT.get(source, ""))}">{icons(escape(label))}</span>'
+
+
+def nav_highlight(key: str) -> None:
+    """Highlight the current side-menu tile (white tile, navy text) without changing the button itself."""
+    sel = f"section[data-testid='stSidebar'] [data-testid='stSidebarUserContent'] .st-key-{key} button"
+    st.markdown(f"<style>{sel}, {sel}:hover {{ background: #ffffff !important; border-color: #ffffff !important; }} "
+                f"{sel} p, {sel} span {{ color: #1c3460 !important; }}</style>", unsafe_allow_html=True)
 
 
 def html(markup: str) -> None:
-    st.markdown(markup, unsafe_allow_html=True)
+    st.markdown(icons(markup), unsafe_allow_html=True)
 
 
 def days_text(days: int) -> str:

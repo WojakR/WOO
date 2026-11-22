@@ -20,7 +20,7 @@ from frontend.api_client import Api, ApiError
 from frontend.process import name, to_date
 from frontend.views import admin, archive, employee, evaluation, guide, reports, settings, team
 
-st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon="🏛️", layout="wide",
+st.set_page_config(page_title="Cyfrowy Asystent Ocen Okresowych", page_icon=":material/account_balance:", layout="wide",
                    initial_sidebar_state="expanded")
 st.session_state.setdefault("a11y_font", "Standardowa")  # 120 % of the browser default – easier to read
 st.session_state.setdefault("user_id", "henryk.pryncypal")
@@ -133,23 +133,26 @@ def demo_panel() -> None:
 # ---------------------------------------------------------------- side menu
 with st.sidebar:
     ui.theme_watcher()
-    ui.html('<p class="app-title">🏛️ Asystent Ocen Okresowych</p>')
+    ui.html('<p class="app-title">:material/account_balance: Asystent Ocen Okresowych</p>')
     st.caption("Ocena okresowa w służbie cywilnej")
     st.markdown("**Menu**")
-    # one radio widget instead of one button per item: on a click only its value changes, so Streamlit never
-    # shows the old and the new menu side by side (no doubled tiles while the page reruns)
+    # tiles = buttons with fixed keys and a fixed type; the current page is highlighted by a style keyed to the
+    # button, so a click never swaps one button for another (no doubled tiles while the page reruns)
     if evaluator_ui:
-        items = {"team": "👥 Mój zespół" if me["rola"] != "KADRY" else "👥 Oceny w urzędzie",
-                 "reports": "📊 Dashboard", "archive": "🗄️ Archiwum", "schedule": "🗓️ Terminy", "help": "❓ Pomoc"}
-        items.update({"admin": "🛠️ Panel administratora"} if me["rola"] == "KADRY" else {"settings": "⚙️ Ustawienia"})
-        current = "team" if st.session_state.view == "eval" else st.session_state.view
+        items = {"team": ("groups", "Mój zespół" if me["rola"] != "KADRY" else "Oceny w urzędzie"),
+                 "reports": ("bar_chart", "Dashboard"), "archive": ("inventory_2", "Archiwum"),
+                 "schedule": ("calendar_month", "Terminy"), "help": ("help", "Pomoc")}
+        items.update({"admin": ("admin_panel_settings", "Panel administratora")} if me["rola"] == "KADRY"
+                     else {"settings": ("settings", "Ustawienia")})
+        current, nav_go = ("team" if st.session_state.view == "eval" else st.session_state.view), go
     else:
-        items = {"ocena": "📄 Moja ocena", "wnioski": "📨 Moje wnioski", "archive": "🗄️ Archiwum", "help": "❓ Pomoc",
-                 "settings": "⚙️ Ustawienia"}
-        current = st.session_state.emp_view
-    st.session_state.nav = current if current in items else next(iter(items))
-    st.radio("Menu", list(items), format_func=items.get, key="nav", label_visibility="collapsed",
-             on_change=lambda: (go if evaluator_ui else go_employee)(st.session_state.nav))
+        items = {"ocena": ("description", "Moja ocena"), "wnioski": ("outgoing_mail", "Moje wnioski"),
+                 "archive": ("inventory_2", "Archiwum"), "help": ("help", "Pomoc"), "settings": ("settings", "Ustawienia")}
+        current, nav_go = st.session_state.emp_view, go_employee
+    for code, (icon, label) in items.items():
+        st.button(label, key=f"nav_{code}", icon=f":material/{icon}:", use_container_width=True, on_click=nav_go,
+                  args=(code,))
+    ui.nav_highlight(f"nav_{current}")
 
     st.divider()
     mode = meta["tryb_ai"]
@@ -164,11 +167,11 @@ who, ai_col, a11y_col, bell_col, demo_col = st.columns([3.1, 1.4, 0.7, 0.8, 1.2]
 with a11y_col.popover("Aa", use_container_width=True, help="Dostępność: wielkość tekstu i kontrast"):
     st.markdown("**Dostępność**")
     accessibility_panel()
-with demo_col.popover("🎬 Demo", use_container_width=True, help="Tryb demo: kim jesteś, data w aplikacji, reset"):
+with demo_col.popover(":material/movie: Demo", use_container_width=True, help="Tryb demo: kim jesteś, data w aplikacji, reset"):
     st.markdown("**Tryb demo**")
     demo_panel()
 with ai_col.container(horizontal_alignment="right"):
-    st.toggle("🤖 Asystent AI", key="ai_on", on_change=save_ai, disabled=not office_ai,
+    st.toggle(":material/smart_toy: Asystent AI", key="ai_on", on_change=save_ai, disabled=not office_ai,
               help="Wyłączenie ukrywa wszystkie podpowiedzi asystenta AI: wskazówki do rozmów, propozycje przypisania "
                    "notatek, sugerowane oceny, szkice tekstów i HR partnera. Proces oceny działa bez zmian.")
 role = "kadry" if me["rola"] == "KADRY" else "oceniający" if me["czy_oceniajacy"] else "oceniany"
@@ -179,7 +182,7 @@ try:
 except ApiError:
     notes = []
 unread = [n for n in notes if not n["przeczytane"]]
-with bell_col.popover(f"🔔 {len(unread)}" if unread else "🔔", use_container_width=True):
+with bell_col.popover(f":material/notifications: {len(unread)}" if unread else ":material/notifications:", use_container_width=True):
     st.markdown("**Powiadomienia**")
     if not notes:
         st.caption("Brak powiadomień do dziś (zegar serwera).")
