@@ -323,16 +323,24 @@ def _note_row(api: Api, ev: dict, n: dict, crit: dict, can_edit: bool, ai: bool)
                 if col.button(f"Przyjmij – {label}", key=f"acc_{n['id']}_{val}", use_container_width=True):
                     _call(api.patch_note, n["id"], zaakceptuj_sugestie=True, wydzwiek=val, ok="Przypisano notatkę.")
                     st.rerun()
-    with st.popover("Przypisz / zmień"):
+    with st.popover("Edytuj / przypisz", icon=":material/edit:"):
+        text = st.text_area("Treść notatki", value=n["tresc"], key=f"mt_{n['id']}", height=110)
         codes = [k["criterion_kod"] for k in ev["kryteria"]]
         c = st.selectbox("Kryterium", codes, key=f"mc_{n['id']}",
                          index=codes.index(n["criterion_kod"]) if n.get("criterion_kod") in codes else 0,
                          format_func=lambda x: crit.get(x, {}).get("nazwa", x))
-        s = st.radio("Wydźwięk", list(SENTIMENTS), format_func=SENTIMENTS.get, horizontal=True, key=f"ms_{n['id']}")
+        s = st.radio("Wydźwięk", list(SENTIMENTS), format_func=SENTIMENTS.get, horizontal=True, key=f"ms_{n['id']}",
+                     index=list(SENTIMENTS).index(n["wydzwiek"]) if n.get("wydzwiek") in SENTIMENTS else 0)
         a, b = st.columns(2)
         if a.button("Zapisz", key=f"msave_{n['id']}", type="primary", use_container_width=True):
-            _call(api.patch_note, n["id"], criterion_kod=c, wydzwiek=s, ok="Zapisano.")
-            st.rerun()
+            if not text.strip():
+                st.error("Notatka nie może być pusta.")
+            else:
+                changes = {"criterion_kod": c, "wydzwiek": s}
+                if text.strip() != n["tresc"]:
+                    changes["tresc"] = text.strip()
+                _call(api.patch_note, n["id"], ok="Zapisano notatkę.", **changes)
+                st.rerun()
         if b.button("Usuń notatkę", key=f"mdel_{n['id']}", use_container_width=True):
             _call(api.delete_note, n["id"], ok="Usunięto notatkę.")
             st.rerun()

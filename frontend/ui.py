@@ -143,9 +143,11 @@ section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarU
   display: none !important; }
 section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarUserContent"] {
   padding: 4.2rem .45rem 1rem !important; width: 4.6rem !important; min-width: 4.6rem !important;
-  max-width: 4.6rem !important; box-sizing: border-box !important; }
+  max-width: 4.6rem !important; box-sizing: border-box !important; margin: 0 !important; left: 0 !important;
+  transform: none !important; }
 section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarContent"] { padding: 0 !important;
-  overflow-x: hidden; }
+  overflow-x: hidden; scrollbar-gutter: auto !important; scrollbar-width: none !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarContent"]::-webkit-scrollbar { display: none; }
 section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarUserContent"] > div,
 section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] {
   width: 100% !important; min-width: 0 !important; }

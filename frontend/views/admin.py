@@ -165,7 +165,7 @@ def _people(api: Api) -> None:
         st.error("Nic nie zapisano – popraw problemy w pliku i spróbuj ponownie.")
 
 
-def _staff_changes(api: Api, today: date) -> None:
+def _staff_changes(api: Api, today: date, kind: str) -> None:
     """Change of position (§ 9) or of the evaluator (art. 81 ust. 8) for a person with an evaluation in progress.
     The server works out the consequences; the result stays on screen until the next change."""
     data = _call(api.employees, na_strone=200)
@@ -173,12 +173,15 @@ def _staff_changes(api: Api, today: date) -> None:
         return
     rows = {r["pracownik"]["id"]: r for r in data["pozycje"]
             if r.get("biezaca_ocena") and r["pracownik"].get("przelozony")}
-    st.markdown("Gdy pracownik **zmienia stanowisko** albo **dostaje innego przełożonego (oceniającego)**, przepisy "
-                "mówią, co dzieje się z jego oceną. Wpisz zmianę – system policzy skutki i pokaże je poniżej.")
+    st.markdown("Gdy pracownik **zmienia stanowisko**, przepisy mówią, co dzieje się z jego oceną. Wpisz zmianę – "
+                "system policzy skutki i pokaże je powyżej formularza." if kind == "stanowisko" else
+                "Gdy pracownik **dostaje innego przełożonego (oceniającego)**, przepisy mówią, kto sporządza ocenę. "
+                "Wpisz zmianę – system policzy skutki i pokaże je powyżej formularza.")
     if not rows:
         st.info("Nikt nie ma teraz oceny w toku – zmiany dotyczą osób z rozpoczętą oceną.")
         return
-    last = st.session_state.get("adm_staff_result")
+    rkey = f"adm_staff_result_{kind}"
+    last = st.session_state.get(rkey)
     if last:
         with st.container(border=True):
             st.markdown(f"**:material/task_alt: {last['tytul']}**")
@@ -186,18 +189,15 @@ def _staff_changes(api: Api, today: date) -> None:
             if last.get("evaluation_id"):
                 from frontend.views.team import open_evaluation
 
-                st.button("Otwórz ocenę", icon=":material/open_in_new:", key="adm_staff_open",
+                st.button("Otwórz ocenę", icon=":material/open_in_new:", key=f"adm_staff_open_{kind}",
                           on_click=open_evaluation, args=(last["evaluation_id"],))
 
     def label(i: int) -> str:
         p = rows[i]["pracownik"]
         return f"{name(p)} · {p.get('stanowisko') or '—'}"
 
-    a, b = st.columns([2, 1.3])
-    pid = a.selectbox("1. Pracownik", list(rows), format_func=label, key="adm_staff_who",
-                      help="Lista pokazuje osoby, które mają ocenę w toku.")
-    kind = b.radio("2. Co się zmienia?", ["stanowisko", "oceniajacy"], horizontal=True, key="adm_staff_kind",
-                   format_func={"stanowisko": "Stanowisko", "oceniajacy": "Oceniający"}.get)
+    pid = st.selectbox("1. Pracownik", list(rows), format_func=label, key=f"adm_staff_who_{kind}",
+                       help="Lista pokazuje osoby, które mają ocenę w toku.")
     row = rows[pid]
     p, cur = row["pracownik"], row["biezaca_ocena"]
     ui.html(ui.kv([("Stanowisko teraz", p.get("stanowisko") or "—"), ("Arkusz", p.get("arkusz") or "—"),
@@ -205,7 +205,7 @@ def _staff_changes(api: Api, today: date) -> None:
                    ("Ocena w toku", f"termin {ui.fmt(cur.get('termin_oceny'))}")]))
 
     if kind == "stanowisko":
-        st.markdown("**3. Nowe stanowisko**")
+        st.markdown("**2. Nowe stanowisko**")
         a, b, c = st.columns([2, 1, 1.2])
         pos = a.text_input("Nazwa nowego stanowiska", key=f"pos_new_{pid}", placeholder="np. starszy specjalista")
         on = b.date_input("Od kiedy", value=today, key=f"pos_on_{pid}", format="DD.MM.YYYY")
@@ -222,13 +222,13 @@ def _staff_changes(api: Api, today: date) -> None:
             out = _call(api.position_change, pid, on, pos.strip(), sheet)
             if out is not None:
                 ev = out.get("ocena") or {}
-                st.session_state.adm_staff_result = {
+                st.session_state[rkey] = {
                     "tytul": f"Zmiana stanowiska zapisana: {name(p)} → {pos.strip()}",
                     "tekst": out.get("wyjasnienie") or "", "evaluation_id": ev.get("id") or cur["evaluation_id"]}
                 st.rerun()
         return
 
-    st.markdown("**3. Nowy oceniający**")
+    st.markdown("**2. Nowy oceniający**")
     boss = p["przelozony"]
     options = {i: r["pracownik"] for i, r in
                {x["pracownik"]["id"]: x for x in data["pozycje"]}.items() if i not in (pid, boss["id"])}
@@ -251,7 +251,7 @@ def _staff_changes(api: Api, today: date) -> None:
                     "NOWY_CYKL": "Rozpoczęto nową ocenę u nowego oceniającego."}.get(out.get("wariant"), "")
             held = (f" Notatki poprzedniego oceniającego ({out['notatki_wstrzymane']}) czekają na przekazanie."
                     if out.get("notatki_wstrzymane") else "")
-            st.session_state.adm_staff_result = {
+            st.session_state[rkey] = {
                 "tytul": f"Zmiana oceniającego zapisana: {name(p)} – od {ui.fmt(when)} ocenia {name(options[new])}",
                 "tekst": f"{what}{held} {out.get('wyjasnienie') or ''}",
                 "evaluation_id": out.get("evaluation_id") or cur["evaluation_id"]}
@@ -300,7 +300,7 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
         return
     today = to_date(meta["dzis"])
     tabs = st.tabs([":material/policy: Terminy", ":material/checklist: Kryteria i etapy", ":material/apartment: Urząd i przypomnienia", ":material/groups: Import pracowników",
-                    ":material/swap_horiz: Zmiana stanowiska / oceniającego", ":material/inventory_2: Archiwum kadr", ":material/timer: RCP i e-Akt"])
+                    ":material/badge: Zmiana stanowiska", ":material/supervisor_account: Zmiana oceniającego", ":material/inventory_2: Archiwum kadr", ":material/timer: RCP i e-Akt"])
     with tabs[0]:
         _terms(api, today)
     with tabs[1]:
@@ -310,8 +310,10 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
     with tabs[3]:
         _people(api)
     with tabs[4]:
-        _staff_changes(api, today)
+        _staff_changes(api, today, "stanowisko")
     with tabs[5]:
+        _staff_changes(api, today, "oceniajacy")
+    with tabs[6]:
         inner = st.tabs([":material/ac_unit: Zamrożone oceny", ":material/hourglass_top: Okresy przechowywania", ":material/upload_file: Import starych ocen"])
         with inner[0]:
             archive._frozen(api)
@@ -319,5 +321,5 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
             archive._retention(api)
         with inner[2]:
             archive._legacy(api)
-    with tabs[6]:
+    with tabs[7]:
         _rcp_eakt(api)
