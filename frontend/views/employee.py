@@ -137,6 +137,9 @@ def render(api: Api, me: dict, page: str = "ocena") -> None:
                 st.button("Złóż sprzeciw", type="primary", key=f"to_objection_{e['id']}", on_click=_open_requests)
 
     with right:
+        from frontend.views.team import calendar_button
+
+        calendar_button(api, "emp_ics")
         with st.container(border=True):
             st.markdown("**Moje kryteria**")
             ui.html(ui.ul(k["nazwa"] for k in ev["kryteria"]))

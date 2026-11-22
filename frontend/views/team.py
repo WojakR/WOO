@@ -299,10 +299,24 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
             st.caption("Brak pozycji spełniających wybrane filtry.")
 
 
+def calendar_button(api: Api, key: str) -> None:
+    """All my deadlines as one calendar file (server: GET /api/me/terminy.ics) – the reminder channel for an office
+    without e-mail: import it into Outlook / Thunderbird / Google; a newer file updates the events."""
+    st.download_button("Dodaj terminy do kalendarza", api.deadlines_ics, icon=":material/event:",
+                       file_name="terminy-ocen.ics", mime="text/calendar", on_click="ignore", key=key,
+                       use_container_width=True,
+                       help="Plik .ics otworzysz w Outlooku, Thunderbirdzie albo Kalendarzu Google – każdy termin "
+                            "dostaje przypomnienie 7 dni i 1 dzień wcześniej. Gdy termin się zmieni, pobierz plik "
+                            "ponownie: wydarzenia zostaną zaktualizowane, a nie zdublowane.")
+
+
 def render_schedule(api: Api, me: dict) -> None:
     items = api.dashboard()["pozycje"]
-    st.subheader(":material/calendar_month: Terminy", help="Terminy liczone przez system (24 miesiące, dni wolne, nieobecności), "
-                 "od najbliższego. Kliknij pozycję, aby przejść do oceny.")
+    head, btn = st.columns([3, 1.1], vertical_alignment="bottom")
+    head.subheader(":material/calendar_month: Terminy", help="Terminy liczone przez system (24 miesiące, dni wolne, "
+                   "nieobecności), od najbliższego. Kliknij pozycję, aby przejść do oceny.")
+    with btn:
+        calendar_button(api, "sched_ics")
     rows = sorted((i for i in items if _urgency(i) != "none"), key=lambda i: i["dni_do_terminu"])
     with st.container(border=True):
         for k, i in enumerate(rows):
@@ -313,10 +327,4 @@ def render_schedule(api: Api, me: dict) -> None:
                       key=f"sched_{k}", type="tertiary", on_click=open_evaluation, args=(i["evaluation_id"],))
         if not rows:
             st.caption("Brak terminów do pilnowania.")
-    if rows:
-        st.download_button(":material/event: Dodaj terminy do kalendarza (.ics)", api.deadlines_ics,
-                           file_name="terminy-ocen.ics", mime="text/calendar", on_click="ignore",
-                           key="sched_ics")
-        st.caption("Plik otworzysz w Outlooku, Thunderbirdzie albo Kalendarzu Google – każdy termin dostaje "
-                   "przypomnienie 7 dni i 1 dzień wcześniej. Gdy termin się zmieni, pobierz plik ponownie: "
-                   "wydarzenia zostaną zaktualizowane, a nie zdublowane.")
+
