@@ -541,6 +541,9 @@ class EvidenceCriterion(_Out):
     wskazniki_bez_obserwacji: list[str] = []    # "ask about it in the conversation"
     sugerowane_punkty: Punkty | None = None
     uzasadnienie_sugestii: str | None = None    # rule-based, readable
+    # the hint counts notes, not their weight: what one more negative / positive note would give
+    sugerowane_od: Punkty | None = None
+    sugerowane_do: Punkty | None = None
 
 
 class EvidenceOut(_Out):
@@ -616,10 +619,13 @@ class DraftOut(_Out):
 
 class HrSignal(_Out):
     id: int
-    typ: Literal["PRZECIAZENIE", "DLUGA_NIEOBECNOSC", "ZMIANA_OBOWIAZKOW", "SPADEK_OCEN", "DO_DOCENIENIA"]
+    typ: Literal["PRZECIAZENIE", "DLUGA_NIEOBECNOSC", "ZMIANA_OBOWIAZKOW", "SPADEK_OCEN", "DO_DOCENIENIA",
+                 # from the person's history – tenure + trend of the evaluations (app/domain/career_profile.py)
+                 "SPADEK_PRZY_STAZU", "SPADEK_TRENDU", "STAGNACJA", "STABILNIE_WYSOKO", "WZROST", "NOWY_PRACOWNIK"]
     opis: str
     dowody: list[str] = []                      # e.g. note ids / absence periods in words
     rekomendacje: list[str] = []
+    dzialania_rozwojowe: list[str] = []         # development ideas (IPRZ, training) – history-based signals
     status: Literal["NOWY", "ZAAKCEPTOWANY", "ODRZUCONY"] = "NOWY"
 
 

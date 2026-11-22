@@ -43,7 +43,10 @@ ważnych polach arkusza jest też znak **?**, który otwiera właściwy fragment
 ### 4. Rozmowa oceniająca i ocena
 
 1. Kliknij **Rozpocznij rozmowę oceniającą**. Karta **HR partner** podpowiada, na co zwrócić uwagę (przeciążenie,
-   długa nieobecność, zmiana obowiązków) – to podpowiedzi, nie diagnoza.
+   długa nieobecność, zmiana obowiązków) – to podpowiedzi, nie diagnoza. Część podpowiedzi wynika z historii
+   pracownika (staż i poziomy kolejnych ocen): np. spadek wyników u doświadczonego pracownika, ten sam poziom od
+   kilku ocen albo krótki staż – wtedy karta proponuje, jak poprowadzić rozmowę i jakie działania rozwojowe
+   rozważyć.
 2. Karta **Dobrostan** to lista kontrolna 8 obszarów (zmęczenie, koncentracja, emocje, motywacja, nastawienie,
    efektywność, regeneracja, zachowanie). Zaznacz, co obserwujesz: *nie zauważam / czasami / często*. Odpowiedzi
    widzisz tylko Ty, Twój zastępca i HR partner; **nie trafiają do arkusza ani do pracownika**. Kilka odpowiedzi

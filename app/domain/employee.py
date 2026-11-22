@@ -18,6 +18,8 @@ class Employee:
     sheet: str
     evaluator_id: str | None = None
     previous_evaluation: PreviousEvaluation | None = None
+    # evaluations before the previous one (from the HR data), oldest first – the trend for the assistant
+    earlier_evaluations: tuple[PreviousEvaluation, ...] = ()
     # from the HR system (app/infrastructure/hr_import.py); the sample data may not have them
     civil_servant: bool = False  # urzędnik służby cywilnej (mianowany) – else "pracownik służby cywilnej"
     grade: int | None = None  # stopień służbowy 1–9 (civil servants only)

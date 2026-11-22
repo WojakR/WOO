@@ -79,7 +79,7 @@ def to_suggest_criteria_out(c: CriteriaSuggestions) -> s.SuggestCriteriaOut:
 
 def to_hr_signal(sig: HrSignal, index: int) -> s.HrSignal:
     return s.HrSignal(id=index, typ=sig.kind, opis=sig.description, dowody=list(sig.evidence),
-                      rekomendacje=list(sig.recommendations))
+                      rekomendacje=list(sig.recommendations), dzialania_rozwojowe=list(sig.development))
 
 
 def to_hr_partner_out(r: HrReport) -> s.HrPartnerOut:

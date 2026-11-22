@@ -48,6 +48,37 @@ więc UI może oznaczyć stary szkic jako nieaktualny.
 Kody kryteriów wychodzą wielkimi literami (`RZETELNOSC`), `criterion_id()` zamienia je z powrotem.
 Router = pobranie danych z repozytoriów → wywołanie usługi → `to_*()`.
 
+## Personalizacja z historii pracownika (przygotowanie rozmowy, część rozwojowa)
+
+`app/domain/career_profile.py` łączy **staż w urzędzie** (`Employee.employment_start`, z danych kadrowych
+`data_zatrudnienia`) z **poziomami kolejnych ocen** (oceny z systemu + `poprzednia_ocena` i `wczesniejsze_oceny`
+z danych kadrowych + bieżąca, gdy wpisano wszystkie oceny cząstkowe). Wynik to sygnały dla oceniającego:
+
+| Sygnał | Kiedy | Na co ukierunkowuje rozmowę |
+|---|---|---|
+| `SPADEK_PRZY_STAZU` | długi staż (≥ 5 lat) i wynik niższy niż poprzednio | pytanie otwarte na start, obciążenie, urlop, wsparcie – bez dopytywania o sprawy prywatne |
+| `SPADEK_TRENDU` | kolejne oceny coraz niższe (3 z rzędu) | trend na faktach, cele poprawy, comiesięczna informacja zwrotna |
+| `STAGNACJA` | ten sam średni poziom (2 razy) mimo stażu ≥ 3 lat | ambicje, oczekiwania wobec wyższego poziomu, nowe wyzwania |
+| `STABILNIE_WYSOKO` | 2 razy z rzędu jeden z dwóch najwyższych poziomów | docenienie, ścieżka awansu, ryzyko znudzenia |
+| `WZROST` | wynik wyższy niż poprzednio | docenienie postępu |
+| `NOWY_PRACOWNIK` | staż < 12 mies. | wdrożenie, wyjaśnienie zasad oceny |
+
+Progi i teksty (rekomendacje do rozmowy + `rozwoj`: działania rozwojowe) są decyzją urzędu:
+`config/ustawienia_urzedu.json` → `profil_pracownika` (pusta sekcja = funkcja wyłączona). Gdzie trafiają:
+- **HR partner** (`GET …/hr-partner`): jako dodatkowe sygnały z `dzialania_rozwojowe`; `SPADEK_OCEN` znika, gdy jest
+  sygnał spadku z historii (mówi więcej).
+- **Notatka na rozmowę** (`POST …/ai/conversation-prep`): sygnały, działania z historii na początku
+  `propozycje_rozwoju`, trudny temat dla spadku/stagnacji; prompt dostaje staż i historię poziomów (bez nazwisk).
+- **Szkic IPRZ** (`POST …/ai/draft`, `rodzaj: IPRZ`): działania z historii przed katalogiem dla słabych kryteriów.
+Bez AI wszystko działa na tych samych regułach i tekstach.
+
+## Podpowiedź punktów z notatek
+
+`app/domain/evidence_hint.py` – **reguła, nie AI**: odsetek notatek pozytywnych przeliczony na skalę, bez skrajnych
+wartości, dopiero od 3 notatek. Reguła liczy notatki, nie ich wagę, dlatego `GET …/evidence` podaje też
+`sugerowane_od` / `sugerowane_do` (co dałaby jedna notatka więcej w którąś stronę), a `uzasadnienie_sugestii` mówi
+wprost, że podpowiedź jest niepewna (gdy przedział > 0) i że ocenę cząstkową ustala oceniający.
+
 ## Pomiar trafności klasyfikacji
 ```bash
 python scripts/eval_classifier.py            # model z .env (local)

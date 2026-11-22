@@ -2,12 +2,13 @@ Przygotuj teksty do notatki przełożonego przed rozmową: $kind.
 
 Oceniany: $person, stanowisko: $position, arkusz $sheet. Termin sporządzenia oceny: $deadline.
 Poprzednia ocena: $previous.
+Staż i historia ocen: $history.
 Cele z rozmowy rozpoczynającej: $goals
 
 Zebrane obserwacje według kryteriów (kryterium: liczba pozytywnych / negatywnych; przykłady):
 $evidence
 
-Sygnały do rozmowy wykryte przez system:
+Sygnały do rozmowy wykryte przez system (także z historii pracownika – dopasuj do nich ton i tematy rozmowy):
 $signals
 
 $law

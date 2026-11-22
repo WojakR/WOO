@@ -3,13 +3,19 @@
 Grzegorz Wzór (sheet C, evaluator Henryk Pryncypał) is at the review meeting: scores entered, justification
 and IPRZ conclusions still missing, the team's 30 hand-tagged test notes (server/data/kprm/notatki_testowe.json)
 spread over the period plus four untagged notes the HR partner rules react to (overtime, new duties).
+
+History for the personalised hints (app/domain/career_profile.py), as if from the HR system: Grzegorz – 11 years
+in the office and every evaluation lower than the one before; Monika Testowa – 9 years, the same level twice;
+Agata Wzorcowa – a new employee.
 """
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import date
 from typing import TYPE_CHECKING
 
+from app.domain.cycle import PreviousEvaluation
 from app.domain.notes import Note, Sentiment
 from backend import config
 
@@ -35,9 +41,23 @@ def _test_notes(author: str) -> list[Note]:
     return notes + [Note("", d, text, author) for d, text in _EXTRA_NOTES]
 
 
+_HISTORY = {  # employee id -> (employment start, evaluations before the previous one)
+    "grzegorz.wzor": (date(2015, 3, 2), (PreviousEvaluation("pozytywna", "powyżej oczekiwań", date(2022, 6, 10)),)),
+    "monika.testowa": (date(2017, 2, 1), (PreviousEvaluation("pozytywna", "na poziomie oczekiwań", date(2022, 5, 25)),)),
+    "agata.wzorcowa": (date(2025, 12, 1), ()),
+}
+
+
+def _seed_history(st: DemoState) -> None:
+    people = [st.directory.get(pid) for pid in _HISTORY]
+    st.import_employees([replace(e, employment_start=_HISTORY[e.id][0], earlier_evaluations=_HISTORY[e.id][1])
+                         for e in people if e is not None])
+
+
 def seed_scenario(st: DemoState) -> None:
     s, r, clock = st.evaluations, st.evaluations.rules, st.clock
     today = clock.today()
+    _seed_history(st)
 
     def scores(cycle_id: str, values: list[int]) -> dict[str, int]:
         ids = s.cycles.get(cycle_id).criteria_ids(r)

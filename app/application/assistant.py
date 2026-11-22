@@ -21,6 +21,9 @@ from string import Template
 from typing import Any, Callable, Iterable, Iterator, Literal, Mapping, Sequence
 
 from app.domain.calendar import WorkingCalendar
+from app.domain.career_profile import (ProfileSettings, ResultPoint, employee_profile, tenure_months,
+                                       tenure_text)
+from app.domain.consequences import FinishedEvaluation
 from app.domain.cycle import EvaluationCycle, PreviousEvaluation
 from app.domain.deadlines import Absence
 from app.domain.employee import Employee
@@ -35,7 +38,10 @@ from .privacy import Pseudonymizer
 Source = Literal["AI", "SZABLON", "REGULY"]
 DraftKind = Literal["UZASADNIENIE", "IPRZ", "UMOTYWOWANIE_STOPNIA"]
 PrepKind = Literal["OCENIAJACA", "ROZPOCZYNAJACA"]
-SignalKind = Literal["PRZECIAZENIE", "DLUGA_NIEOBECNOSC", "ZMIANA_OBOWIAZKOW", "SPADEK_OCEN", "DO_DOCENIENIA"]
+SignalKind = Literal["PRZECIAZENIE", "DLUGA_NIEOBECNOSC", "ZMIANA_OBOWIAZKOW", "SPADEK_OCEN", "DO_DOCENIENIA",
+                     # from the person's history (app/domain/career_profile.py)
+                     "SPADEK_PRZY_STAZU", "SPADEK_TRENDU", "STAGNACJA", "STABILNIE_WYSOKO", "WZROST", "NOWY_PRACOWNIK"]
+_DECLINE = ("SPADEK_PRZY_STAZU", "SPADEK_TRENDU")  # they say more than SPADEK_OCEN, which is then dropped
 
 _PROMPTS = Path(__file__).resolve().parent / "prompts"
 _LEFTOVER_TOKEN = re.compile(r"\[(OSOBA_K?\d+|PESEL|EMAIL|TELEFON)\]")  # OSOBA_K = backend.llm guard
@@ -113,9 +119,13 @@ class AiCatalog:
     templates: dict[str, str]
     classify_examples: list[dict]
     sample_evaluations: dict[str, str] = field(default_factory=dict)  # file name -> filled KPRM sheet text
+    # thresholds + texts of the history-based findings (config/ustawienia_urzedu.json "profil_pracownika");
+    # empty = the findings are switched off
+    profile: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_raw(cls, raw: dict, sample_evaluations: Iterable[tuple[str, str]] = ()) -> AiCatalog:
+    def from_raw(cls, raw: dict, sample_evaluations: Iterable[tuple[str, str]] = (),
+                 profile: Mapping[str, Any] | None = None) -> AiCatalog:
         return cls(
             questions=raw["pytania"],
             development=raw["dzialania_rozwojowe"],
@@ -124,6 +134,7 @@ class AiCatalog:
             templates=raw["szablony"],
             classify_examples=raw.get("przyklady_klasyfikacji", []),
             sample_evaluations=dict(sample_evaluations),
+            profile=dict(profile or {}),
         )
 
 
@@ -175,6 +186,7 @@ class HrSignal:
     description: str
     evidence: tuple[str, ...]
     recommendations: tuple[str, ...]
+    development: tuple[str, ...] = ()  # development ideas (IPRZ, training) – history-based findings only
 
 
 @dataclass(frozen=True)
@@ -250,6 +262,7 @@ class AiSuggestionService:
         self._drafts: dict[str, Draft] = {}
         self._system = (_PROMPTS / "system.md").read_text(encoding="utf-8")
         self._level_rank = {b.level.casefold(): i for i, b in enumerate(rules.level_bands)}
+        self._profile_settings = ProfileSettings.from_dict(catalog.profile)
 
     # ---- plumbing ------------------------------------------------------------------------------
     def _record(self, call: AiCall) -> None:
@@ -380,14 +393,26 @@ class AiSuggestionService:
 
     # ---- 2. drafts: justification, IPRZ conclusions, grade motivation (UC5) ---------------------
     def _draft_context(self, kind: DraftKind, cycle: EvaluationCycle, employee: Employee,
-                       notes: Sequence[Note]) -> dict[str, Any]:
+                       notes: Sequence[Note], profile: Sequence[HrSignal] = ()) -> dict[str, Any]:
         ids = self._criteria_ids(cycle)
         ev = evidence_by_criterion(notes, ids)
         weak, strong = self._weak_strong(cycle, ev)
-        return {"ids": ids, "ev": ev, "weak": weak, "strong": strong, "result": self._current_result(cycle)}
+        personal = list(dict.fromkeys(a for sg in profile for a in sg.development[:2]))
+        return {"ids": ids, "ev": ev, "weak": weak, "strong": strong, "result": self._current_result(cycle),
+                "personal": personal}
 
-    def _draft_key(self, kind: DraftKind, cycle: EvaluationCycle, notes: Sequence[Note]) -> str:
-        payload = json.dumps([kind, cycle.id, sorted(cycle.scores.items()),
+    def _history_text(self, cycle: EvaluationCycle, employee: Employee,
+                      history: Sequence[FinishedEvaluation] | None, today: date) -> str:
+        """Tenure and the levels of the evaluations, for the prompt (no names, no dates of birth)."""
+        months = tenure_months(employee.employment_start, today)
+        points = self._history_points(cycle, employee, history)
+        parts = [tenure_text(months) if months is not None else "staż nieznany"]
+        parts.append("oceny: " + (" → ".join(p.label() for p in points) if points else "brak"))
+        return "; ".join(parts)
+
+    def _draft_key(self, kind: DraftKind, cycle: EvaluationCycle, notes: Sequence[Note],
+                   profile: Sequence[HrSignal] = ()) -> str:
+        payload = json.dumps([kind, cycle.id, sorted(cycle.scores.items()), sorted(s.kind for s in profile),
                               sorted((n.id, n.text, n.criterion_id, n.sentiment and n.sentiment.value) for n in notes)],
                              ensure_ascii=False, default=str)
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
@@ -418,7 +443,7 @@ class AiSuggestionService:
         }
         t = self.catalog.templates
         if kind == "IPRZ":
-            actions = [a for cid in (weak or ctx["ids"]) for a in self.catalog.development.get(cid, [])[:2]]
+            actions = [*ctx["personal"], *(a for cid in (weak or ctx["ids"]) for a in self.catalog.development.get(cid, [])[:2])]
             text = t["iprz"].format(dzialania="\n".join(f"– {a}" for a in dict.fromkeys(actions)) or "– do uzgodnienia na rozmowie")
         elif kind == "UMOTYWOWANIE_STOPNIA":
             text = t["umotywowanie_stopnia"].format(**values)
@@ -434,12 +459,14 @@ class AiSuggestionService:
                 "IPRZ": "wniosków dotyczących indywidualnego programu rozwoju zawodowego (IPRZ)",
                 "UMOTYWOWANIE_STOPNIA": "umotywowania wniosku o przyznanie kolejnego stopnia służbowego"}[kind]
         actions = "; ".join(a for cid in (ctx["weak"] or ctx["ids"]) for a in self.catalog.development.get(cid, [])[:2])
+        personal = "; ".join(ctx["personal"])
         instructions = {
             "UZASADNIENIE": "Odnieś się do kryteriów z najniższymi i najwyższymi ocenami i podaj konkretne zachowania "
                             "z notatek. 120–250 słów. Przy ocenie negatywnej wskaż wprost, które kryteria nie spełniają "
                             "oczekiwań i dlaczego (§ 11 ust. 3).",
             "IPRZ": f"Zaproponuj 3–5 konkretnych działań rozwojowych powiązanych z kryteriami do poprawy, jako listę "
-                    f"zaczynającą się od myślników. Możesz korzystać z katalogu urzędu: {actions or 'brak'}.",
+                    f"zaczynającą się od myślników. Możesz korzystać z katalogu urzędu: {actions or 'brak'}. "
+                    f"Uwzględnij historię pracownika (staż, trend ocen) – pasujące działania: {personal or 'brak'}.",
             "UMOTYWOWANIE_STOPNIA": "80–150 słów, oparte na mocnych stronach i osiągnięciach z notatek (art. 89 ust. 1 ustawy).",
         }[kind]
         negative = result is not None and result.outcome is Outcome.NEGATIVE
@@ -459,11 +486,15 @@ class AiSuggestionService:
             result=f"{result.outcome.value}, {result.level}, średnia {result.average_display}" if result else "jeszcze nie wyliczony",
             scores=scores, notes=notes_txt, instructions=instructions, example=_style_example(pick[0]))
 
-    def draft(self, kind: DraftKind, cycle: EvaluationCycle, employee: Employee, notes: Sequence[Note]) -> Draft:
-        key = self._draft_key(kind, cycle, notes)
+    def draft(self, kind: DraftKind, cycle: EvaluationCycle, employee: Employee, notes: Sequence[Note],
+              history: Sequence[FinishedEvaluation] | None = None, today: date | None = None) -> Draft:
+        """`history` / `today`: the person's finished evaluations – the IPRZ proposal takes their trend and
+        tenure into account (None = from the HR data; `today` None = no history-based findings)."""
+        profile = self.profile_signals(cycle, employee, today, history) if kind == "IPRZ" and today else []
+        key = self._draft_key(kind, cycle, notes, profile)
         if key in self._drafts:
             return self._drafts[key]
-        ctx = self._draft_context(kind, cycle, employee, notes)
+        ctx = self._draft_context(kind, cycle, employee, notes, profile)
         pseudo = self._people(employee)
         note_ids = {n.id for n in notes}
         prompt = self._draft_prompt(kind, cycle, employee, notes, ctx, pseudo) + (
@@ -523,12 +554,13 @@ class AiSuggestionService:
     # ---- 3. conversation prep note (UC4) --------------------------------------------------------
     def conversation_prep(self, cycle: EvaluationCycle, employee: Employee, evaluator: Employee | None,
                           notes: Sequence[Note], today: date, kind: PrepKind = "OCENIAJACA",
-                          absences: Sequence[Absence] = ()) -> ConversationPrep:
+                          absences: Sequence[Absence] = (),
+                          history: Sequence[FinishedEvaluation] | None = None) -> ConversationPrep:
         base = build_meeting_prep(cycle, employee, evaluator, self.rules, self.calendar, today)
         ids = [c.id for c in base.criteria]
         ev = evidence_by_criterion(notes, ids)
         weak, strong = self._weak_strong(cycle, ev)
-        hr = self.hr_partner(cycle, employee, notes, absences, today, use_ai=False).signals
+        hr = self.hr_partner(cycle, employee, notes, absences, today, use_ai=False, history=history).signals
 
         criteria = []
         for c in base.criteria:
@@ -559,7 +591,11 @@ class AiSuggestionService:
         strengths = [f"{self.rules.criterion_name(c)}: {len(ev[c].positive)} pozytywnych obserwacji" for c in strong]
         difficult = [f"{self.rules.criterion_name(c)}: {len(ev[c].negative)} obserwacji poniżej oczekiwań – "
                      f"omów na konkretnych przykładach" for c in weak]
-        development = list(dict.fromkeys(a for c in weak for a in self.catalog.development.get(c, [])[:1]))
+        # the person's history first (tenure, trend), then the weak criteria
+        personal = [a for sg in hr for a in sg.development[:2]]
+        development = list(dict.fromkeys([*personal, *(a for c in weak for a in self.catalog.development.get(c, [])[:1])]))
+        difficult += [f"{sg.description} Jak poprowadzić: {sg.recommendations[0]}" for sg in hr
+                      if sg.development and sg.recommendations and sg.kind in (*_DECLINE, "STAGNACJA")]
         source: Source = "SZABLON"
 
         pseudo = self._people(employee, evaluator)
@@ -571,6 +607,7 @@ class AiSuggestionService:
             person=pseudo.token_for(employee.first_name, employee.last_name), position=employee.position,
             sheet=cycle.sheet, deadline=base.evaluation_deadline,
             previous=f"{base.previous_evaluation.outcome}, {base.previous_evaluation.level}" if base.previous_evaluation else "brak",
+            history=self._history_text(cycle, employee, history, today),
             goals="; ".join(base.goals) or "nie zapisano", evidence=evidence_txt,
             signals="\n".join(f"- {s.kind}: {pseudo.mask('; '.join(s.evidence))}" for s in hr) or "brak",
             criteria_ids=", ".join(ids), law=_PREP_LAW[kind], question_style=_PREP_QUESTION_STYLE[kind])
@@ -678,11 +715,48 @@ class AiSuggestionService:
         return (text, "AI") if text else (fallback, "SZABLON")
 
     # ---- 5. virtual HR partner (UC7) ------------------------------------------------------------
+    # ---- 5a. the person's history: tenure + trend of the evaluations (spec points 3 and 9) -------
+    def _history_points(self, cycle: EvaluationCycle, employee: Employee,
+                        history: Sequence[FinishedEvaluation] | None) -> list[ResultPoint]:
+        """Levels of the earlier evaluations (oldest first) + the current one, if all its scores are in.
+        `history` None = only what the HR data on the person says (earlier + previous evaluation)."""
+        if history is None:
+            prev = cycle.previous_evaluation or employee.previous_evaluation
+            history = [FinishedEvaluation(p.date, p.outcome, p.level) for p in (*employee.earlier_evaluations, prev)
+                       if p is not None and p.date is not None]
+        points = []
+        for h in sorted(history, key=lambda h: h.drawn_up):
+            rank = self._level_rank.get((h.level or "").casefold())
+            if rank is not None:
+                points.append(ResultPoint(h.drawn_up, h.level, rank))
+        current = self._current_result(cycle)
+        if current is not None and current.level.casefold() in self._level_rank:
+            points.append(ResultPoint(cycle.evaluated_on, current.level, self._level_rank[current.level.casefold()],
+                                      current=cycle.evaluated_on is None))
+        return points
+
+    def profile_signals(self, cycle: EvaluationCycle, employee: Employee, today: date,
+                        history: Sequence[FinishedEvaluation] | None = None) -> list[HrSignal]:
+        """Conversation topics and development ideas tailored to the person's history (rules, no AI)."""
+        texts = self.catalog.profile.get("sygnaly") or {}
+        if not texts:
+            return []
+        found = employee_profile(self._history_points(cycle, employee, history), len(self._level_rank) - 1,
+                                 employee.employment_start, today, self._profile_settings)
+        return [HrSignal(f.kind, texts[f.kind]["opis"], f.evidence, tuple(texts[f.kind].get("rekomendacje", [])[:4]),
+                         tuple(texts[f.kind].get("rozwoj", [])))
+                for f in found if f.kind in texts]
+
+    def _signal_texts(self, kind: str) -> dict[str, Any]:
+        return self.catalog.hr["sygnaly"].get(kind) or (self.catalog.profile.get("sygnaly") or {}).get(kind) or {}
+
     def _detect_signals(self, cycle: EvaluationCycle, employee: Employee, notes: Sequence[Note],
                         absences: Sequence[Absence], today: date,
-                        extra: Mapping[str, Sequence[str]] | None = None) -> list[HrSignal]:
+                        extra: Mapping[str, Sequence[str]] | None = None,
+                        history: Sequence[FinishedEvaluation] | None = None) -> list[HrSignal]:
         """`extra`: evidence from other sources per signal kind – the wellbeing checklist, working-time (RCP)
-        indicators. Already aggregated; it raises the signal on its own."""
+        indicators. Already aggregated; it raises the signal on its own. `history`: the person's finished
+        evaluations (None = from the HR data) – for the history-based findings."""
         extra = extra or {}
         cfg = self.catalog.hr
         kinds = cfg["sygnaly"]
@@ -726,17 +800,21 @@ class AiSuggestionService:
         praise = [n for n in notes if n.on >= praise_from and n.sentiment is Sentiment.POSITIVE]
         if len(praise) >= cfg["min_pozytywnych_do_docenienia"]:
             add("DO_DOCENIENIA", [f"{n.on:%d.%m.%Y}: {n.text}" for n in praise[:3]])
-        return found
+        profile = self.profile_signals(cycle, employee, today, history)
+        if any(s.kind in _DECLINE for s in profile):
+            found = [s for s in found if s.kind != "SPADEK_OCEN"]
+        return found + profile
 
     def hr_partner(self, cycle: EvaluationCycle, employee: Employee, notes: Sequence[Note],
                    absences: Sequence[Absence], today: date, use_ai: bool = True,
-                   extra: Mapping[str, Sequence[str]] | None = None) -> HrReport:
-        signals = self._detect_signals(cycle, employee, notes, absences, today, extra)
+                   extra: Mapping[str, Sequence[str]] | None = None,
+                   history: Sequence[FinishedEvaluation] | None = None) -> HrReport:
+        signals = self._detect_signals(cycle, employee, notes, absences, today, extra, history)
         if not signals or not use_ai:
             return HrReport(tuple(signals), "REGULY")
         pseudo = self._people(employee)
         kinds = [s.kind for s in signals]
-        catalog = "\n".join(f"- {k}: {'; '.join(self.catalog.hr['sygnaly'][k]['rekomendacje'])}" for k in kinds)
+        catalog = "\n".join(f"- {k}: {'; '.join(self._signal_texts(k).get('rekomendacje', []))}" for k in kinds)
         prompt = _prompt("hr", person=pseudo.token_for(employee.first_name, employee.last_name),
                          position=employee.position, catalog=catalog,
                          signals="\n".join(f"- {s.kind} | {pseudo.mask('; '.join(s.evidence))}" for s in signals))
@@ -763,6 +841,6 @@ class AiSuggestionService:
         ai = self._ask_json("hr_partner", prompt, schema, "text", validate)
         if ai is None:
             return HrReport(tuple(signals), "REGULY")
-        merged = tuple(HrSignal(s.kind, ai[s.kind][0], s.evidence, tuple(ai[s.kind][1]) or s.recommendations)
-                       if s.kind in ai else s for s in signals)
+        merged = tuple(HrSignal(s.kind, ai[s.kind][0], s.evidence, tuple(ai[s.kind][1]) or s.recommendations,
+                                s.development) if s.kind in ai else s for s in signals)
         return HrReport(merged, "AI")

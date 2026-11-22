@@ -80,6 +80,8 @@ class OfficeSettings:
     training_score_below: int = 5
     # archive: retention periods (app/application/archive.py)
     archive: dict = field(default_factory=dict)
+    # personalised conversation prep / development from the person's history (app/domain/career_profile.py)
+    employee_profile: dict = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, raw: dict) -> OfficeSettings:
@@ -117,7 +119,8 @@ class OfficeSettings:
                    objection=objection, wellbeing_often_threshold=int(wellbeing.get("prog_odpowiedzi_czesto", 3)),
                    rcp=dict(raw.get("rcp") or {}), report_min_group=int(reports.get("minimalna_grupa", 5)),
                    training_score_below=int(training.get("ocena_czastkowa_ponizej", 5)),
-                   archive=dict(raw.get("archiwum") or {}))
+                   archive=dict(raw.get("archiwum") or {}),
+                   employee_profile=dict(raw.get("profil_pracownika") or {}))
 
 
 def load_office_settings(path: str | Path | None = None) -> OfficeSettings:

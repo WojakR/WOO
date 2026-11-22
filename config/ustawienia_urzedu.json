@@ -95,5 +95,95 @@
     "_opis": "Zmiana terminu oceny (art. 81 ust. 8). Decyzję podejmuje oceniający: OCENIAJACY = zmiana działa od razu; KADRY = urząd wymaga dodatkowo zatwierdzenia przez dział kadr (procedura wewnętrzna). propozycja_dni_po_powrocie = podpowiadany nowy termin po zakończeniu nieobecności.",
     "zatwierdza": "OCENIAJACY",
     "propozycja_dni_po_powrocie": 14
+  },
+  "profil_pracownika": {
+    "_opis": "Personalizacja przygotowania do rozmowy i części rozwojowej na podstawie historii pracownika (staż w urzędzie + poziomy kolejnych ocen, app/domain/career_profile.py). Progi i teksty to decyzje urzędu, nie przepisy. To podpowiedzi dla oceniającego – nigdy ocena osoby ani diagnoza.",
+    "staz_dlugi_lat": 5,
+    "nowy_pracownik_miesiecy": 12,
+    "trend_ocen": 3,
+    "stagnacja_ocen": 2,
+    "stagnacja_min_stazu_lat": 3,
+    "sygnaly": {
+      "SPADEK_PRZY_STAZU": {
+        "opis": "Doświadczony pracownik (długi staż), a wynik kolejnej oceny jest niższy – przyczyna może leżeć poza samymi kompetencjami.",
+        "rekomendacje": [
+          "zacznij od pytania otwartego, jak pracownik sam ocenia ostatni okres – zanim omówisz wyniki",
+          "zapytaj, czy coś utrudnia pracę – w pracy lub poza nią – i zostaw pracownikowi decyzję, ile chce powiedzieć (nie dopytuj o sprawy prywatne)",
+          "sprawdź, kiedy pracownik ostatnio korzystał z dłuższego urlopu wypoczynkowego, i zachęć do zaplanowania odpoczynku",
+          "przejrzyj obciążenie i zakres zadań – czy nie przybyło obowiązków bez zmiany zasobów",
+          "poinformuj o wsparciu, które urząd oferuje (np. elastyczna organizacja czasu pracy, program wsparcia pracowników)"
+        ],
+        "rozwoj": [
+          "rozmowa o zadaniach, które dają pracownikowi najwięcej satysfakcji, i zwiększenie ich udziału",
+          "zmiana lub rotacja części zadań, aby przełamać rutynę",
+          "krótka comiesięczna rozmowa z przełożonym zamiast czekania na kolejną ocenę"
+        ]
+      },
+      "SPADEK_TRENDU": {
+        "opis": "Kolejne oceny są coraz niższe – to trend, a nie pojedynczy gorszy okres.",
+        "rekomendacje": [
+          "pokaż trend na faktach (poziomy kolejnych ocen) i zapytaj o przyczyny",
+          "ustal 2–3 konkretne cele poprawy z terminami",
+          "zaplanuj comiesięczną informację zwrotną"
+        ],
+        "rozwoj": [
+          "szkolenie w obszarze kryteriów z najniższymi ocenami",
+          "mentoring doświadczonego współpracownika",
+          "przegląd postępów po 3 miesiącach"
+        ]
+      },
+      "STAGNACJA": {
+        "opis": "Wyniki od kilku ocen na tym samym poziomie mimo rosnącego doświadczenia – stabilnie, ale bez rozwoju.",
+        "rekomendacje": [
+          "doceń stabilność i rzetelność – stały poziom to nie porażka",
+          "zapytaj o ambicje i o to, czego pracownik oczekuje od kolejnych lat pracy",
+          "nazwij oczekiwania: co konkretnie oznaczałby wyższy poziom w kryteriach pracownika",
+          "zapytaj, co blokuje rozwój (brak wyzwań, szkoleń, samodzielności, zakres zadań)"
+        ],
+        "rozwoj": [
+          "nowe, ambitniejsze zadanie lub projekt z jasnym celem",
+          "szkolenie specjalistyczne poszerzające kompetencje",
+          "udział w zespole zadaniowym lub zastępstwo na wyższym stanowisku",
+          "rola mentora dla nowych pracowników"
+        ]
+      },
+      "STABILNIE_WYSOKO": {
+        "opis": "Kolejne oceny na jednym z dwóch najwyższych poziomów.",
+        "rekomendacje": [
+          "doceń konkretne osiągnięcia z okresu oceny",
+          "zapytaj o plany zawodowe i ścieżkę awansu (stopień służbowy, wyższe stanowisko)",
+          "upewnij się, że praca nadal jest wyzwaniem – zbyt mało wyzwań grozi znudzeniem lub odejściem"
+        ],
+        "rozwoj": [
+          "przygotowanie do roli kierowniczej lub eksperckiej",
+          "szkolenia rozwijające (zarządzanie, specjalizacja)",
+          "rola mentora lub lidera projektu"
+        ]
+      },
+      "WZROST": {
+        "opis": "Wynik wyższy niż w poprzedniej ocenie – widoczny postęp.",
+        "rekomendacje": [
+          "doceń postęp i zapytaj, co pomogło",
+          "ustal, jak utrzymać ten kierunek"
+        ],
+        "rozwoj": [
+          "kontynuacja działań rozwojowych, które dały efekt",
+          "kolejny krok: zadanie wymagające większej samodzielności"
+        ]
+      },
+      "NOWY_PRACOWNIK": {
+        "opis": "Krótki staż w urzędzie – pracownik dopiero się wdraża.",
+        "rekomendacje": [
+          "zapytaj, jak przebiega wdrożenie i czego brakuje",
+          "wyjaśnij, na czym polega ocena okresowa i czego dotyczą kryteria",
+          "oceniaj na tle czasu wdrożenia, a nie w porównaniu z doświadczonymi pracownikami"
+        ],
+        "rozwoj": [
+          "szkolenia wdrożeniowe (przepisy, procedury urzędu)",
+          "opiekun lub mentor na pierwsze miesiące",
+          "służba przygotowawcza, jeśli jeszcze nie została odbyta"
+        ]
+      }
+    }
   }
 }

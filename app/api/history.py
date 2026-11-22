@@ -30,8 +30,9 @@ def history_of(st: DemoState, employee_id: str, exclude_cycle: str | None = None
            for c in cycles]
     e = st.directory.get(employee_id)
     p = e.previous_evaluation if e else None
-    if p and p.date and p.outcome and all(p.date < h.drawn_up for h in out):
-        out.append(FinishedEvaluation(p.date, p.outcome, p.level, p.acknowledged, None))
+    for p in [*(e.earlier_evaluations if e else ()), p]:  # from the HR data: only those before the system's own
+        if p and p.date and p.outcome and all(p.date < h.drawn_up for h in out if h.evaluation_id):
+            out.append(FinishedEvaluation(p.date, p.outcome, p.level, p.acknowledged, None))
     return sorted(out, key=lambda h: h.drawn_up)
 
 
