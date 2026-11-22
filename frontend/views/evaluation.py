@@ -626,8 +626,8 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
                 def use(field=field, tkey=tkey, dkey=dkey, ekey=ekey) -> None:
                     text = st.session_state[ekey].strip()
                     if text == st.session_state[dkey]["tekst"].strip():
-                        st.session_state[f"err_{dkey}"] = ("Tekst propozycji jest bez zmian. Przeczytaj go i popraw "
-                                                           "przynajmniej jedno miejsce, a potem kliknij „Wstaw”.")
+                        st.session_state[f"err_{dkey}"] = ("Tekst propozycji jest bez zmian. Przeczytaj go i popraw, "
+                                                           "a potem kliknij „Wstaw”.")
                         return
                     if not text:
                         st.session_state[f"err_{dkey}"] = "Tekst jest pusty."
@@ -642,7 +642,7 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
                     for k in (dkey, ekey, f"err_{dkey}"):
                         st.session_state.pop(k, None)
 
-                a.button("Wstaw poprawiony tekst", key=f"use_{dkey}", type="primary", use_container_width=True,
+                a.button("Wstaw", key=f"use_{dkey}", type="primary", use_container_width=True,
                          on_click=use)
                 c.button("✖ Odrzuć", key=f"rej_{dkey}", use_container_width=True, on_click=reject)
         st.text_area(title, key=tkey, height=170, disabled=not editable, label_visibility="collapsed",
