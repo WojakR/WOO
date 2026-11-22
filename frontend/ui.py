@@ -132,6 +132,10 @@ section[data-testid="stSidebar"] { background: var(--band) !important; }
 .msi { font-family: "Material Symbols Rounded"; font-weight: normal; font-style: normal; font-size: 1.15em;
   line-height: 1; vertical-align: -0.18em; display: inline-block; letter-spacing: normal; text-transform: none;
   white-space: nowrap; direction: ltr; -webkit-font-feature-settings: "liga"; font-feature-settings: "liga"; }
+/* the theme watcher (a 1-px frame) keeps running but takes no room and draws nothing */
+section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has([data-testid="stIFrame"]) {
+  position: absolute !important; width: 0 !important; height: 0 !important; overflow: hidden !important;
+  opacity: 0 !important; pointer-events: none !important; margin: 0 !important; }
 /* side menu tiles: icon + label */
 /* folded side menu: a slim navy rail with the same tiles, icon only (hover = name) */
 section[data-testid="stSidebar"][data-collapsed="true"] {
