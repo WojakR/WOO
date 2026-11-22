@@ -34,7 +34,7 @@ MAX_HITS = 30
 
 
 def slugify(text: str) -> str:
-    """Anchor of a heading – the same rule as in frontend/web/js/views/help.js."""
+    """Anchor of a heading: lower case, without diacritics, every other run of characters -> "-"."""
     text = unicodedata.normalize("NFD", text.casefold().replace("ł", "l"))
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     return re.sub(r"[^a-z0-9]+", "-", text).strip("-")

@@ -1,8 +1,8 @@
-"""The Streamlit app talks to the backend only through the /api contract (docs/api.md) – the same endpoints
-as the web UI, so every rule, permission and saved record comes from the server and its database.
+"""The Streamlit app talks to the backend only through the /api contract (docs/api.md), so every rule,
+permission and saved record comes from the server and its database.
 
 Transport:
-- API_URL set (e.g. http://localhost:8000) -> HTTP to a running `uvicorn backend.main:app` (shared with the web UI);
+- API_URL set (e.g. http://localhost:8000) -> HTTP to a running `uvicorn backend.main:app` (shared by several users);
 - otherwise the FastAPI app runs in-process (fastapi TestClient): same routes, middleware and DB persistence,
   no second server needed for the demo.
 """

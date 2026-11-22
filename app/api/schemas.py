@@ -232,7 +232,7 @@ class DashboardItem(_Out):
     dni_do_terminu: int | None
     pilnosc: Literal["PO_TERMINIE", "PILNE", "WKROTCE", "OK"] = "OK"   # PILNE ≤ 7 dni, WKROTCE ≤ 30
     sygnaly_hr: int = 0                  # count of open HR-partner signals (badge)
-    # optional extras for the overview table (added with the web UI; backward compatible)
+    # optional extras for the overview table (backward compatible)
     komorka: str | None = None
     wynik: Wynik | None = None           # only once the evaluation is made
     termin_oceny: date | None = None     # evaluation deadline (termin = the deadline relevant right now)

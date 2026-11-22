@@ -1,10 +1,8 @@
 """API (FastAPI) + aplikacja webowa. Uruchom: uvicorn backend.main:app --reload
 ->  http://localhost:8000 (interfejs),  http://localhost:8000/docs (API)"""
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from app.api.admin import router as admin_router
 from app.api.audit import audit_middleware
@@ -45,7 +43,7 @@ app.include_router(deadline_requests_router)  # zmiana terminu (art. 81 ust. 8)
 app.include_router(reminders_router)  # przypomnienia
 app.include_router(employees_router)  # widok Pracownicy
 app.include_router(evaluator_changes_router)  # zmiana oceniającego
-app.include_router(evaluations_router)  # sheet, dashboard, HR partner, demo – used by the web UI
+app.include_router(evaluations_router)  # sheet, dashboard, HR partner, demo – used by the UI
 app.include_router(admin_router)  # HR import
 app.include_router(hr_tasks_router)  # consequences of evaluations (HR tasks)
 app.include_router(audit_router)  # dziennik zmian (HR)
@@ -88,20 +86,3 @@ app.add_middleware(AuthMiddleware)
 @app.get("/health")
 def health():
     return {"ok": True, "models": config.LLM_MODELS, "mock": config.LLM_MOCK}
-
-
-# Web UI (frontend/web) – mounted last so it never shadows API routes
-WEB_DIR = Path(__file__).resolve().parent.parent / "frontend" / "web"
-
-
-class _RevalidatedStatic(StaticFiles):
-    """Browsers revalidate (ETag) on every load, so a new UI version shows up without a hard refresh."""
-
-    async def get_response(self, path, scope):
-        response = await super().get_response(path, scope)
-        response.headers["Cache-Control"] = "no-cache"
-        return response
-
-
-if WEB_DIR.is_dir():
-    app.mount("/", _RevalidatedStatic(directory=WEB_DIR, html=True), name="web")

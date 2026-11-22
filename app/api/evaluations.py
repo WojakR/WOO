@@ -1,4 +1,4 @@
-"""Evaluation sheet, dashboard and demo endpoints (docs/api.md) – what the web UI (frontend/web) uses.
+"""Evaluation sheet, dashboard and demo endpoints (docs/api.md) – what the UI (frontend/, Streamlit) uses.
 
 Thin: every rule (average, level, outcome, deadlines, locks, allowed actions) comes from the domain; this
 module looks things up, calls the services and shapes the contract schemas.

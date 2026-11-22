@@ -677,7 +677,9 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
 def _sheet_choice(api: Api, ev: dict) -> None:
     """Which sheet the system chose from the position and why; HR may change it until the criteria are approved."""
     d = ev.get("dobor_arkusza") or {}
-    why = d.get("powod") or f"Dobrany przez system na podstawie stanowiska: {ev['oceniany'].get('stanowisko') or '—'}."
+    # with no HR data the server gives the warning as the reason too – show it once, as the warning
+    reason = d.get("powod") if d.get("powod") != d.get("ostrzezenie") else None
+    why = reason or f"Dobrany przez system na podstawie stanowiska: {ev['oceniany'].get('stanowisko') or '—'}."
     ui.html(f"<p>{ui.badge('Arkusz ' + ev['arkusz'], 'b-blue')} <span class='lock'>{escape(why)}</span></p>")
     if d.get("ostrzezenie"):
         st.warning(d["ostrzezenie"])

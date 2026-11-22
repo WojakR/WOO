@@ -1,10 +1,21 @@
 # Do zrobienia
 
-Stan na 22.11.2026 (gałąź `chore/dead-code-cleanup`, po PR #36). Lista zbiera to, co jeszcze otwarte:
+Stan na 22.11.2026 (gałąź `chore/dead-code-cleanup`, po PR #36 i #37 – interfejsem aplikacji jest Streamlit,
+`frontend/web` usunięty). Lista zbiera to, co jeszcze otwarte:
 niezamknięte punkty z [`TODO.md`](../../TODO.md) i rzeczy znalezione przy przeglądzie demo, sprzątaniu kodu
 i rozmowie o wdrożeniu w małym urzędzie. Zrobione rzeczy są w `TODO.md`; tutaj tylko to, co zostało.
 
 Priorytet: **P1** przed prezentacją · **P2** wdrożenie pilotażowe · **P3** później.
+
+## 0. Luki po usunięciu web UI (P1)
+
+PR #37 usunął `frontend/web`; razem z nim zniknęły ekrany dodane w PR #36. Serwer je obsługuje, w Streamlicie
+trzeba je dobudować albo sprawdzić:
+
+- [ ] **P1** UC1 „AI podpowiada kryteria” – endpoint `POST /api/evaluations/{id}/ai/suggest-criteria` działa (także bez
+  AI), w Streamlicie nie ma przycisku ani metody w `frontend/api_client.py`. Pozycja z listy MVP w `docs/task.md`.
+- [ ] **P1** Oceniany po zalogowaniu widzi swoją ocenę i to, że czeka na niego krok – `GET /api/dashboard` zwraca
+  `moje`; sprawdzić, czy `frontend/views/employee.py` prowadzi do zapoznania się / potwierdzenia kryteriów.
 
 ## 1. Otwarte punkty z `TODO.md`
 
@@ -24,7 +35,7 @@ Priorytet: **P1** przed prezentacją · **P2** wdrożenie pilotażowe · **P3** 
 Ustalony kierunek: aplikacja jako asystent jednej osoby (przełożony / kadry), podpis na papierze, przypomnienia
 mailem i w kalendarzu. Jeden kod, dwa profile („małe biuro” / „duży urząd”) różniące się adapterami.
 
-- [ ] **P2** Kreator pierwszego uruchomienia `#/start`: nazwa urzędu, pracownicy, kto kogo ocenia, poczta; sam ustawia
+- [ ] **P2** Kreator pierwszego uruchomienia (strona w Streamlicie): nazwa urzędu, pracownicy, kto kogo ocenia, poczta; sam ustawia
   `APP_MODE=production`, `AUTH_MODE=session` i `SECRET_KEY`. Pytania z ich świata („Czy macie dział IT?”), bez żargonu.
 - [ ] **P2** Zakładanie kont i reset haseł w UI dla kadr – dziś tylko `python -m app.api.auth add …` (ekran logowania
   mówi „konto nadaje dział kadr”).
@@ -53,16 +64,15 @@ Przy sprzątaniu zostawione celowo: działa i ma testy, ale nic z aplikacji tego
 
 - [ ] **P2** Strumieniowanie szkicu (SSE): `AiSuggestionService.draft_stream` i `backend.llm.stream_ollama` są gotowe,
   endpoint `POST /api/evaluations/{id}/ai/draft` zwraca tylko całość. Przy wolnym modelu lokalnym strumień bardzo
-  poprawia odczucia – warto podłączyć (endpoint + `api.js`).
+  poprawia odczucia – warto podłączyć (endpoint + `st.write_stream` w Streamlicie).
 - [ ] **P3** `EvaluationService.meeting_prep` (UC4 w use case'ach) dubluje `AiSuggestionService.conversation_prep`,
   którego używa API – zostawić jedno.
 - [ ] **P3** `backend.llm.ask_llm_json` – opisane w `CLAUDE.md`, używane tylko w testach (asystent idzie przez
   `app/infrastructure/ai_models.py`).
 - [ ] **P3** Porty `WorkTimeSource` i `DocumentRegistry` w `app/application/ports.py` – adaptery istnieją, ale nikt nie
   odwołuje się do typów (opis interfejsu, nie kod) – zostawić jako dokumentację albo użyć w adnotacjach.
-- [ ] **P3** **Stare demo w Streamlit** (`frontend/app.py`, `frontend/views/`, `api_client.py`, `ui.py`, `process.py`,
-  `ics.py`, `design/`): pełny drugi interfejs, utrzymywany „dopóki web UI go nie pokryje”. Web UI pokrywa już cały
-  proces. Usunięcie zdejmuje zależność `streamlit` (duża, wolny import) i ~3,6 tys. linii – decyzja zespołu.
+- [ ] **P3** Endpointy, z których nie korzysta już żaden interfejs po usunięciu `frontend/web` – porównać trasy z
+  `app.openapi()` z wywołaniami w `frontend/api_client.py` i zdecydować: dobudować ekran albo zostawić jako API.
 - [ ] **P3** `nieprzeczytane_powiadomienia` w `GET /api/dashboard` jest zawsze `0` – policzyć albo usunąć pole.
 
 ## 4. Dokumentacja i porządek
@@ -76,8 +86,10 @@ Przy sprzątaniu zostawione celowo: działa i ma testy, ale nic z aplikacji tego
 - [ ] **P3** Testy `server/` wymagają pakietu `mcp`, którego nie ma w środowisku aplikacji – opisać w README osobne
   środowisko albo dodać do instrukcji.
 - [ ] **P3** Teksty szablonów: „realizował(a)”, „wyróżnił(a) się” – płeć z danych kadrowych zamiast nawiasów.
-- [ ] **P3** Drobne: `parseDate`, `initials` (`js/ui.js`) i `slugify`, `renderMarkdown` (`js/views/help.js`) są
-  eksportowane, choć używa ich tylko własny plik.
+- [ ] **P3** `docs/design.md` (w katalogu głównym) opisuje design system usuniętego `frontend/web/styles.css` –
+  przepisać pod Streamlit (`frontend/ui.py`) albo usunąć.
+- [ ] **P3** Start Streamlita na słabym laptopie: zmierzyć czas i pamięć `streamlit run frontend/app.py` (pomiar
+  ~125 MB / 3–5 s dotyczył samego API przez uvicorn).
 
 ## 5. Prezentacja (P1)
 
@@ -85,7 +97,7 @@ Przy sprzątaniu zostawione celowo: działa i ma testy, ale nic z aplikacji tego
   elektroniczny / Profil Zaufany tylko jako opcja dla urzędów z e-aktami. Notatka o architekturze wdrożenia
   (PIN ocenianego, Profil Zaufany) mówi inaczej niż ustalenia zespołu.
 - [ ] Slajd „od 4 do 2000 osób”: tabela modułów (baza, logowanie, przypomnienia, dokumenty, AI) – ten sam kod,
-  inne adaptery. Liczby do slajdu: ~125 MB RAM, start 3–5 s na i5 12. gen., arkusz w ~45 ms.
-- [ ] Zaktualizować opis PR #36 (ma trzy commity: pulpit ocenianego + UC1/UC4, drobiazgi z demo, szybszy start).
-- [ ] Przejść cały scenariusz demo jeszcze raz na `main` po scaleniu PR (Henryk → Grzegorz → PDF, Barbara → Monika:
-  podpowiedź kryteriów i notatka na rozmowę).
+  inne adaptery. Liczby do slajdu (samo API, i5 12. gen.): ~125 MB RAM, start 3–5 s, arkusz w ~45 ms – dla Streamlita
+  zmierzyć osobno.
+- [ ] Przejść cały scenariusz demo w Streamlicie na `main` po scaleniu tego PR (Henryk → Grzegorz → PDF, Barbara →
+  Monika: kryteria i notatka na rozmowę).

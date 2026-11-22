@@ -1,8 +1,8 @@
 """Cyfrowy Asystent Ocen Okresowych – Streamlit app. Run from projekt/: streamlit run frontend/app.py
 
 Everything goes through the backend's /api contract (frontend/api_client.py): the server keeps the data in
-the database and decides rules, permissions and allowed steps. Set API_URL=http://localhost:8000 to share
-a running `uvicorn backend.main:app` with the web UI; without it the API runs inside this process.
+the database and decides rules, permissions and allowed steps. Set API_URL=http://localhost:8000 to use
+a running `uvicorn backend.main:app` (one server for several users); without it the API runs inside this process.
 
 Pages (side menu): evaluator / HR – Mój zespół (views/team.py; a row opens views/evaluation.py), Dashboard
 (views/reports.py), Archiwum (views/archive.py), Terminy, Pomoc (views/guide.py), Ustawienia / HR: Panel administratora (views/admin.py);
