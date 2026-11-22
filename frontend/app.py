@@ -29,8 +29,9 @@ st.session_state.setdefault("emp_view", "ocena")
 _page = (st.session_state.user_id, st.session_state.view, st.session_state.get("eval_id"), st.session_state.emp_view)
 _page_switch = st.session_state.get("_last_page") != _page
 st.session_state._last_page = _page
+_page_key = __import__("hashlib").md5(repr(_page).encode()).hexdigest()[:10]
 ui.inject_css(ui.FONT_SCALES.get(st.session_state.a11y_font, 1.0), st.session_state.get("a11y_contrast", False),
-              page_switch=_page_switch)
+              page_switch=_page_switch, page_key=_page_key)
 
 api = Api(st.session_state.user_id)
 try:
@@ -222,5 +223,4 @@ elif st.session_state.view == "help":
     guide.render(api)
 else:
     team.render(api, me, ai)
-
-
+ui.page_done(_page_key)
