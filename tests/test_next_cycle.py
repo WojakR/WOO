@@ -75,3 +75,23 @@ def test_through_the_api_the_next_cycle_appears_next_to_the_finished_one():
     assert [(i["status"], i["wynik"]) for i in rows] == [("ZAKONCZONA", "POZYTYWNA"), ("KRYTERIA_DO_WYZNACZENIA", None)]
     # 24 months from drawing up (15.06.2026) = 15.06.2028, which is Corpus Christi -> next working day
     assert rows[1]["termin_oceny"] == "2028-06-16"
+
+
+def test_a_second_negative_in_a_row_starts_the_ordinary_24_month_cycle():
+    svc, _, nxt = _finished([3, 3, 3, 1, 3])
+    assert nxt.after_negative
+    clock = svc.clock
+    svc.set_criteria(nxt.id, BOSS, [])
+    svc.confirm_criteria(nxt.id, EMP)
+    clock.set(date(2026, 12, 28))
+    svc.record_review_meeting(nxt.id, BOSS)
+    ids = svc.cycles.get(nxt.id).criteria_ids(svc.rules)
+    svc.submit_evaluation(nxt.id, BOSS, scores=dict(zip(ids, [3, 3, 3, 1, 3])),
+                          justification="Uzasadnienie oceny negatywnej.", iprz_conclusions="Szkolenie.")
+    clock.set(date(2027, 1, 4))
+    done = svc.acknowledge(nxt.id, EMP)
+    third = svc.cycles.find_open_for(EMP)
+    assert done.result.outcome.value == "negatywna" and third is not None
+    assert not third.after_negative and third.start_date == date(2026, 12, 28)
+    assert third.criteria_deadline == CAL.next_working_day(date(2027, 1, 27))  # 30 days, not 7
+    assert svc.evaluation_deadline(third.id) == CAL.next_working_day(add_months(date(2026, 12, 28), 24))
