@@ -19,8 +19,6 @@ trzeba je dobudować albo sprawdzić:
 
 ## 1. Otwarte punkty z `TODO.md`
 
-- [ ] **P2** Zarządzanie strukturą podległości w UI – dziś przełożeni i podległość biorą się z danych kadrowych
-  (import CSV/XLSX), bez edycji w aplikacji **[T5]**, **[T6]**.
 - [ ] **P3** e-Akta: adapter HTTP (`EAKT_MODE=http`) czeka na specyfikację interfejsu od dostawcy; eksport do katalogu
   działa **[T24]**.
 - [ ] **P3** Import starych ocen z PDF bez wsparcia AI przy odczycie – reguły na strukturze wzoru i ekran weryfikacji
