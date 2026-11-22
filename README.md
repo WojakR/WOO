@@ -29,14 +29,15 @@ backend/
   config.py     # wczytuje .env / st.secrets
   llm.py        # ask_llm(), ask_llm_json() – fallback po liście modeli
   parsers.py    # PDF, XML, CSV/XLSX, TXT, OCR -> tekst/dict/DataFrame
-  db.py         # SQLite
+  db.py         # baza danych (SQLite, opcjonalnie PostgreSQL)
   main.py       # FastAPI: /api/...
   kprm.py       # jedyny czytelnik danych KPRM z ../server/data/kprm
+  sheet_pdf.py  # PDF arkusza A/B/C zgodny ze wzorem z rozporządzenia
 app/
-  domain/       # reguły oceny (§ 11), terminy, cykl oceny – czysty Python
-  application/  # przypadki użycia UC1–UC5, asystent AI
-  infrastructure/ # adaptery: dane KPRM, pamięć, modele AI
-  api/          # endpointy /api (routes.py), dane demo (demo_state.py), schematy kontraktu
+  domain/       # reguły oceny (§ 11), terminy, cykl oceny, dostęp – czysty Python
+  application/  # przypadki użycia procesu oceny, powiadomienia, raporty, asystent AI
+  infrastructure/ # adaptery: dane KPRM, baza, e-mail, e-Akt, EZD, import kadr i RCP, modele AI
+  api/          # endpointy /api, stan aplikacji (state.py), dane demo (demo_seed.py), schematy kontraktu
 frontend/       # interfejs Streamlit: app.py (menu, górny pasek), views/ (strony), api_client.py (tylko /api)
 Uruchom.bat / uruchom.sh # start jednym poleceniem (wywołują scripts/uruchom.py)
 scripts/
@@ -46,7 +47,7 @@ scripts/
 data/              # dane testowe (bazy .db nie są commitowane)
 ```
 
-## 1. Instalacja (każdy, dziś wieczorem)
+## 1. Instalacja ręczna
 
 Wymagany Python 3.10+ (`python --version`) i git.
 
@@ -70,8 +71,8 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Aplikacja ocen działa bez żadnych kluczy. Klucze w `.env` są potrzebne tylko do `ask_llm()` (punkt 3) –
-bez nich ustaw `LLM_MOCK=1`. Sprawdzenie instalacji:
+Aplikacja ocen działa bez żadnych kluczy. Klucze w `.env` są potrzebne tylko w trybie `AI_MODE=api`
+(model zewnętrzny, punkt 2). Sprawdzenie instalacji:
 
 ```bash
 python scripts/check_setup.py
@@ -107,27 +108,33 @@ docker compose down           # zatrzymanie; dane zostają w wolumenie "oceny-da
 - Ustawienia: opcjonalny plik `.env` obok (wzór w `.env.example`). Inny port: `PORT=9000 docker compose up -d`.
 - AI domyślnie wyłączone (szablony i reguły). Model lokalny: Ollama na tym samym serwerze i `AI_MODE=local`
   (kontener łączy się z `host.docker.internal:11434`).
-- Obraz jest sprawdzany w CI (zadanie `docker`: budowa, start, odpowiedź API, dane po restarcie).
+- W kontenerze działa ten sam interfejs co lokalnie (Streamlit, z API w tym samym procesie) na porcie 8000.
+- Obraz jest sprawdzany w CI (zadanie `docker`: budowa, start, strona aplikacji, odpowiedź API, dane po restarcie).
 
 ### Co zobaczysz
 
 Aplikacja startuje z danymi przykładowymi (osoby z `server/data/kprm/pracownicy.json`, notatki z
 `notatki_testowe.json`) i zegarem demo ustawionym na **25.05.2026**. Dane są zapisywane w bazie
-(`data/app.db`) i przetrwają restart; przycisk ⟲ w górnym pasku przywraca stan początkowy.
+(`data/app.db`) i przetrwają restart.
 
-- **Moje oceny** – przegląd: liczby, etapy procesu, tabela pracowników, panel „Wymaga uwagi”.
-- **Otwórz** przy pracowniku – arkusz oceny: etapy, kryteria ze skalą 1–9, dowody z notatek i sugestie,
-  wynik liczony na żywo (§ 11), uzasadnienie i wnioski IPRZ ze szkicem od asystenta, HR partner.
-- **Terminy i przypomnienia** – terminy od najbliższego.
+Menu po lewej (oceniający / dział kadr):
+- **Mój zespół** (dla kadr: **Oceny w urzędzie**) – lista pracowników, etapy procesu, „Wymaga uwagi”; z listy
+  otwierasz arkusz oceny: kryteria ze skalą 1–9, dowody z notatek i sugestie, wynik liczony na żywo (§ 11),
+  uzasadnienie i wnioski IPRZ ze szkicem od asystenta, HR partner;
+- **Dashboard** (raporty), **Archiwum**, **Terminy**, **Pomoc** (podręcznik), **Ustawienia** albo – dla kadr –
+  **Panel administratora** (pracownicy, przepisy, urząd, archiwum kadr, integracje).
 
-Górny pasek (tylko demo, zamiast logowania):
-- **wybór osoby** – Henryk Pryncypał (oceniający Grzegorza), Grzegorz Wzór (oceniany), Dział kadr (wszyscy) itd.;
-- **+7 dni / +30 dni** – przewija zegar serwera (terminy, przypomnienia);
-- **⟲** – przywraca dane przykładowe.
+Oceniany widzi **Moja ocena**, **Moje wnioski**, **Archiwum**, **Pomoc** i **Ustawienia**.
 
-Scenariusz demo: jako Henryk otwórz ocenę Grzegorza → przejrzyj sugestie → „Wstaw” szkic uzasadnienia i
-wniosków IPRZ → „Zatwierdź ocenę i przekaż do zapoznania” → przełącz się na Grzegorza → „Potwierdzam
-zapoznanie się z oceną”.
+Panel demo (tylko demo, zamiast logowania):
+- **Zalogowany jako** – Henryk Pryncypał (oceniający Grzegorza), Grzegorz Wzór (oceniany), Dział kadr (wszyscy) itd.;
+- **+1 dz. / +7 dni / +30 dni / Ustaw datę** – przesuwa zegar serwera (terminy, przypomnienia);
+- **↺ Przywróć dane przykładowe**.
+
+Scenariusz demo: jako Henryk otwórz ocenę Grzegorza → przejrzyj sugestie → wstaw szkic uzasadnienia i
+wniosków IPRZ → zatwierdź ocenę i przekaż do zapoznania → przełącz się na Grzegorza → potwierdź zapoznanie
+się z oceną → pobierz PDF arkusza. Pełny opis pracy dla każdej roli (oceniający, oceniany, kadry, administrator):
+[`docs/podrecznik.md`](docs/podrecznik.md) – ten sam tekst jest w aplikacji w zakładce „Pomoc”.
 
 ### Asystent AI (opcjonalnie)
 
@@ -144,47 +151,29 @@ Model lokalny: zainstaluj [Ollamę](https://ollama.com), potem
 `ollama pull SpeakLeash/bielik-11b-v2.3-instruct:Q4_K_M` i uruchom aplikację ponownie.
 Szczegóły: [`docs/asystent.md`](docs/asystent.md).
 
-### Inne
+## 3. Wdrożenie w urzędzie
 
-```bash
-python scripts/gen_fake_data.py --n 500  # dane testowe -> data/fake_wnioski.csv
-```
+- **Logowanie:** `AUTH_MODE=session` w `.env` (zamiast wyboru osoby w górnym pasku), konta zakłada administrator:
+  `python -m app.api.auth add <login> <id_pracownika|kadry> [--admin]`.
+- **Tryb produkcyjny:** `APP_MODE=production` – zegar Europe/Warsaw, bez danych przykładowych i bez przewijania czasu.
+- **Pracownicy:** Panel administratora → Pracownicy: formularz albo import z systemu kadrowego (CSV/XLSX, z podglądem błędów).
+- **Przypomnienia e-mailem:** serwer SMTP w `.env` i zadanie cykliczne `python -m app.application.notify_job`
+  (cron / Harmonogram zadań Windows, np. co godzinę w godzinach pracy).
+- **Zmiana przepisów:** Panel administratora → Przepisy – nowa wersja z datą wejścia w życie, bez zmian w kodzie.
+- **Aktualizacja:** `git pull` (albo nowy ZIP) i ponowne uruchomienie; w Dockerze `docker compose up -d --build`.
+  Dane zostają w bazie.
 
-## 3. Użycie LLM w kodzie
-
-```python
-from backend.llm import ask_llm, ask_llm_json
-
-ask_llm("Streść ten wniosek: ...")
-ask_llm_json("Wyciągnij z tekstu JSON z polami: nadawca, data, kwota. Tekst: ...")
-```
-
-Kolejność modeli ustawiasz w `LLM_MODELS` w `.env`. Gdy pierwszy padnie (limit, awaria), wchodzi następny.
-
-## 4. Zasady pracy z gitem
-
-- `main` zawsze działa. Na `main` merguje tylko Franek.
-- Każdy pracuje na swojej gałęzi: `git checkout -b wojtek/pipeline`
-- Małe commity, push co godzinę, PR do `main`.
-- Przed demo: `git tag demo` na działającej wersji.
-
-## 5. Deploy (Streamlit Community Cloud)
-
-1. share.streamlit.io → zaloguj przez GitHub → **Create app**
-2. Repo, gałąź `main`, plik `frontend/app.py`
-3. **Advanced settings → Secrets**: wklej klucze w formacie TOML:
-   ```toml
-   ANTHROPIC_API_KEY = "..."
-   LLM_MODELS = "anthropic/claude-sonnet-4-5,openai/gpt-4o-mini"
-   ```
-4. Deploy → otrzymujesz publiczny link do demo.
-
-## 6. OCR (opcjonalnie)
+## 4. Import zeskanowanych arkuszy – OCR (opcjonalnie)
 
 Instalujesz Tesseract z polskim językiem (Windows: instalator UB-Mannheim, zaznacz Polish; macOS: `brew install tesseract tesseract-lang`), dla PDF-ów także Poppler, potem:
 `pip install pytesseract pdf2image`
 
-## 7. Polski model lokalnie (opcjonalnie)
+## 5. Dla programistów
 
-Zainstaluj Ollamę, sprawdź dokładną nazwę modelu (`ollama search bielik` albo ollama.com), potem `ollama pull <nazwa>`.
-Dopisz `ollama/<nazwa>` na koniec `LLM_MODELS`. Na laptopie bez GPU model działa wolno: to opcja zapasowa i argument w pitchu („może działać on-premise”), nie silnik demo.
+- Dokumentacja techniczna: [`docs/api.md`](docs/api.md) (kontrakt API), [`docs/model-danych.md`](docs/model-danych.md),
+  [`docs/terminy.md`](docs/terminy.md) (liczenie terminów z przykładami KPRM), [`docs/asystent.md`](docs/asystent.md) (AI).
+- Wywołania modelu językowego są tylko w `backend/llm.py` (`ask_llm()` / `ask_llm_json()` – zawsze z pseudonimizacją
+  danych osobowych). Kolejność modeli w `LLM_MODELS`; gdy pierwszy zawiedzie, wchodzi następny.
+- Dane syntetyczne do testów: `python scripts/gen_fake_data.py --n 500`.
+- Samo API (bez interfejsu): `uvicorn backend.main:app --reload` -> http://localhost:8000/docs; interfejs korzysta z
+  niego, gdy w `.env` jest `API_URL=http://localhost:8000`.

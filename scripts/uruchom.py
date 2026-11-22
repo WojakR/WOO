@@ -91,11 +91,24 @@ def _prepare(project: Path) -> Path:
     return py
 
 
+# Streamlit's own health check: answers "ok" once the server is up (the /api routes run in-process, not over HTTP)
+HEALTH_PATH = "_stcore/health"
+# Windows without long paths allows 260 characters; the deepest file in the venv (streamlit 1.67) is ~140
+# characters below projekt/, so a folder deeper than ~120 characters fails while pip installs.
+WINDOWS_MAX_PATH = 260
+DEEPEST_VENV_FILE = 140
+
+
+def path_too_long(project: Path, is_windows: bool = os.name == "nt") -> bool:
+    """True when the folder is so deep that installing the libraries may hit the Windows path limit."""
+    return is_windows and len(str(project)) + DEEPEST_VENV_FILE >= WINDOWS_MAX_PATH
+
+
 def _open_when_ready(url: str, timeout_s: float = 120) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url + "api/meta", timeout=2):
+            with urllib.request.urlopen(url + HEALTH_PATH, timeout=2):
                 webbrowser.open(url)
                 return
         except OSError:
@@ -117,7 +130,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         py = _prepare(PROJECT)
     except subprocess.CalledProcessError:
-        _say("✖ Instalacja bibliotek nie powiodła się. Sprawdź połączenie z internetem i uruchom ponownie.")
+        if path_too_long(PROJECT):
+            _say("✖ Instalacja bibliotek nie powiodła się – prawdopodobnie ścieżka folderu jest za długa dla Windows "
+                 f"({len(str(PROJECT))} znaków). Przenieś folder bliżej dysku (np. C:\\Asystent), usuń w nim "
+                 "katalog .venv i uruchom ponownie.")
+        else:
+            _say("✖ Instalacja bibliotek nie powiodła się. Sprawdź połączenie z internetem i uruchom ponownie.")
         return 1
 
     host = "0.0.0.0" if args.siec else "127.0.0.1"

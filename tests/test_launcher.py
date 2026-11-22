@@ -48,3 +48,13 @@ def test_busy_port_is_skipped():
         busy = s.getsockname()[1]
         assert not uruchom.port_free("127.0.0.1", busy)
         assert uruchom.find_free_port("127.0.0.1", busy) != busy
+
+
+def test_long_windows_path_is_recognised():
+    assert uruchom.path_too_long(Path("C:/" + "a" * 130), is_windows=True)
+    assert not uruchom.path_too_long(Path("C:/Users/Jan/Desktop/Hacknation/projekt"), is_windows=True)
+    assert not uruchom.path_too_long(Path("/" + "a" * 300), is_windows=False)  # macOS / Linux: no such limit
+
+
+def test_browser_waits_for_the_streamlit_health_check():
+    assert uruchom.HEALTH_PATH == "_stcore/health"
