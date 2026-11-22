@@ -63,9 +63,18 @@ SMTP_USER = _secret("SMTP_USER", "")
 SMTP_PASSWORD = _secret("SMTP_PASSWORD", "")
 SMTP_FROM = _secret("SMTP_FROM", "")
 SMTP_STARTTLS = _secret("SMTP_STARTTLS", "1") == "1"
+# e-mail of the HR department (notices for "kadry": change of an evaluation, request for the next grade)
+HR_EMAIL = _secret("HR_EMAIL", "")
 
 # e-Akt export (app/infrastructure/eakt.py): off | katalog | http
 EAKT_MODE = _secret("EAKT_MODE", "katalog").lower()
 EAKT_DIR = ROOT / _secret("EAKT_DIR", "data/eakt")
 EAKT_URL = _secret("EAKT_URL")
 EAKT_TOKEN = _secret("EAKT_TOKEN")
+
+# EZD – electronic document management (app/infrastructure/ezd.py): off | katalog | http
+EZD_MODE = _secret("EZD_MODE", "katalog").lower()
+EZD_DIR = ROOT / _secret("EZD_DIR", "data/ezd")
+EZD_URL = _secret("EZD_URL")
+EZD_TOKEN = _secret("EZD_TOKEN")
+EZD_JRWA = _secret("EZD_JRWA", "")  # class of the office's filing plan (JRWA) for periodic evaluations

@@ -138,7 +138,7 @@ Bez modelu wszystko działa – szkice i podpowiedzi powstają z szablonów i re
 |---|---|
 | `local` (domyślnie) | model lokalny przez Ollamę; gdy nie działa – szablony |
 | `off` | tylko szablony i reguły |
-| `api` | jeszcze niezaimplementowane |
+| `api` | model zewnętrzny przez LiteLLM (`LLM_MODELS`, klucz dostawcy w `.env`); dane osobowe pseudonimizowane przed wysłaniem; awaria – szablony |
 
 Model lokalny: zainstaluj [Ollamę](https://ollama.com), potem
 `ollama pull SpeakLeash/bielik-11b-v2.3-instruct:Q4_K_M` i uruchom aplikację ponownie.

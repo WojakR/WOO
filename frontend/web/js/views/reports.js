@@ -1,6 +1,6 @@
 // Reports for HR / managers: progress (T17), outcomes with charts (T18), training needs (T19).
 // Every number comes from /api/reports/*; charts are inline SVG (no libraries, works offline) with a data table.
-import { api, currentUserId } from "../api.js";
+import { api, currentUserId, download } from "../api.js";
 import { h, icon, replace, fmtDate, fmtNumber, toast, loading } from "../ui.js";
 import { STATUS_LABEL } from "../labels.js";
 
@@ -84,7 +84,7 @@ function dataTable(summary, head, rows) {
 
 export async function renderReports(view, ctx) {
   const f = { rok: ctx.year !== "all" ? ctx.year : "", komorka: "", poziom: null, wynik: null };
-  const R = { filters: h("div"), progress: h("div"), outcomes: h("div"), training: h("div") };
+  const R = { filters: h("div"), progress: h("div"), outcomes: h("div"), training: h("div"), statement: h("div") };
   const q = (extra = {}) => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries({ rok: f.rok, komorka: f.komorka, ...extra })) if (v) p.set(k, v);
@@ -95,7 +95,33 @@ export async function renderReports(view, ctx) {
   replace(view,
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Raporty"),
       h("p", {}, "Postęp i wyniki ocen okresowych w zakresie, który widzisz (kadry – cały urząd, przełożony – swój zespół)."))),
-    R.filters, R.progress, R.outcomes, R.training);
+    R.filters, R.statement, R.progress, R.outcomes, R.training);
+  renderStatement();
+
+  // statement of every evaluation for the reporting system / inspections (CSV for Excel, JSON for systems)
+  function renderStatement() {
+    const isHr = ctx.me.rola === "KADRY";
+    const from = h("input", { type: "date", id: "st-from" });
+    const to = h("input", { type: "date", id: "st-to" });
+    const names = h("input", { type: "checkbox" });
+    const get = (ext) => {
+      const extra = { od: from.value, do: to.value, dane_osobowe: names.checked ? "true" : "" };
+      download(`/reports/zestawienie.${ext}${q(extra)}`, `zestawienie-ocen.${ext}`).catch((e) => toast(e.message, "bad"));
+    };
+    replace(R.statement, h("details", { class: "card audit", style: { marginBottom: "16px" } },
+      h("summary", { class: "card-head" }, h("div", {}, h("h2", {}, "Zestawienie ocen do sprawozdań i kontroli"),
+        h("p", {}, "Każda ocena w zakresie raportu: terminy i ich dotrzymanie, wynik, sprzeciw, wniosek o stopień."))),
+      h("div", { class: "card-pad stack" },
+        h("div", { class: "row", style: { gap: "12px", flexWrap: "wrap", alignItems: "flex-end" } },
+          h("label", { for: "st-from", class: "stack", style: { gap: "4px" } }, h("span", { class: "small" }, "Sporządzone od"), from),
+          h("label", { for: "st-to", class: "stack", style: { gap: "4px" } }, h("span", { class: "small" }, "do"), to),
+          isHr ? h("label", { class: "row small", style: { gap: "6px" } }, names, "Z imionami i nazwiskami (np. dla kontroli)") : null),
+        h("p", { class: "small muted" }, "Bez zaznaczenia osoby mają stały pseudonim (P-…): system sprawozdawczy może liczyć osoby "
+          + "i porównywać okresy, ale nie widzi nazwisk. Filtry roku i komórki z góry strony też obowiązują."),
+        h("div", { class: "row", style: { gap: "8px" } },
+          h("button", { class: "btn", type: "button", onclick: () => get("csv") }, icon("download"), "CSV (Excel)"),
+          h("button", { class: "btn", type: "button", onclick: () => get("json") }, icon("download"), "JSON (system sprawozdawczy)")))));
+  }
 
   async function loadProgress() {
     replace(R.progress, loading());

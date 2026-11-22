@@ -30,6 +30,9 @@ from app.api.knowledge import router as knowledge_router
 from app.api.archive import router as archive_router
 from app.api.eakt import router as eakt_router
 from app.api.legacy_import import router as legacy_router
+from app.api.invitations import router as invitations_router
+from app.api.ezd import router as ezd_router
+from app.api.employee_admin import router as employee_admin_router
 from app.api.state import save_state
 from backend import config, db
 from backend.llm import ask_llm
@@ -57,6 +60,9 @@ app.include_router(knowledge_router)  # "Pomoc": manual + regulations
 app.include_router(archive_router)  # frozen closed evaluations, retention review
 app.include_router(eakt_router)  # e-Akt export retry
 app.include_router(legacy_router)  # import of old evaluations (PDF)
+app.include_router(invitations_router)  # invitations to the meetings (.ics)
+app.include_router(ezd_router)  # EZD registration status / retry
+app.include_router(employee_admin_router)  # employees entered / changed / deleted by hand (HR)
 install_error_handlers(app)
 
 

@@ -41,6 +41,43 @@ export async function renderArchive(view, ctx) {
     } catch (err) { toast(errorText(err), "bad"); } finally { btn.disabled = false; }
   }
 
+  // EZD: the sheets and letters registered in the office's document management system
+  const ezdBox = h("div");
+  const EZD_KIND = { ARKUSZ_OCENY_OKRESOWEJ: "Arkusz oceny", PISMO_ZMIANA_TERMINU_OCENY: "Pismo o zmianie terminu" };
+
+  async function loadEzd() {
+    const r = await api.ezd().catch(() => null);
+    if (!r) return replace(ezdBox);
+    const rows = r.dokumenty.slice(0, 20);
+    replace(ezdBox, h("section", { class: "card" },
+      h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "EZD – rejestracja dokumentów"),
+        h("p", {}, r.tryb === "off" ? "Rejestracja w EZD jest wyłączona (EZD_MODE=off)."
+          : `Tryb: ${r.tryb === "katalog" ? "paczki importu w katalogu (PDF + metadane.json)" : "usługa HTTP"}`
+            + (r.jrwa ? `, klasa JRWA ${r.jrwa}` : ", klasa JRWA do ustawienia (EZD_JRWA)") + ".")),
+        r.tryb !== "off" ? h("button", { class: "btn btn-sm", type: "button", onclick: (e) => retryEzd(e.currentTarget) },
+          icon("reset"), "Ponów nieudane") : null),
+      rows.length ? h("div", { class: "table-wrap" }, h("table", { class: "data" },
+        h("thead", {}, h("tr", {}, ["Dokument", "Ocena", "Status", "Próby", "Gdzie / błąd"].map((c) => h("th", { scope: "col" }, c)))),
+        h("tbody", {}, rows.map((x) => h("tr", {},
+          h("td", {}, EZD_KIND[x.rodzaj] || x.rodzaj),
+          h("td", {}, x.evaluation_id ? h("a", { href: `#/ocena/${x.evaluation_id}` }, `#${x.evaluation_id}`) : "–"),
+          h("td", {}, h("span", { class: `badge ${x.status === "ZAREJESTROWANO" ? "badge-ok" : "badge-bad"}` },
+            x.status === "ZAREJESTROWANO" ? "zarejestrowany" : "błąd")),
+          h("td", { class: "num" }, x.proby),
+          h("td", { class: "small" }, x.status === "ZAREJESTROWANO" ? x.miejsce : x.blad.split("\n")[0]))))))
+        : h("p", { class: "empty" }, "Jeszcze nic nie zarejestrowano – arkusz trafia do EZD po zapoznaniu się z oceną.")));
+  }
+
+  async function retryEzd(btn) {
+    btn.disabled = true;
+    try {
+      const r = await api.ezdRetry();
+      const ok = (r.ponowiono || []).filter((x) => x.status === "ZAREJESTROWANO").length;
+      toast(r.ponowiono?.length ? `Ponowiono ${r.ponowiono.length}, udane: ${ok}.` : "Brak nieudanych rejestracji.");
+      await loadEzd();
+    } catch (err) { toast(errorText(err), "bad"); } finally { btn.disabled = false; }
+  }
+
   async function remove(item) {
     const key = `${item.rodzaj}:${item.id ?? item.evaluation_id}`;
     if (!confirming.has(key)) { confirming.add(key); renderReview(lastReview); return; }
@@ -112,7 +149,7 @@ export async function renderArchive(view, ctx) {
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Archiwum ocen"),
       h("p", {}, "Arkusz oceny jest częścią akt osobowych (część B). Okresy przechowywania ustawia urząd w config/ustawienia_urzedu.json."))),
     h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap", marginBottom: "16px" } }, runBtn, eaktBtn),
-    h("div", { class: "stack" }, R.review, R.list));
+    h("div", { class: "stack" }, R.review, R.list, ezdBox));
   replace(R.list, loading());
-  await load();
+  await Promise.all([load(), loadEzd()]);
 }

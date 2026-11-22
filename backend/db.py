@@ -129,3 +129,13 @@ def delete_account(login: str) -> bool:
 
 
 init_db()
+
+
+def delete_accounts_of(employee_id: str) -> int:
+    """Removes every login account of a person (their data was deleted from the system). Returns how many."""
+    with session() as s:
+        accounts = s.exec(select(Account).where(Account.employee_id == employee_id)).all()
+        for acc in accounts:
+            s.delete(acc)
+        s.commit()
+        return len(accounts)

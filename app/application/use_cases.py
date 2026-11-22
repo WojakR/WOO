@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable, Mapping
 
 from app.domain.calendar import WorkingCalendar
-from app.domain.cycle import EvaluationCycle, PreviousEvaluation, Status
+from app.domain.cycle import CHANGE, REDO, EvaluationCycle, PreviousEvaluation, Status
 from app.domain.deadlines import Absence, PositionChange
 from app.domain.employee import Employee
 from app.domain.errors import InvalidTransition, NotFound, ValidationError
@@ -49,6 +49,14 @@ class PlannedReminder:
     message: str
 
 
+@dataclass(frozen=True)
+class ProcessEvent:
+    """Something happened in an evaluation that someone has to be told about (UC: "wysłanie powiadomienia")."""
+    kind: str  # OCENA_SPORZADZONA | OCENA_SPORZADZONA_PONOWNIE | OCENA_ZMIENIONA | SPRZECIW_ZLOZONY | SPRZECIW_ROZPATRZONY
+    cycle: EvaluationCycle  # as it is right after the step
+    on: date
+
+
 ACKNOWLEDGEMENT_WINDOW_DAYS = 30  # how long to keep reminding about acknowledging ("niezwłocznie", § 12 ust. 1)
 
 
@@ -77,6 +85,8 @@ class EvaluationService:
         # called when an evaluation becomes final for the personnel file (acknowledged / refusal noted /
         # objection not upheld) – e.g. the e-Akt export (app/application/personnel_export.py)
         self.on_final: list[Callable[[EvaluationCycle], None]] = []
+        # called after a step others must hear about (ProcessEvent.kind) – the state turns them into notices
+        self.on_event: list[Callable[[ProcessEvent], None]] = []
         # versions of the regulation (state wires app/infrastructure/regulations.py; None = one rule book only)
         self.version_at: Callable[[date], int | None] = lambda day: None
         self.rulebook_of: Callable[[int | None], RuleBook] | None = None
@@ -99,6 +109,14 @@ class EvaluationService:
         c = self._cycle(cycle_id)
         for hook in self.on_final:
             hook(c)
+
+    def _emit(self, kind: str, cycle_id: str) -> None:
+        """Tell the listeners (notifications, app/application/notices.py) what has just happened."""
+        if not self.on_event:
+            return
+        event = ProcessEvent(kind, self._cycle(cycle_id), self.clock.today())
+        for listener in self.on_event:
+            listener(event)
 
     def employee_absences(self, employee_id: str) -> list[Absence]:
         """Every absence of the person registered in any of their cycles (an absence after the evaluation was
@@ -444,9 +462,18 @@ class EvaluationService:
         justification: str | None = None,
         iprz_conclusions: str | None = None,
     ) -> EvaluationResult:
+        """Draw up the evaluation. After an upheld objection this carries out the director general's order: the
+        evaluation drawn up a second time goes to the evaluated person again; a changed one is final at once
+        (it stays the evaluation acknowledged before) – the next cycle restarts from the changed result."""
         today = self.clock.today()
-        return self._as_evaluator(cycle_id, actor_id, "submit_evaluation", lambda c, a: c.submit_evaluation(
+        order = self._cycle(cycle_id).objection_outcome if self._cycle(cycle_id).objection_order_pending else None
+        result = self._as_evaluator(cycle_id, actor_id, "submit_evaluation", lambda c, a: c.submit_evaluation(
             a, today, self.rules_for(c), scores, justification, iprz_conclusions))
+        kind = {CHANGE: "OCENA_ZMIENIONA", REDO: "OCENA_SPORZADZONA_PONOWNIE"}.get(order, "OCENA_SPORZADZONA")
+        self._emit(kind, cycle_id)
+        if order == CHANGE:
+            self._after_acknowledgement_done(cycle_id)
+        return result
 
     def acknowledge(self, cycle_id: str, actor_id: str) -> EvaluationCycle:
         """The evaluated person acknowledges the evaluation – and the next cycle starts on its own, so its deadline
@@ -487,15 +514,19 @@ class EvaluationService:
         today = self.clock.today()
         absences = self.employee_absences(self._cycle(cycle_id).employee_id)
         self._apply(cycle_id, lambda c: c.file_objection(actor_id, today, text, self.rules_for(c), self.calendar, absences))
+        self._emit("SPRZECIW_ZLOZONY", cycle_id)
         return self._cycle(cycle_id)
 
-    def decide_objection(self, cycle_id: str, reviewer_id: str, upheld: bool, reason: str) -> EvaluationCycle:
-        """Upheld: the evaluation returns to the evaluator; the follow-up cycle started automatically at the
-        acknowledgement is removed if nobody has worked on it yet (it was computed from the old result) – it
-        starts again when the evaluation, changed or drawn up again, is acknowledged."""
+    def decide_objection(self, cycle_id: str, reviewer_id: str, upheld: bool, reason: str,
+                         outcome: str | None = None) -> EvaluationCycle:
+        """Upheld (`outcome` CHANGE or REDO, art. 83 ust. 4): the evaluation returns to the evaluator; the follow-up
+        cycle started automatically at the acknowledgement is removed if nobody has worked on it yet (it was
+        computed from the old result) – it starts again when the evaluation is changed, or drawn up again and
+        acknowledged."""
         today = self.clock.today()
         before = self._cycle(cycle_id)
-        self._apply(cycle_id, lambda c: c.decide_objection(reviewer_id, today, upheld, reason))
+        self._apply(cycle_id, lambda c: c.decide_objection(reviewer_id, today, upheld, reason, outcome))
+        self._emit("SPRZECIW_ROZPATRZONY", cycle_id)
         if upheld:  # the reopened evaluation is open again too, so look for the follow-up explicitly
             for f in self.cycles.list_all():
                 if (f.id != cycle_id and f.employee_id == before.employee_id and f.status is Status.CYCLE_STARTED

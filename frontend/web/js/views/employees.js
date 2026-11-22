@@ -24,7 +24,8 @@ export async function renderEmployees(view, ctx, employeeId = null) {
     if (!isHr) return;
     const tasks = await api.hrTasks().catch(() => []);
     if (!tasks.length) return;
-    const KIND = { DWIE_NEGATYWNE: "Dwie kolejne oceny negatywne", STOPIEN_OBLIGATORYJNY: "Obligatoryjny kolejny stopień" };
+    const KIND = { DWIE_NEGATYWNE: "Dwie kolejne oceny negatywne", STOPIEN_OBLIGATORYJNY: "Obligatoryjny kolejny stopień",
+      WNIOSEK_O_STOPIEN: "Wniosek o kolejny stopień służbowy" };
     replace(R.tasks, h("section", { class: "card", style: { marginBottom: "16px" } },
       h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Zadania działu kadr"),
         h("p", {}, "Skutki kolejnych ocen okresowych – system niczego nie rozstrzyga sam."))),
@@ -126,7 +127,10 @@ export async function renderEmployees(view, ctx, employeeId = null) {
   replace(view,
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Pracownicy"),
       h("p", {}, isHr ? "Wszyscy pracownicy urzędu z danymi kadrowymi i historią ocen."
-        : "Osoby, których oceny widzisz, oraz Ty."))),
+        : "Osoby, których oceny widzisz, oraz Ty.")),
+      isHr ? h("button", { class: "btn btn-primary", type: "button",
+        onclick: () => employeeDialog(null, (saved) => { location.hash = `#/pracownicy/${saved.pracownik.id}`; }) },
+      icon("users"), "Dodaj pracownika") : null),
     R.tasks, R.filters, R.list, R.import);
   renderImport();
   renderTasks();
@@ -139,10 +143,16 @@ async function renderCard(view, ctx, id) {
   const p = card.pracownik;
   const cur = card.biezaca_ocena;
   const field = (label, value) => h("div", {}, h("div", { class: "small muted" }, label), h("div", {}, value || "–"));
+  const isHr = ctx.me.rola === "KADRY";
   replace(view,
     h("a", { class: "back", href: "#/pracownicy" }, icon("arrowLeft"), "Pracownicy"),
     h("div", { class: "eval-head" }, h("div", { class: "title" }, avatar(p.imie, p.nazwisko, "avatar-lg"),
-      h("h1", {}, `${p.imie} ${p.nazwisko}`), h("span", { class: "badge badge-sheet" }, `Arkusz ${p.arkusz}`))),
+      h("h1", {}, `${p.imie} ${p.nazwisko}`), h("span", { class: "badge badge-sheet" }, `Arkusz ${p.arkusz}`)),
+      isHr ? h("div", { class: "row", style: { gap: "8px" } },
+        h("button", { class: "btn", type: "button", onclick: () => employeeDialog(id, () => renderCard(view, ctx, id)) },
+          icon("pencil"), "Edytuj dane"),
+        h("button", { class: "btn", type: "button", onclick: () => removalDialog(id, `${p.imie} ${p.nazwisko}`) },
+          "Usuń dane pracownika")) : null),
     h("div", { class: "stack" },
       h("section", { class: "card card-pad" }, h("h2", {}, "Dane kadrowe"),
         h("div", { class: "grid-fields" },
@@ -177,4 +187,123 @@ async function renderCard(view, ctx, id) {
         absences.length ? h("ul", {}, absences.map((a) => h("li", {}, `${fmtDate(a.od)} – ${fmtDate(a.do)} (${a.typ})`)))
           : h("p", { class: "muted" }, "Brak zarejestrowanych nieobecności."),
         h("a", { class: "btn btn-sm", href: `#/nieobecnosci/${p.id}` }, "Zarządzaj nieobecnościami")) : null));
+}
+
+
+// ---------------------------------------------------------------- HR: add / edit a person (the rules of the HR import)
+function errorText(e) {
+  return e.walidacje?.length ? `${e.message} ${e.walidacje.map((w) => w.komunikat).join(" ")}` : e.message;
+}
+
+async function employeeDialog(id, onSaved) {
+  const [form, people] = await Promise.all([
+    id ? api.employeeForm(id) : Promise.resolve({}),
+    api.employees("na_strone=200").then((d) => d.pozycje.map((x) => x.pracownik)).catch(() => []),
+  ]);
+  const f = { urzednik_mianowany: false, ...form };
+  const input = (key, label, type = "text", extra = {}) => h("label", { class: "stack", style: { gap: "4px" } },
+    h("span", { class: "small" }, label),
+    h("input", { type, value: f[key] ?? "", ...extra, oninput: (e) => { f[key] = e.target.value || null; } }));
+  const check = (key, label) => h("label", { class: "row small", style: { gap: "6px" } },
+    h("input", { type: "checkbox", checked: Boolean(f[key]), onchange: (e) => { f[key] = e.target.checked; } }), label);
+  const boss = h("select", { "aria-label": "Przełożony (oceniający)", onchange: (e) => { f.przelozony = e.target.value ? Number(e.target.value) : null; } },
+    h("option", { value: "" }, "— brak (np. kierownik urzędu) —"),
+    people.filter((x) => x.id !== id).map((x) => h("option", { value: x.id, selected: f.przelozony === x.id },
+      `${x.nazwisko} ${x.imie} – ${x.stanowisko || ""}`)));
+  const sheet = h("select", { "aria-label": "Arkusz", onchange: (e) => { f.arkusz = e.target.value || null; } },
+    h("option", { value: "" }, "z roli (A – kierownik urzędu, B – kieruje zespołem, C – pozostali)"),
+    ["A", "B", "C"].map((a) => h("option", { value: a, selected: f.arkusz === a }, `Arkusz ${a}`)));
+  const startCycle = h("input", { type: "checkbox" });
+  const out = h("div");
+  const dlg = h("dialog", { class: "modal", "aria-labelledby": "emp-h", style: { width: "min(760px, calc(100vw - 32px))" } },
+    h("form", { method: "dialog", class: "stack", style: { gap: "10px", minWidth: "0" }, onsubmit: async (e) => {
+      e.preventDefault();
+      const body = { ...f, stopien_sluzbowy: f.stopien_sluzbowy ? Number(f.stopien_sluzbowy) : null };
+      try {
+        const saved = id ? await api.updateEmployee(id, body) : await api.addEmployee(body, startCycle.checked);
+        toast(id ? "Zapisano dane pracownika." : `Dodano pracownika (${saved.dane.id}).`
+          + (saved.uruchomiony_cykl ? " Uruchomiono cykl oceny." : ""));
+        dlg.close();
+        onSaved(saved);
+      } catch (err) {
+        replace(out, h("p", { class: "notice notice-bad" }, icon("alert"), errorText(err)));
+      }
+    } },
+      h("h2", { id: "emp-h" }, id ? "Edycja danych pracownika" : "Nowy pracownik"),
+      h("p", { class: "small muted" }, "Te same zasady co w imporcie z systemu kadrowego: wymagane imię, nazwisko i stanowisko; "
+        + "przełożony musi istnieć, bez pętli w strukturze; stopień służbowy tylko dla urzędnika."
+        + (id ? " Zmianę przełożonego osoby z oceną w toku wprowadza się przez „Zmiana oceniającego”." : "")),
+      h("div", { class: "grid-fields" },
+        input("imie", "Imię", "text", { required: true }), input("nazwisko", "Nazwisko", "text", { required: true }),
+        input("stanowisko", "Stanowisko", "text", { required: true }), input("komorka", "Komórka organizacyjna"),
+        input("urzad", "Urząd"), input("email", "E-mail", "email"),
+        h("label", { class: "stack", style: { gap: "4px" } }, h("span", { class: "small" }, "Przełożony (oceniający)"), boss),
+        h("label", { class: "stack", style: { gap: "4px" } }, h("span", { class: "small" }, "Arkusz oceny"), sheet),
+        input("stopien_sluzbowy", "Stopień służbowy (1–9)", "number", { min: 1, max: 9 }),
+        input("data_zatrudnienia", "Data zatrudnienia (na czas nieokreślony)", "date"),
+        input("data_ostatniej_oceny", "Data ostatniej oceny", "date"),
+        input("data_przyznania_stopnia", "Data przyznania stopnia", "date"),
+        input("data_zakonczenia_zatrudnienia", "Data ustania zatrudnienia", "date")),
+      input("opis_stanowiska", "Opis stanowiska (pomaga asystentowi dobrać kryteria)"),
+      h("div", { class: "row", style: { gap: "16px", flexWrap: "wrap" } },
+        check("urzednik_mianowany", "Urzędnik służby cywilnej (mianowany)"),
+        check("kieruje_zespolem", "Kieruje zespołem"), check("kierownik_urzedu", "Kierownik urzędu / dyrektor generalny"),
+        id ? null : h("label", { class: "row small", style: { gap: "6px" } }, startCycle, "Uruchom cykl oceny")),
+      out,
+      h("div", { class: "row", style: { justifyContent: "flex-end", gap: "8px" } },
+        h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Anuluj"),
+        h("button", { class: "btn btn-primary", type: "submit" }, icon("save"), "Zapisz"))));
+  dlg.addEventListener("close", () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+}
+
+// ---------------------------------------------------------------- HR: delete the person's data (archive stays)
+async function removalDialog(id, name) {
+  const end = h("input", { type: "date", "aria-label": "Data ustania stosunku pracy" });
+  const confirmBox = h("input", { type: "checkbox" });
+  const out = h("div");
+  const go = h("button", { class: "btn btn-danger", type: "button", disabled: true }, "Usuń dane");
+  async function check() {
+    try {
+      const plan = await api.removalPlan(id, end.value);
+      if (!end.value && plan.data_ustania_zatrudnienia) end.value = plan.data_ustania_zatrudnienia;
+      go.disabled = !plan.mozna_usunac;
+      replace(out, plan.mozna_usunac
+        ? h("div", { class: "notice notice-info" },
+          h("p", {}, `Do archiwum (akta osobowe, przechowywane 10 lat od końca roku ustania zatrudnienia): ${plan.do_archiwum.length} ocen.`),
+          h("p", {}, `Usunięte zostaną: cykle bez sporządzonej oceny (${plan.do_usuniecia.length}), notatki robocze, nieobecności, `
+            + "zastępstwa, dane RCP, ustawienia i konta logowania. W systemie zostaje tylko zapis bez danych osobowych."))
+        : h("div", { class: "notice notice-bad" }, h("p", {}, "Nie można jeszcze usunąć danych:"),
+          h("ul", { class: "small" }, plan.przeszkody.map((x) => h("li", {}, x)))));
+    } catch (err) {
+      replace(out, h("p", { class: "notice notice-bad" }, errorText(err)));
+    }
+  }
+  go.onclick = async () => {
+    if (!confirmBox.checked) { toast("Zaznacz potwierdzenie usunięcia.", "bad"); return; }
+    try {
+      const r = await api.removeEmployee(id, { data_ustania_zatrudnienia: end.value || null, zatwierdzam: true });
+      toast(`Usunięto dane: ${name}. Oceny w archiwum: ${r.do_archiwum.length}.`);
+      dlg.close();
+      location.hash = "#/pracownicy";
+    } catch (err) {
+      replace(out, h("p", { class: "notice notice-bad" }, errorText(err)));
+    }
+  };
+  end.addEventListener("change", check);
+  const dlg = h("dialog", { class: "modal", "aria-labelledby": "rm-h", style: { width: "min(600px, calc(100vw - 32px))" } },
+    h("div", { class: "stack", style: { gap: "10px", minWidth: "0" } },
+      h("h2", { id: "rm-h" }, `Usunięcie danych pracownika – ${name}`),
+      h("p", { class: "small muted" }, "Po ustaniu stosunku pracy. Zamknięte oceny trafiają najpierw do archiwum (część akt osobowych), "
+        + "od daty ustania zatrudnienia liczy się okres ich przechowywania. Operacji nie można cofnąć."),
+      h("label", { class: "stack", style: { gap: "4px" } }, h("span", { class: "small" }, "Data ustania stosunku pracy"), end),
+      out,
+      h("label", { class: "row small", style: { gap: "6px" } }, confirmBox, "Potwierdzam usunięcie danych tej osoby"),
+      h("div", { class: "row", style: { justifyContent: "flex-end", gap: "8px" } },
+        h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Anuluj"), go)));
+  dlg.addEventListener("close", () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+  check();
 }

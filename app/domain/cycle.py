@@ -68,6 +68,11 @@ TRANSITIONS: dict[str, tuple[frozenset[Status], Status]] = {
     "decide_objection": (frozenset({Status.OBJECTION}), Status.ACKNOWLEDGED),
 }
 
+# upheld objection (art. 83 ust. 4): the director general orders one of the two, the evaluator carries it out
+CHANGE = "ZMIANA_OCENY"  # parts of the evaluation replaced; it stays the same (acknowledged) evaluation
+REDO = "PONOWNE_SPORZADZENIE"  # annulled and drawn up a second time (that one may be objected to again)
+OBJECTION_OUTCOMES = {CHANGE: "zmiana oceny", REDO: "ponowne sporządzenie oceny"}
+
 STEP_LABELS = {
     "set_criteria": "wyznaczenie kryteriów",
     "confirm_criteria": "potwierdzenie kryteriów przez ocenianego",
@@ -126,6 +131,18 @@ class PreviousEvaluation:
     acknowledged: date | None = None  # employee acknowledged it (zapoznanie) – starts art. 81 ust. 9 / art. 83
 
 
+@dataclass(frozen=True)
+class SupersededEvaluation:
+    """The evaluation as it was before an upheld objection: annulled (REDO) or replaced by its change (CHANGE)."""
+    kind: str  # ZMIANA_OCENY | PONOWNE_SPORZADZENIE
+    on: date  # the day of the decision
+    evaluated_on: date | None
+    result: EvaluationResult | None
+    scores: dict[str, int]
+    justification: str
+    iprz_conclusions: str
+
+
 @dataclass
 class EvaluationCycle:
     id: str
@@ -165,6 +182,12 @@ class EvaluationCycle:
     objection_decided_on: date | None = None
     objection_decided_by: str | None = None
     objection_reason: str = ""
+    # upheld: what the DG ordered (CHANGE / REDO), the scores it may not go below, and when it was carried out
+    objection_outcome: str | None = None
+    objection_baseline: dict[str, int] = field(default_factory=dict)
+    objection_executed_on: date | None = None
+    acknowledged_before_change: date | None = None  # CHANGE: the acknowledgement stays the original one
+    superseded: list[SupersededEvaluation] = field(default_factory=list)
     history: list[tuple[date, Status]] = field(default_factory=list)
     # part III – request for the next grade (art. 89 ust. 1; civil servants only, positive evaluation only)
     promotion_request: bool = False
@@ -273,6 +296,33 @@ class EvaluationCycle:
         if self.acknowledged_on and self.is_negative:
             return reevaluation_date(self.acknowledged_on, rules, cal)
         return None
+
+    @property
+    def objection_order_pending(self) -> bool:
+        """An upheld objection is waiting for the evaluator: change the evaluation or draw it up again."""
+        return self.objection_outcome is not None and self.objection_executed_on is None
+
+    def objection_lowered(self, scores: Mapping[str, int]) -> list[str]:
+        """Criteria scored lower than before the upheld objection (empty when no order is pending)."""
+        if not self.objection_order_pending:
+            return []
+        return [cid for cid, old in self.objection_baseline.items() if scores.get(cid) is not None and scores[cid] < old]
+
+    def objection_problems(self, scores: Mapping[str, int], justification: str, iprz: str) -> list[str]:
+        """After an upheld objection the evaluation may not get worse (Poradnik KPRM to art. 83 ust. 4: upholding
+        means agreeing with the evaluated person), and a change must replace something."""
+        if not self.objection_order_pending:
+            return []
+        problems = [f"Ocena cząstkowa nie może być niższa niż przed sprzeciwem ({self.objection_baseline[cid]} → "
+                    f"{scores[cid]}) – uwzględnienie sprzeciwu nie może pogorszyć oceny."
+                    for cid in self.objection_lowered(scores)]
+        before = self.superseded[-1] if self.superseded else None
+        if (self.objection_outcome == CHANGE and before and dict(scores) == before.scores
+                and justification.strip() == before.justification.strip()
+                and iprz.strip() == before.iprz_conclusions.strip()):
+            problems.append("Zmiana oceny zastępuje jej fragmenty (np. oceny cząstkowe, uzasadnienie) nowymi – "
+                            "nic nie zostało zmienione.")
+        return problems
 
     def can(self, step: str) -> bool:
         return self.status in TRANSITIONS[step][0]
@@ -395,8 +445,17 @@ class EvaluationCycle:
         result = validate_evaluation(
             self.criteria_ids(rules), merged["scores"], merged["justification"], merged["iprz_conclusions"], rules
         )
+        if problems := self.objection_problems(merged["scores"], merged["justification"], merged["iprz_conclusions"]):
+            raise ValidationError(problems)
         self.edit(actor_id, rules, **changes)
         self.result = result
+        if self.objection_order_pending:
+            self.objection_executed_on = today
+            if self.objection_outcome == CHANGE:
+                # the changed evaluation is the same evaluation: drawn up and acknowledged when it first was
+                self.acknowledged_on = self.acknowledged_before_change
+                self._move(Status.ACKNOWLEDGED, today)
+                return result
         self.evaluated_on = today
         self._move(target, today)
         return result
@@ -490,19 +549,42 @@ class EvaluationCycle:
         self.objection_reason = ""
         self._move(target, today)
 
-    def decide_objection(self, reviewer_id: str, today: date, upheld: bool, reason: str) -> None:
-        """The reviewer (director general) decides (art. 83 ust. 3–4). Upheld: the evaluation goes back to the
-        evaluator to be changed or drawn up again; not upheld: it stays, and the person may go to court."""
+    def decide_objection(self, reviewer_id: str, today: date, upheld: bool, reason: str,
+                         outcome: str | None = None) -> None:
+        """The reviewer (director general) decides (art. 83 ust. 3–4). Not upheld: the evaluation stays and the
+        person may go to the labour court. Upheld: the DG orders either
+        - CHANGE (zmiana oceny): the evaluator replaces parts of it; it stays the evaluation drawn up and
+          acknowledged before (no new acknowledgement, no new objection), or
+        - REDO (ponowne sporządzenie): the evaluation is annulled and the process goes back to "rozmowa oceniająca
+          i dokonanie oceny"; the one drawn up a second time is acknowledged and may be objected to again.
+        Both are carried out by the evaluator (direct supervisor, art. 81 ust. 1 – Poradnik KPRM)."""
         self._require_step("decide_objection")
+        problems = []
         if not reason.strip():
-            raise ValidationError(["Uzasadnij rozstrzygnięcie sprzeciwu."])
+            problems.append("Uzasadnij rozstrzygnięcie sprzeciwu.")
+        if upheld and outcome not in OBJECTION_OUTCOMES:
+            problems.append("Wybierz, co wynika z uwzględnienia sprzeciwu: zmiana oceny albo ponowne sporządzenie "
+                            "oceny (art. 83 ust. 4).")
+        if problems:
+            raise ValidationError(problems)
         self.objection_decision = "UWZGLEDNIONY" if upheld else "NIEUWZGLEDNIONY"
         self.objection_decided_on, self.objection_decided_by, self.objection_reason = today, reviewer_id, reason.strip()
-        if upheld:
-            self.acknowledged_on = None
-            self._move(Status.MEETING_HELD, today)  # „ocena do ponownego sporządzenia”: part II editable again
-        else:
+        self.objection_outcome = outcome if upheld else None
+        self.objection_executed_on = None
+        if not upheld:
             self._move(Status.ACKNOWLEDGED, today)
+            return
+        self.objection_baseline = dict(self.scores)
+        self.superseded.append(SupersededEvaluation(outcome, today, self.evaluated_on, self.result, dict(self.scores),
+                                                    self.justification, self.iprz_conclusions))
+        self.acknowledged_before_change = self.acknowledged_on if outcome == CHANGE else None
+        self.acknowledged_on = None
+        self.result = None  # recomputed live while the evaluator works on it, fixed again on submitting
+        if outcome == REDO:  # annulled: drawn up and acknowledged anew
+            self.evaluated_on = self.drawn_up_by = None
+            self.printed_on = self.signed_on = None
+            self.acknowledgement_refused, self.refusal_note = False, ""
+        self._move(Status.MEETING_HELD, today)  # part II editable again
 
     # ---- absences (UC3/UC8) ----------------------------------------------------------------------
     def register_absence(self, absence: Absence) -> None:

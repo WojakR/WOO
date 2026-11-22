@@ -7,6 +7,7 @@ The logic lives in app/application/reports.py and training_needs.py; this module
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import date
 
 from fastapi import APIRouter, Depends, Header, Response
 
@@ -28,7 +29,7 @@ def _scope(st: DemoState, who: str, rok: int | None, komorka: str | None) -> Sco
     visible = policy.visible_employees(who)
     if not visible:
         raise NotAuthorized("Raporty są dostępne dla kadr i przełożonych (zakres: osoby, których oceny widzisz).")
-    people = [e for e in st.directory.all() if e.id in visible]
+    people = [e for e in st.directory.all() if e.id in visible and e.removed_on is None]
     return Scope(people, st.evaluations.cycles.list_all(), st.rules_for, st.evaluations.calendar,
                  st.clock.today(), rok, komorka or None)
 
@@ -127,3 +128,52 @@ def report_training_needs_csv(komorka: str | None = None, x_user_id: str | None 
     return Response("﻿" + tn.to_csv(people), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="potrzeby-szkoleniowe.csv"'})
 
+
+
+# ---------------------------------------------------------------- statement for the reporting system / inspections
+
+def _pseudonym(employee_id: str) -> str:
+    """Stable code of a person in exports without personal data (HMAC with SECRET_KEY)."""
+    import hashlib
+    import hmac
+
+    from backend import config
+
+    key = (config.SECRET_KEY or "cyfrowy-asystent-ocen-okresowych").encode("utf-8")
+    return "P-" + hmac.new(key, employee_id.encode("utf-8"), hashlib.sha256).hexdigest()[:10].upper()
+
+
+def _statement(st: DemoState, who: str, rok: int | None, komorka: str | None, od, do, dane_osobowe: bool):
+    from app.application.statement import statement
+
+    if dane_osobowe and not st.policy().is_admin(who):
+        raise NotAuthorized("Zestawienie z danymi osobowymi pobiera dział kadr (np. na potrzeby kontroli).")
+    return statement(_scope(st, who, rok, komorka), _pseudonym, dane_osobowe, od, do)
+
+
+@router.get("/zestawienie.csv", response_class=Response, responses={200: {"content": {"text/csv": {}}}})
+def statement_csv(rok: int | None = None, komorka: str | None = None, od: date | None = None, do: date | None = None,
+                  dane_osobowe: bool = False, x_user_id: str | None = Header(default=None),
+                  st: DemoState = Depends(get_state)) -> Response:
+    """Every evaluation in scope, one row each (CSV `;`, UTF-8 with BOM – opens in Excel). Filters: year of the
+    deadline (`rok`), unit, evaluations drawn up between `od` and `do`. Pseudonyms unless `dane_osobowe=true` (HR)."""
+    from app.application.statement import to_csv
+
+    rows = _statement(st, _actor(st, x_user_id), rok, komorka, od, do, dane_osobowe)
+    return Response("﻿" + to_csv(rows), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="zestawienie-ocen-{st.clock.today()}.csv"'})
+
+
+@router.get("/zestawienie.json")
+def statement_json(rok: int | None = None, komorka: str | None = None, od: date | None = None, do: date | None = None,
+                   dane_osobowe: bool = False, x_user_id: str | None = Header(default=None),
+                   st: DemoState = Depends(get_state)) -> Response:
+    """The same statement as a JSON package for a reporting system (format version, scope, generation date)."""
+    from app.application.statement import to_json
+
+    who = _actor(st, x_user_id)
+    rows = _statement(st, who, rok, komorka, od, do, dane_osobowe)
+    meta = {"wygenerowano": st.clock.today().isoformat(), "zakres": _scope_label(st, who, komorka), "rok": rok,
+            "komorka": komorka, "sporzadzone_od": od.isoformat() if od else None,
+            "sporzadzone_do": do.isoformat() if do else None, "dane_osobowe": dane_osobowe}
+    return Response(to_json(rows, meta), media_type="application/json; charset=utf-8")

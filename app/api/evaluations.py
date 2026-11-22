@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Response
 
-from app.domain.cycle import EDITABLE_IN, TRANSITIONS, EvaluationCycle, Status
+from app.domain.cycle import EDITABLE_IN, REDO, TRANSITIONS, EvaluationCycle, Status
 from app.domain.deadlines import Absence
 from app.domain.employee import Employee
 from app.domain.errors import NotAuthorized, NotFound, ValidationError
@@ -212,6 +212,20 @@ def _validations(st: DemoState, c: EvaluationCycle) -> list[s.Walidacja]:
                                  bool(emp and emp.civil_servant), rules)
     if warn:
         out.append(s.Walidacja(kod="KOLEJNA_NEGATYWNA", pole=None, waga=s.Waga.OSTRZEZENIE, komunikat=warn))
+    # upheld objection: not below the scores before it, and a change has to change something (art. 83 ust. 4)
+    for cid in c.objection_lowered(c.scores):
+        out.append(s.Walidacja(kod="SPRZECIW_OBNIZENIE", pole=f"kryteria.{m.criterion_code(cid)}", waga=s.Waga.BLAD,
+                               komunikat=f"{rules.criterion_name(cid)}: ocena cząstkowa nie może być niższa niż przed "
+                                         f"sprzeciwem ({c.objection_baseline[cid]}) – uwzględnienie sprzeciwu nie może "
+                                         "pogorszyć oceny."))
+    if c.objection_order_pending and not c.objection_lowered(c.scores):
+        for problem in c.objection_problems(c.scores, c.justification, c.iprz_conclusions):
+            out.append(s.Walidacja(kod="SPRZECIW_BRAK_ZMIAN", pole=None, waga=s.Waga.BLAD, komunikat=problem))
+    if c.objection_order_pending and (due := c.objection_review_deadline(rules, st.evaluations.calendar)):
+        if st.clock.today() > due:
+            out.append(s.Walidacja(kod="SPRZECIW_PO_TERMINIE", pole=None, waga=s.Waga.OSTRZEZENIE,
+                                   komunikat=f"Decyzję o uwzględnieniu sprzeciwu trzeba było wykonać do {due:%d.%m.%Y} "
+                                             "(14 dni od wniesienia sprzeciwu, art. 83 ust. 3)."))
     return out
 
 
@@ -264,10 +278,20 @@ def _objection_out(st: DemoState, c: EvaluationCycle) -> s.SprzeciwOut | None:
     if c.objection_filed_on is None:
         return None
     rules, cal = st.rules_for(c), st.evaluations.calendar
+    before = c.superseded[-1] if c.superseded and c.objection_outcome else None
     return s.SprzeciwOut(zlozony=c.objection_filed_on, tresc=c.objection_text,
                          termin_rozpatrzenia=c.objection_review_deadline(rules, cal), decyzja=c.objection_decision,
                          rozstrzygnieto=c.objection_decided_on, uzasadnienie_decyzji=c.objection_reason,
-                         termin_odwolania_do_sadu=c.labour_court_deadline(rules, cal))
+                         termin_odwolania_do_sadu=c.labour_court_deadline(rules, cal),
+                         tryb=s.TrybSprzeciwu(c.objection_outcome) if c.objection_outcome else None,
+                         wykonano=c.objection_executed_on,
+                         termin_wykonania=c.objection_review_deadline(rules, cal) if c.objection_order_pending else None,
+                         przed_sprzeciwem=s.OcenaPrzedSprzeciwem(
+                             data_sporzadzenia=before.evaluated_on, wynik=_wynik(before.result),
+                             srednia=before.result.average_display if before.result else None,
+                             poziom=m.level(before.result.level) if before.result else None,
+                             punkty={m.criterion_code(k): v for k, v in before.scores.items()},
+                             anulowana=before.kind == REDO) if before else None)
 
 
 def _podpis(st: DemoState, day: date | None, who: Employee | None) -> s.Podpis:
@@ -352,7 +376,7 @@ def users(st: DemoState = Depends(get_state)) -> list[dict]:
     """Demo only: identities to switch between (no real login). `id` goes into X-User-Id."""
     if auth.session_mode():
         raise ApiProblem(404, "NIE_ZNALEZIONO", "Przełącznik tożsamości działa tylko w trybie demo.")
-    people = st.directory.all()
+    people = [e for e in st.directory.all() if e.removed_on is None]
     out = [{"id": HR, "nazwa": "Dział kadr", "opis": "Kadry – cały urząd"}]
     for e in people:
         role = "Oceniający" if any(x.evaluator_id == e.id for x in people) else "Oceniany"
@@ -604,7 +628,8 @@ def action(evaluation_id: int, akcja: s.Akcja, body: s.ActionIn | None = None,
                                 f"{reviewer.basis}.")
         if body is None or body.uwzglednij is None:
             raise ValidationError(["Wybierz rozstrzygnięcie: sprzeciw uwzględniony albo nieuwzględniony."])
-        svc.decide_objection(c.id, actor, body.uwzglednij, body.komentarz or "")
+        svc.decide_objection(c.id, actor, body.uwzglednij, body.komentarz or "",
+                             body.tryb.value if body.uwzglednij and body.tryb else None)
     st.touch(c.id)
     return _evaluation_out(st, svc.cycles.get(c.id), actor)
 

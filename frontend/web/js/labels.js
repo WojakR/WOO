@@ -53,8 +53,15 @@ export const ACTION_DONE = {
   ZATWIERDZ_OCENE: "Ocena zatwierdzona i przekazana do zapoznania.",
   POTWIERDZ_ZAPOZNANIE: "Potwierdzono zapoznanie się z oceną.",
   ZLOZ_SPRZECIW: "Sprzeciw złożony. Rozpatruje go dyrektor generalny w ciągu 14 dni.",
-  ROZPATRZ_SPRZECIW: "Sprzeciw rozpatrzony.",
+  ROZPATRZ_SPRZECIW: "Sprzeciw rozpatrzony – oceniający i oceniany dostali powiadomienie.",
   FIKCJA_ZAPOZNANIA: "Odnotowano odmowę podpisu – ocena uznana za zapoznaną.",
+};
+
+export const OBJECTION_MODE = { ZMIANA_OCENY: "zmiana oceny", PONOWNE_SPORZADZENIE: "ponowne sporządzenie oceny" };
+
+export const INVITATION_KIND = {
+  ROZMOWA_KRYTERIA: "Rozmowa rozpoczynająca (wyznaczenie kryteriów)",
+  ROZMOWA_OCENIAJACA: "Rozmowa oceniająca",
 };
 
 export const WHO_LABEL = { OCENIAJACY: "oceniający", OCENIANY: "oceniany", KADRY: "kadry", NIKT: "–" };

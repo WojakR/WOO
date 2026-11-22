@@ -118,6 +118,8 @@ def request_change(evaluation_id: int, body: s.DeadlineChangeIn, x_user_id: str 
         justification=text, decided_at=_now() if immediate else None, requested_by=who,
         decided_by=who if immediate else None)
     st.deadline_changes.append(r)
+    if immediate:
+        register_letter(st, r)
     return change_out(st, r)
 
 
@@ -137,6 +139,7 @@ def decide(change_id: int, body: DecisionIn, x_user_id: str | None = Header(defa
         r.old, r.new = old, new
         st.touch(c.id)
     r.status, r.decided_at, r.decided_by, r.decision_note = body.status, _now(), who, body.komentarz
+    register_letter(st, r)
     return change_out(st, r)
 
 
@@ -159,23 +162,53 @@ def list_changes(status: s.StatusWniosku | None = None, x_user_id: str | None = 
             responses={200: {"content": {"application/pdf": {}}}})
 def notice_pdf(change_id: int, x_user_id: str | None = Header(default=None),
                st: DemoState = Depends(get_state)) -> Response:
-    from backend.notice_pdf import DeadlineNotice, render_deadline_notice
-
     who = _actor(st, x_user_id)
     r = _record(st, change_id)
     c = _cycle(st, int(r.cycle_id))
     require_read(st, who, c)
-    if r.status != s.StatusWniosku.ZAAKCEPTOWANY.value or r.reason not in REASONS or r.new is None:
+    if not _has_letter(r):
         raise ApiProblem(409, "BRAK_PISMA", "Pismo powstaje dla zaakceptowanej zmiany terminu (art. 81 ust. 8).")
-    emp, boss = st.directory.get(c.employee_id), st.directory.get(c.evaluator_id)
-    issued = (r.decided_at.date() if r.decided_at else st.clock.today())
-    pdf = render_deadline_notice(DeadlineNotice(
-        office=emp.office, place="", issued_on=issued, employee_name=emp.full_name, employee_position=emp.position,
-        employee_unit=emp.unit, evaluator_name=boss.full_name if boss else c.evaluator_id,
-        evaluator_position=boss.position if boss else "", old_deadline=r.old, new_deadline=r.new,
-        legal_basis=REASONS[r.reason], justification=r.justification))
-    return Response(pdf, media_type="application/pdf",
+    return Response(_letter_pdf(st, r, c), media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="zmiana-terminu-{r.id}.pdf"'})
+
+
+def _has_letter(r: DeadlineChangeRecord) -> bool:
+    return r.status == s.StatusWniosku.ZAAKCEPTOWANY.value and r.reason in REASONS and r.new is not None
+
+
+def _issued(st: DemoState, r: DeadlineChangeRecord) -> date:
+    return r.decided_at.date() if r.decided_at else st.clock.today()
+
+
+def _letter_pdf(st: DemoState, r: DeadlineChangeRecord, c: EvaluationCycle) -> bytes:
+    from backend.notice_pdf import DeadlineNotice, render_deadline_notice
+
+    emp, boss = st.directory.get(c.employee_id), st.directory.get(c.evaluator_id)
+    return render_deadline_notice(DeadlineNotice(
+        office=emp.office, place="", issued_on=_issued(st, r), employee_name=emp.full_name,
+        employee_position=emp.position, employee_unit=emp.unit,
+        evaluator_name=boss.full_name if boss else c.evaluator_id, evaluator_position=boss.position if boss else "",
+        old_deadline=r.old, new_deadline=r.new, legal_basis=REASONS[r.reason], justification=r.justification))
+
+
+def letter_document_for(st: DemoState, r: DeadlineChangeRecord):
+    """The letter as an EZD document (None when there is no letter for this change)."""
+    from app.application.ezd_registry import letter_document
+    from backend import config
+
+    c = st.evaluations.cycles.get(r.cycle_id)
+    if c is None or not _has_letter(r):
+        return None
+    return letter_document(r.id, c, _letter_pdf(st, r, c), _issued(st, r), config.EZD_JRWA,
+                           st.person_name(c.evaluator_id), st.person_name(c.employee_id))
+
+
+def register_letter(st: DemoState, r: DeadlineChangeRecord) -> None:
+    """An accepted change: the letter goes to EZD (when EZD is switched on)."""
+    svc = st.ezd()
+    doc = letter_document_for(st, r) if svc else None
+    if doc is not None:
+        svc.register(doc)
 
 
 # ---------------------------------------------------------------- planned absence of an evaluator

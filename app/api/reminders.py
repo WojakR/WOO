@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 import zlib
+from datetime import datetime, time
 
 from fastapi import APIRouter, Depends, Header, Response
 
@@ -124,6 +125,10 @@ def _my_items(st: DemoState, who: str) -> list[tuple[str, str, str, int, object]
               for k, text, ev, when in deadline_requests.notifications_for(st, who)]
     items += [(k, "ZMIANA_OCENIAJACEGO", text, ev, when) for k, text, ev, when in evaluator_changes.notifications_for(st, who)]
     items += [(k, typ, text, ev, when) for k, text, ev, when, typ in history.notifications_for(st, who)]
+    # one-off notices about events (objection decided, evaluation changed, promotion request, invitations)
+    now = datetime.combine(st.clock.today(), time(23, 59))
+    items += [(n.key, n.kind, n.text, int(n.cycle_id) if n.cycle_id and n.cycle_id.isdigit() else None, n.when)
+              for n in st.notices if n.recipient_id == who and n.when <= now]
     return sorted(items, key=lambda i: i[4], reverse=True)
 
 

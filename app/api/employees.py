@@ -77,7 +77,7 @@ class HistoryItem(BaseModel):
 def visible_people(st: DemoState, who: str) -> list[Employee]:
     policy = st.policy()
     ids = policy.visible_employees(who) | {who}
-    return [e for e in st.directory.all() if e.id in ids]
+    return [e for e in st.directory.all() if e.id in ids and e.removed_on is None]
 
 
 def _cycles_of(st: DemoState, employee_id: str) -> list[EvaluationCycle]:

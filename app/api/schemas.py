@@ -66,6 +66,12 @@ class Wynik(str, Enum):
     NEGATYWNA = "NEGATYWNA"
 
 
+class TrybSprzeciwu(str, Enum):
+    """Upheld objection (art. 83 ust. 4): what the director general orders the evaluator to do."""
+    ZMIANA_OCENY = "ZMIANA_OCENY"                  # replace parts (e.g. partial scores); stays acknowledged
+    PONOWNE_SPORZADZENIE = "PONOWNE_SPORZADZENIE"  # annul, back to the review meeting; new objection possible
+
+
 class WniosekOStopien(str, Enum):
     TAK = "TAK"
     NIE = "NIE"
@@ -322,6 +328,23 @@ class SprzeciwOut(_Out):
     rozstrzygnieto: date | None = None
     uzasadnienie_decyzji: str = ""
     termin_odwolania_do_sadu: date | None = None  # art. 83 ust. 5 – only when not upheld
+    tryb: TrybSprzeciwu | None = None           # upheld: change or draw up again
+    termin_wykonania: date | None = None        # upheld, not carried out yet: 14 days from filing (Poradnik KPRM)
+    wykonano: date | None = None                # the evaluator changed it / drew it up again on this day
+    przed_sprzeciwem: "OcenaPrzedSprzeciwem | None" = None  # the evaluation as it was before the decision
+
+
+class OcenaPrzedSprzeciwem(_Out):
+    """The evaluation before an upheld objection: annulled (drawn up again) or replaced by its change."""
+    data_sporzadzenia: date | None = None
+    wynik: Wynik | None = None
+    srednia: float | None = None
+    poziom: Poziom | None = None
+    punkty: dict[str, int] = {}                 # criterion code -> partial score (the floor for the new one)
+    anulowana: bool = False
+
+
+SprzeciwOut.model_rebuild()
 
 
 class EvaluationOut(_Out):
@@ -412,6 +435,7 @@ class ActionIn(BaseModel):
     miejscowosc: str | None = None
     komentarz: str | None = None                # e.g. objection text, decision reason, refusal note
     uwzglednij: bool | None = None              # ROZPATRZ_SPRZECIW: true = upheld, false = not upheld
+    tryb: TrybSprzeciwu | None = None           # ROZPATRZ_SPRZECIW upheld: required – change or draw up again
     data: date | None = None                    # FIKCJA_ZAPOZNANIA: day of the refusal (default: today)
 
 

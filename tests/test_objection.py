@@ -75,7 +75,8 @@ def test_not_upheld_stays_and_opens_14_days_for_the_labour_court(st):
 def test_upheld_returns_to_the_evaluator_and_the_next_cycle_restarts_from_the_new_result(st):
     st.evaluations.file_objection(st.cid, EMP, "Sprzeciw.")
     old_next = st.evaluations.cycles.find_open_for(EMP)
-    c = st.evaluations.decide_objection(st.cid, HR, True, "Błędy dotyczyły zadań spoza opisu stanowiska.")
+    c = st.evaluations.decide_objection(st.cid, HR, True, "Błędy dotyczyły zadań spoza opisu stanowiska.",
+                                        "PONOWNE_SPORZADZENIE")
     assert c.status is Status.MEETING_HELD and c.acknowledged_on is None and c.is_editable("scores")
     assert st.evaluations.cycles.get(old_next.id) is None  # computed from the old (negative) result -> removed
     ids = c.criteria_ids(st.evaluations.rules)
@@ -108,7 +109,7 @@ def test_api_file_and_decide(st):
 
 def test_api_upheld_gives_the_evaluator_the_sheet_back(st):
     act(st, "ZLOZ_SPRZECIW", EMP, komentarz="Sprzeciw.")
-    act(st, "ROZPATRZ_SPRZECIW", HR, uwzglednij=True, komentarz="Do ponownego sporządzenia.")
+    act(st, "ROZPATRZ_SPRZECIW", HR, uwzglednij=True, tryb="PONOWNE_SPORZADZENIE", komentarz="Do ponownego sporządzenia.")
     ev = client.get(f"/api/evaluations/{st.cid}", headers={"X-User-Id": BOSS}).json()
     assert ev["status"] == "ROZMOWA_OCENIAJACA" and "ZATWIERDZ_OCENE" in ev["dozwolone_akcje"]
     assert ev["sprzeciw"]["decyzja"] == "UWZGLEDNIONY"

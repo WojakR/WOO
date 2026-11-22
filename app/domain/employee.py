@@ -28,6 +28,9 @@ class Employee:
     position_description: str = ""
     employment_start: date | None = None
     employment_end: date | None = None  # ustanie stosunku pracy (archiving periods count from here)
+    # the person's data was deleted (KPRM use case "usunięcie danych pracownika"): only this record stays, so the
+    # archived evaluations keep their retention period (counted from employment_end) and the ids stay stable
+    removed_on: date | None = None
 
     @property
     def full_name(self) -> str:

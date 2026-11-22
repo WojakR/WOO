@@ -19,9 +19,12 @@ Run all commands below from `projekt/`.
   phone → `[OSOBA_Kn]`, `[PESEL]`, …) and restore names in the answer; `LLM_MOCK=1` echoes the masked prompt.
   `ask_ollama` / `stream_ollama` do NOT – their callers (the assistant) must mask first.
 - AI suggestions (UC1, UC4, UC5, UC7): `app/application/assistant.py` (`AiSuggestionService`), prompts in
-  `app/application/prompts/`, model adapters in `app/infrastructure/ai_models.py` (`AI_MODE` off|local|api; api raises
-  `NotImplementedError` on purpose). Every feature must keep its no-AI fallback, pseudonymise prompts and validate the
+  `app/application/prompts/`, model adapters in `app/infrastructure/ai_models.py` (`AI_MODE` off|local|api; api = LiteLLM via
+  `backend.llm.ask_llm`, provider errors -> fallback). Every feature must keep its no-AI fallback, pseudonymise prompts and validate the
   model's answer. Details: `docs/asystent.md`.
+- Event notices (objection decided, evaluation changed / redone, promotion request, invitations with .ics):
+  `EvaluationService.on_event` -> `app/application/notices.py` -> `st.notices` (in-app + `notify_job` e-mail).
+  EZD registration mirrors e-Akt: `app/application/ezd_registry.py`, adapters `app/infrastructure/ezd.py`.
 - `backend/parsers.py` – file parsing (PDF/XML/CSV/XLSX/OCR). Add new formats here.
 - Persistence of the app state: `app/infrastructure/sql_store.py` – one table per aggregate (`ocena`, `notatka`,
   `nieobecnosc`, `zmiana_terminu`, `zastepstwo`, `stan`) with key columns + the object as JSON (`json_codec.py`,

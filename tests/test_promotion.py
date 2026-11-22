@@ -95,3 +95,30 @@ def test_pdf_without_request_for_an_employee_says_not_applicable():
     text = " ".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
     assert "CZĘŚĆ III" not in text and "NIE DOTYCZY" in text
     assert EMP
+
+
+def test_submitting_a_request_notifies_hr_and_shows_as_an_hr_task():
+    """KPRM use case: "wysłanie powiadomienia o złożeniu wniosku o przyznanie kolejnego stopnia służbowego"."""
+    st = state(civil_servant=True, grade=4)
+    cid = prepare_meeting(st)
+    scores(cid, 7)
+    patch(cid, wniosek_o_stopien="TAK", wnioski_iprz="Szkolenie.", umotywowanie_wniosku="Wyróżniające wyniki.")
+    assert not [n for n in st.notices if n.kind == "WNIOSEK_O_STOPIEN"]
+    assert client.post(f"/api/evaluations/{cid}/actions/ZATWIERDZ_OCENE", headers=AS_BOSS, json={}).status_code == 200
+    sent = [n for n in st.notices if n.kind == "WNIOSEK_O_STOPIEN"]
+    assert [n.recipient_id for n in sent] == ["kadry"]
+    assert "stopień 4 → 5" in sent[0].text and "Wyróżniające wyniki." in sent[0].text
+    mine = client.get("/api/notifications", headers={"X-User-Id": "kadry"}).json()
+    assert any(n["typ"] == "WNIOSEK_O_STOPIEN" and n["evaluation_id"] == int(cid) for n in mine)
+    tasks = client.get("/api/kadry/zadania", headers={"X-User-Id": "kadry"}).json()
+    task = next(t for t in tasks if t["rodzaj"] == "WNIOSEK_O_STOPIEN")
+    assert task["evaluation_id"] == int(cid) and "czeka na zapoznanie" in task["tresc"]
+
+
+def test_no_request_no_notice():
+    st = state(civil_servant=True, grade=4)
+    cid = prepare_meeting(st)
+    scores(cid, 7)
+    patch(cid, wnioski_iprz="Szkolenie.")
+    client.post(f"/api/evaluations/{cid}/actions/ZATWIERDZ_OCENE", headers=AS_BOSS, json={})
+    assert not [n for n in st.notices if n.kind == "WNIOSEK_O_STOPIEN"]

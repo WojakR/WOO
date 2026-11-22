@@ -140,9 +140,10 @@ class Api:
     def scores(self, eid: int, points: dict[str, int | None]) -> dict:
         return self._req("PUT", f"/evaluations/{eid}/scores", {"punkty": points})
 
-    def action(self, eid: int, akcja: str, komentarz: str | None = None, uwzglednij: bool | None = None) -> dict:
+    def action(self, eid: int, akcja: str, komentarz: str | None = None, uwzglednij: bool | None = None,
+               tryb: str | None = None) -> dict:
         return self._req("POST", f"/evaluations/{eid}/actions/{akcja}",
-                         {"komentarz": komentarz, "uwzglednij": uwzglednij})
+                         {"komentarz": komentarz, "uwzglednij": uwzglednij, "tryb": tryb})
 
     def reminder_plan(self, eid: int) -> list[dict]:
         return self._req("GET", f"/evaluations/{eid}/przypomnienia")

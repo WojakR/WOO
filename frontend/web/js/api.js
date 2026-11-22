@@ -140,6 +140,16 @@ export const api = {
   archiveDelete: (recordId) => request("POST", `/archive/${recordId}/delete`, { zatwierdzam: true }),
   archiveDeleteNotes: (evaluationId) => request("POST", `/archive/notes/${evaluationId}/delete`, { zatwierdzam: true }),
   eaktRetry: () => request("POST", "/admin/eakt/retry"),
+  ezd: () => request("GET", "/admin/ezd"),
+  ezdRetry: () => request("POST", "/admin/ezd/retry"),
+  invitations: (id) => request("GET", `/evaluations/${id}/zaproszenia`),
+  invite: (id, body) => request("POST", `/evaluations/${id}/zaproszenia`, body),
+  cancelInvitation: (id, invitationId) => request("POST", `/evaluations/${id}/zaproszenia/${invitationId}/odwolaj`),
+  employeeForm: (id) => request("GET", `/admin/employees/${id}`),
+  addEmployee: (body, uruchomCykl = false) => request("POST", `/admin/employees?uruchom_cykl=${uruchomCykl}`, body),
+  updateEmployee: (id, body) => request("PUT", `/admin/employees/${id}`, body),
+  removalPlan: (id, end = "") => request("GET", `/admin/employees/${id}/usuniecie${end ? `?data_ustania_zatrudnienia=${end}` : ""}`),
+  removeEmployee: (id, body) => request("POST", `/admin/employees/${id}/usuniecie`, body),
 };
 
 function upload(path, file) {

@@ -141,10 +141,34 @@ Akcje `POST /api/evaluations/{id}/actions/{akcja}` (body `ActionIn`):
 | Akcja | Kto | Body | Skutek |
 |---|---|---|---|
 | `ZLOZ_SPRZECIW` | oceniany, do 7 dni od zapoznania | `komentarz` (treść, wymagana) | status `SPRZECIW`; termin rozpatrzenia 14 dni (`sprzeciw.termin_rozpatrzenia`) |
-| `ROZPATRZ_SPRZECIW` | rozpatrujący z ustawień urzędu (`sprzeciw.rozpatruje`, domyślnie `kadry`; ustawowo dyrektor generalny) | `uwzglednij` (wymagane), `komentarz` (uzasadnienie, wymagane) | uwzględniony → `ROZMOWA_OCENIAJACA` (ocena do zmiany / ponownego sporządzenia, automatycznie rozpoczęty kolejny cykl usuwany); nieuwzględniony → `ZAKONCZONA` + `sprzeciw.termin_odwolania_do_sadu` (14 dni) |
+| `ROZPATRZ_SPRZECIW` | rozpatrujący z ustawień urzędu (`sprzeciw.rozpatruje`, domyślnie `kadry`; ustawowo dyrektor generalny) | `uwzglednij` (wymagane), `tryb` (wymagany przy uwzględnieniu: `ZMIANA_OCENY` / `PONOWNE_SPORZADZENIE`), `komentarz` (uzasadnienie, wymagane) | uwzględniony → `ROZMOWA_OCENIAJACA` (polecenie dla oceniającego, automatycznie rozpoczęty kolejny cykl usuwany); nieuwzględniony → `ZAKONCZONA` + `sprzeciw.termin_odwolania_do_sadu` (14 dni) |
+
+Uwzględnienie sprzeciwu (art. 83 ust. 4, przypadki użycia KPRM) – oba tryby wykonuje oceniający (Poradnik KPRM):
+- `ZMIANA_OCENY`: oceniający zastępuje kwestionowane fragmenty i klika `ZATWIERDZ_OCENE` – ocena od razu wraca do
+  `ZAKONCZONA` z pierwotną datą sporządzenia i zapoznania (bez ponownego zapoznania i bez kolejnego sprzeciwu);
+- `PONOWNE_SPORZADZENIE`: ocena jest anulowana (`data_sporzadzenia` pusta), wraca do etapu rozmowy oceniającej;
+  po `ZATWIERDZ_OCENE` → `OCENA_DO_ZAPOZNANIA`, od tej oceny przysługuje kolejny sprzeciw.
+
+W obu trybach ocena cząstkowa nie może spaść poniżej tej sprzed sprzeciwu (walidacja `SPRZECIW_OBNIZENIE`, `BLAD`), a
+zmiana musi coś zmienić (`SPRZECIW_BRAK_ZMIAN`). Termin wykonania: 14 dni od wniesienia sprzeciwu (`termin_wykonania`,
+ostrzeżenie `SPRZECIW_PO_TERMINIE`). Powiadomienia (`GET /api/notifications`, e-mail z `notify_job`):
+`SPRZECIW_UWZGLEDNIONY` / `SPRZECIW_NIEUWZGLEDNIONY` (oceniany), `POLECENIE_ZMIANY_OCENY` /
+`POLECENIE_PONOWNEGO_SPORZADZENIA` (oceniający), `OCENA_ZMIENIONA` / `OCENA_SPORZADZONA_PONOWNIE` (oceniany i kadry).
 
 `EvaluationOut.sprzeciw`: `zlozony`, `tresc`, `termin_rozpatrzenia`, `decyzja`, `rozstrzygnieto`, `uzasadnienie_decyzji`,
-`termin_odwolania_do_sadu`. Od oceny sporządzonej po raz drugi przysługuje kolejny sprzeciw (art. 83 ust. 4).
+`termin_odwolania_do_sadu`, `tryb`, `termin_wykonania`, `wykonano`, `przed_sprzeciwem` (wynik, średnia, punkty i data
+oceny sprzed decyzji; `anulowana` przy ponownym sporządzeniu).
+
+### Zaproszenie na rozmowę (opcjonalne)
+
+| Metoda i ścieżka | Kto | Wejście | Uwagi |
+|---|---|---|---|
+| `POST /api/evaluations/{id}/zaproszenia` | oceniający / zastępca | `rodzaj` (`ROZMOWA_KRYTERIA` na etapie kryteriów, `ROZMOWA_OCENIAJACA` od potwierdzenia kryteriów), `termin` (czas urzędu), `czas_min` (15–240), `miejsce`, `uwagi` | 201; ponowne wysłanie tego samego rodzaju = zmiana terminu (ten sam UID w kalendarzu, `wersja`+1) |
+| `GET /api/evaluations/{id}/zaproszenia` | kto widzi ocenę | – | lista |
+| `GET /api/evaluations/{id}/zaproszenia/{n}.ics` | kto widzi ocenę | – | plik iCalendar (RFC 5545, strefa Europe/Warsaw) |
+| `POST /api/evaluations/{id}/zaproszenia/{n}/odwolaj` | oceniający / zastępca | – | `METHOD:CANCEL` |
+
+Zaproszony dostaje powiadomienie `ZAPROSZENIE` / `ZAPROSZENIE_ODWOLANE`, a `notify_job` wysyła e-mail z plikiem .ics.
 
 ### Asystent i HR partner: UC1, UC4, UC5, UC7
 
@@ -187,6 +211,32 @@ Wszystkie tylko dla `kadry` (inni: 403). Widoki: `#/import`, `#/archiwum`; statu
 | `GET /api/archive/{id}/pdf` | – | PDF | |
 | `POST /api/archive/{id}/delete`, `POST /api/archive/notes/{evaluation_id}/delete` | `{zatwierdzam: true}` | | tylko po okresie przechowywania (409), bez zgody 422 |
 | `POST /api/admin/eakt/retry` | – | `{ponowiono: [...]}` | ponawia nieudane eksporty; status: `eksport_eakt` w `GET /api/evaluations/{id}` |
+| `GET /api/admin/ezd` | – | `{tryb, jrwa, dokumenty: [...]}` | rejestracje w EZD: arkusz po zapoznaniu / rozpatrzeniu sprzeciwu, pismo o zmianie terminu |
+| `POST /api/admin/ezd/retry` | – | `{ponowiono: [...]}` | ponawia nieudane rejestracje (`EZD_MODE`: off / katalog / http) |
+| `GET /api/kadry/zadania` | – | zadania | `DWIE_NEGATYWNE`, `STOPIEN_OBLIGATORYJNY`, `WNIOSEK_O_STOPIEN` (wniosek z części III; kadry dostają też powiadomienie przy sporządzeniu oceny) |
+
+### Kadry: pracownicy wprowadzani ręcznie
+
+Te same reguły co import z systemu kadrowego (`app/infrastructure/hr_import.py`). Widok: `#/pracownicy` („Dodaj
+pracownika”, na karcie „Edytuj dane” i „Usuń dane pracownika”).
+
+| Metoda i ścieżka | Wejście | Uwagi |
+|---|---|---|
+| `GET /api/admin/employees/{id}` | – | dane w kształcie formularza (`EmployeeForm`) |
+| `POST /api/admin/employees?uruchom_cykl=` | `EmployeeForm` (`imie`, `nazwisko`, `stanowisko` wymagane; `przelozony` = id z kontraktu) | 201; `id` tworzone z imienia i nazwiska; 422 z listą problemów |
+| `PUT /api/admin/employees/{id}` | `EmployeeForm` | zmiana podległości; osoba z oceną w toku → 409 (`Zmiana oceniającego`, art. 81 ust. 8 pkt 1) |
+| `GET /api/admin/employees/{id}/usuniecie?data_ustania_zatrudnienia=` | – | co zostanie zarchiwizowane / usunięte i co blokuje |
+| `POST /api/admin/employees/{id}/usuniecie` | `{data_ustania_zatrudnienia, zatwierdzam: true}` | zamknięte oceny do archiwum, reszta danych i konta usunięte, zostaje zapis bez danych osobowych; blokady → 409 |
+
+### Raporty: zestawienie dla systemu sprawozdawczego
+
+| Metoda i ścieżka | Parametry | Uwagi |
+|---|---|---|
+| `GET /api/reports/zestawienie.csv` | `rok`, `komorka`, `od`, `do` (data sporządzenia), `dane_osobowe` | jedna ocena = jeden wiersz (terminy i ich dotrzymanie, wynik, sprzeciw i tryb, wniosek o stopień); CSV `;` z BOM |
+| `GET /api/reports/zestawienie.json` | jw. | pakiet z `wersja_formatu`, zakresem i datą wygenerowania |
+
+Bez `dane_osobowe=true` osoby mają stały pseudonim `P-…` (HMAC z `SECRET_KEY`); nazwiska tylko dla kadr (403 dla innych).
+Zakres jak w pozostałych raportach (kadry – urząd, przełożony – jego zespół).
 
 ### Tylko demo
 

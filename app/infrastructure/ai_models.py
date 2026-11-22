@@ -1,7 +1,7 @@
-"""AI model adapters: off, local (Ollama via backend.llm) and api (not implemented yet).
+"""AI model adapters: off, local (Ollama via backend.llm) and api (an external model via backend.llm / LiteLLM).
 
-The assistant falls back to templates/rules on AiUnavailable / AiInvalidOutput, but NOT on
-NotImplementedError: choosing AI_MODE=api before the adapter exists fails loudly on purpose.
+The assistant falls back to templates/rules on AiUnavailable / AiInvalidOutput – a model that is down, has no key
+or answers nonsense never stops the evaluation.
 """
 from __future__ import annotations
 
@@ -72,25 +72,46 @@ class OllamaModel:
 
 
 class ApiModel:
-    """External model through an API (Claude etc.), always with pseudonymisation. NOT IMPLEMENTED YET.
+    """External model through an API (LLM_MODELS in .env, LiteLLM: e.g. anthropic/claude-…, openai/…, azure/…),
+    with fallback down the list of models.
 
-    To implement: call backend.llm.ask_llm / ask_llm_json (LiteLLM, LLM_MODELS) – the assistant already
-    pseudonymises every prompt before it reaches the adapter.
+    Pseudonymised twice: the assistant masks the people of the evaluation before the prompt reaches the adapter
+    ([OSOBA_n]), and backend.llm.ask_llm masks everyone in the employee directory, PESEL, e-mails and phones
+    ([OSOBA_Kn], …) before anything leaves the application. The JSON schema of the task goes into the system
+    prompt (providers differ in structured outputs); the assistant validates every answer anyway.
     """
 
-    name = "api"
+    def __init__(self, models: list[str] | None = None):
+        self.models = models or config.LLM_MODELS
+        self.name = f"api/{self.models[0]}" if self.models else "api"
 
     def available(self) -> bool:
-        return True  # so the assistant actually calls it and the missing implementation is visible
+        return bool(self.models) and not config.LLM_MOCK
+
+    def _ask(self, system: str, prompt: str, json_mode: bool, temperature: float) -> str:
+        try:
+            return llm.ask_llm(prompt, system=system, json_mode=json_mode, temperature=temperature)
+        except Exception as e:  # noqa: BLE001 – no key, limit, network, provider error -> the no-AI version
+            raise AiUnavailable(f"Model przez API nie odpowiedział: {type(e).__name__}: {str(e)[:200]}") from e
 
     def complete_json(self, system: str, prompt: str, schema: dict, task: AiTask) -> dict:
-        raise NotImplementedError("Adapter AI przez API nie jest jeszcze zaimplementowany (AI_MODE=api).")
+        system = (f"{system}\n\nOdpowiedz WYŁĄCZNIE jednym obiektem JSON zgodnym z tym schematem (bez komentarzy, "
+                  f"bez bloku ```):\n{json.dumps(schema, ensure_ascii=False)}")
+        raw = self._ask(system, prompt, True, 0.1).strip()
+        raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        try:
+            data = json.loads(raw)
+        except ValueError as e:
+            raise AiInvalidOutput(f"Model nie zwrócił poprawnego JSON: {raw[:120]}") from e
+        if not isinstance(data, dict):
+            raise AiInvalidOutput("Model zwrócił JSON, który nie jest obiektem.")
+        return data
 
     def complete_text(self, system: str, prompt: str, task: AiTask) -> str:
-        raise NotImplementedError("Adapter AI przez API nie jest jeszcze zaimplementowany (AI_MODE=api).")
+        return self._ask(system, prompt, False, 0.3)
 
     def stream_text(self, system: str, prompt: str, task: AiTask) -> Iterator[str]:
-        raise NotImplementedError("Adapter AI przez API nie jest jeszcze zaimplementowany (AI_MODE=api).")
+        yield self.complete_text(system, prompt, task)  # one chunk: the drafts' SSE works the same
 
 
 def build_ai_model(mode: str | None = None) -> AiModel:

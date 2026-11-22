@@ -19,8 +19,11 @@ from enum import Enum
 from typing import Iterator
 
 from app.application.assistant import AiSuggestionService, HrReport, NoteClassification
+from app.application.ezd_registry import EzdDocument, EzdService, RegistrationStatus, sheet_document
+from app.application.invitations import Invitation
+from app.application.notices import Notice, notices_for
 from app.application.personnel_export import ExportService, ExportStatus
-from app.application.use_cases import EvaluationService
+from app.application.use_cases import EvaluationService, ProcessEvent
 from app.domain.access import AccessPolicy
 from app.domain.reminder_schedule import ReminderSchedule
 from app.domain.deadlines import Absence
@@ -186,7 +189,74 @@ class DemoState:
     exporter: object | None = None  # PersonnelFileExporter (e-Akt, app/infrastructure/eakt.py); None = off
     legacy_imports: dict = field(default_factory=dict)  # id -> LegacyImportRecord (app/api/legacy_import.py)
     eakt_status: dict[str, ExportStatus] = field(default_factory=dict)  # cycle id -> last export
+    # one-off notices about events (app/application/notices.py) and invitations to meetings (invitations.py)
+    notices: list[Notice] = field(default_factory=list)
+    invitations: list[Invitation] = field(default_factory=list)
+    # EZD – the office's document management (app/infrastructure/ezd.py); None = off
+    registry: object | None = None
+    ezd_status: dict[str, RegistrationStatus] = field(default_factory=dict)  # document key -> last registration
+    _ezd: EzdService | None = None
     _assistant_off: AiSuggestionService | None = None
+
+    # ---- notices -----------------------------------------------------------------------------------
+    def person_name(self, person_id: str) -> str:
+        if person_id == HR:
+            return "Dział kadr"
+        e = self.directory.get(person_id)
+        return e.full_name if e else person_id
+
+    def email_of(self, person_id: str) -> str | None:
+        """Where e-mails for this person go (the HR department: HR_EMAIL in .env); None = in-app only."""
+        if person_id == HR:
+            return config.HR_EMAIL or None
+        e = self.directory.get(person_id)
+        return e.email if e else None
+
+    def add_notice(self, notice: Notice) -> None:
+        if all(n.key != notice.key for n in self.notices):
+            self.notices.append(notice)
+
+    def on_process_event(self, event: ProcessEvent) -> None:
+        """EvaluationService.on_event: what happened -> notices for the people who must know."""
+        c = event.cycle
+        for n in notices_for(event, self.directory.get(c.employee_id), self.person_name, self.rules_for(c),
+                             self.evaluations.calendar):
+            self.add_notice(n)
+
+    # ---- EZD ---------------------------------------------------------------------------------------
+    def ezd(self) -> EzdService | None:
+        if self.registry is None:
+            return None
+        if self._ezd is None or self._ezd.registry is not self.registry:
+            self._ezd = EzdService(self.registry, self.ezd_status)
+        return self._ezd
+
+    def ezd_sheet(self, c) -> EzdDocument:
+        from .evaluations import sheet_pdf_bytes
+
+        return sheet_document(c, sheet_pdf_bytes(self, c), config.EZD_JRWA, self.person_name(c.evaluator_id),
+                              self.person_name(c.employee_id))
+
+    def ezd_rebuild(self, status: RegistrationStatus) -> EzdDocument | None:
+        """A failed registration made again from the state (the PDF is never stored, it is rendered)."""
+        c = self.evaluations.cycles.get(status.cycle_id)
+        if c is None:
+            return None
+        if status.kind == "ARKUSZ_OCENY_OKRESOWEJ":
+            doc = self.ezd_sheet(c)
+            return doc if doc.key == status.key else None
+        from .deadline_requests import letter_document_for
+
+        rec = next((r for r in self.deadline_changes if status.key == f"pismo-termin-{r.id}"), None)
+        return letter_document_for(self, rec) if rec else None
+
+    def register_in_ezd(self, c) -> None:
+        """After the evaluation became final (on_final): register the sheet in EZD, retrying failed ones first."""
+        svc = self.ezd()
+        if svc is None:
+            return
+        svc.retry_failed(self.ezd_rebuild)
+        svc.register(self.ezd_sheet(c))
 
     def eakt(self) -> ExportService | None:
         if self.exporter is None:
@@ -357,6 +427,11 @@ def _empty_state(today: date | None, ai_mode: str | None, scenario: bool, first_
 
     st.exporter = build_exporter(config.EAKT_MODE, config.EAKT_DIR, config.EAKT_URL, config.EAKT_TOKEN)
     evaluations.on_final.append(st.export_to_eakt)
+    from app.infrastructure.ezd import build_registry
+
+    st.registry = build_registry(config.EZD_MODE, config.EZD_DIR, config.EZD_URL, config.EZD_TOKEN)
+    evaluations.on_final.append(st.register_in_ezd)
+    evaluations.on_event.append(st.on_process_event)
     return st
 
 
@@ -386,13 +461,14 @@ def _codec() -> JsonCodec:
     """Every dataclass / enum that can sit inside the stored state – nothing else can be rebuilt from the DB."""
     import sys
 
-    from app.application import assistant, legacy_import, personnel_export
+    from app.application import assistant, ezd_registry, invitations, legacy_import, notices, personnel_export
     from app.api import legacy_import as legacy_api
     from app.domain import (access, cycle, deadlines, employee, notes, reminder_schedule, scoring, wellbeing,
                             worktime_signals)
 
     mods = [cycle, deadlines, scoring, notes, reminder_schedule, access, employee, assistant, wellbeing,
-            worktime_signals, regulations, personnel_export, legacy_import, legacy_api, sys.modules[__name__]]
+            worktime_signals, regulations, personnel_export, legacy_import, legacy_api, notices, invitations,
+            ezd_registry, sys.modules[__name__]]
     types = [obj for m in mods for _, obj in inspect.getmembers(m, inspect.isclass)
              if obj.__module__ == m.__name__ and (dataclasses.is_dataclass(obj) or issubclass(obj, Enum))]
     return JsonCodec(types)
@@ -429,6 +505,7 @@ def snapshot(st: DemoState) -> Snapshot:
               "email_ostatnie_uruchomienie": st.notify_last_run,
               "dobrostan": dict(st.wellbeing), "rcp": st.worktime.all(), "eakt": dict(st.eakt_status),
               "import_ocen": dict(st.legacy_imports),
+              "powiadomienia": list(st.notices), "zaproszenia": list(st.invitations), "ezd": dict(st.ezd_status),
               **({"zakres_widocznosci": st.settings.visibility_scope}
                  if st.settings.visibility_scope != load_office_settings().visibility_scope else {}),
               # office default changed by HR in the app (else the file config/ustawienia_urzedu.json applies)
@@ -477,6 +554,9 @@ def restore(snap: Snapshot, ai_mode: str | None = None) -> DemoState:
     st.worktime = InMemoryWorkTimeStore(snap.meta.get("rcp", []))
     st.eakt_status = dict(snap.meta.get("eakt", {}))
     st.legacy_imports = dict(snap.meta.get("import_ocen", {}))
+    st.notices = list(snap.meta.get("powiadomienia", []))
+    st.invitations = list(snap.meta.get("zaproszenia", []))
+    st.ezd_status = dict(snap.meta.get("ezd", {}))
     return st
 
 

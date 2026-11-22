@@ -101,12 +101,43 @@ def test_local_model_is_unavailable_in_tests_so_features_fall_back():
     assert a.suggest_criteria(EMPLOYEE).source == "REGULY"
 
 
-def test_api_adapter_is_not_implemented_and_not_swallowed(cycle):
-    a = service(ApiModel())
-    with pytest.raises(NotImplementedError):
-        a.classify_note(NOTES[0], "C", ADDITIONAL)
-    with pytest.raises(NotImplementedError):
-        list(a.draft_stream("UZASADNIENIE", cycle, EMPLOYEE, NOTES))
+def test_api_adapter_falls_back_in_tests_and_when_the_provider_fails(cycle, monkeypatch):
+    from backend import config, llm
+
+    a = service(ApiModel(["anthropic/claude-sonnet-5-5"]))
+    assert a.model.available() is False  # LLM_MOCK=1: nothing leaves the machine in tests
+    monkeypatch.setattr(config, "LLM_MOCK", False)
+    assert a.model.available() is True
+
+    def down(*args, **kwargs):
+        raise RuntimeError("Żaden model nie odpowiedział")
+
+    monkeypatch.setattr(llm, "_complete", down)
+    assert a.suggest_criteria(EMPLOYEE).source == "REGULY"  # provider down -> the no-AI version, no exception
+    assert "".join(a.draft_stream("UZASADNIENIE", cycle, EMPLOYEE, NOTES))  # template in one piece
+
+
+def test_api_adapter_sends_only_pseudonymised_text_and_parses_json(monkeypatch):
+    from backend import config, llm
+
+    monkeypatch.setattr(config, "LLM_MOCK", False)
+    sent = []
+
+    def fake(system, prompt, json_mode, temperature):
+        sent.append((system, prompt, json_mode))
+        return '```json\n{"ok": true}\n```'
+
+    monkeypatch.setattr(llm, "_complete", fake)
+    m = ApiModel(["openai/gpt-4o-mini"])
+    assert m.complete_json("System.", "Ocena: Grzegorz Wzór, grzegorz@urzad.example", {"type": "object"},
+                           "draft") == {"ok": True}
+    system, prompt, json_mode = sent[0]
+    assert json_mode and '"type": "object"' in system  # the schema goes with the request
+    assert "Grzegorz" not in prompt and "Wzór" not in prompt and "@" not in prompt
+    monkeypatch.setattr(llm, "_complete", lambda *a: "to nie jest JSON")
+    from app.application.ports import AiInvalidOutput
+    with pytest.raises(AiInvalidOutput):
+        m.complete_json("S", "P", {}, "draft")
 
 
 # ---------------------------------------------------------------- pseudonymisation

@@ -21,7 +21,7 @@ Dane dla trybu bez AI: `server/data/kprm/asystent.json` (pytania, działania roz
 |---|---|
 | `local` (domyślny) | Ollama na tej maszynie, structured outputs (schemat JSON); nic nie wychodzi z komputera |
 | `off` | tylko szablony i reguły |
-| `api` | **niezaimplementowane**: `ApiModel` rzuca `NotImplementedError` i usługa celowo tego nie przechwytuje |
+| `api` | model zewnętrzny przez `backend.llm.ask_llm` (LiteLLM, lista `LLM_MODELS` z przejściem na następny); schemat JSON w prompcie systemowym; błąd dostawcy → wersja bez AI |
 
 Uruchomienie modelu lokalnego:
 ```bash
@@ -56,6 +56,8 @@ python scripts/eval_classifier.py --mode off # punkt odniesienia bez AI
 Zestaw: 30 ręcznie oznaczonych notatek (`server/data/kprm/notatki_testowe.json`).
 Punkt odniesienia bez AI: kryterium trafione 50% (top-1) / 77% (top-3), bez wydźwięku.
 
-## Dodanie adaptera API (później)
-Zaimplementować metody `ApiModel` przez `backend.llm.ask_llm` / `ask_llm_json` (LiteLLM, `LLM_MODELS`).
-Prompty są już pseudonimizowane, zanim dotrą do adaptera.
+## Tryb API (`AI_MODE=api`)
+`ApiModel` woła `backend.llm.ask_llm` (LiteLLM, modele z `LLM_MODELS`, np. `anthropic/claude-sonnet-5-5`).
+Pseudonimizacja jest podwójna: asystent maskuje osoby z oceny (`[OSOBA_n]`), a `ask_llm` – wszystkich z katalogu
+pracowników, PESEL, e-maile i telefony (`[OSOBA_Kn]`), zanim cokolwiek wyjdzie z aplikacji. Brak klucza, limit albo
+awaria dostawcy = `AiUnavailable` → szablon. W testach (`LLM_MOCK=1`) model jest niedostępny.

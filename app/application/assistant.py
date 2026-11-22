@@ -6,8 +6,8 @@
   exist in the note, ids must exist, no leftover tokens) and falls back when the answer is rejected,
 - never applies anything: it returns proposals, the evaluator decides.
 
-The model is a port (AiModel). AiUnavailable / AiInvalidOutput -> fallback; NotImplementedError is NOT
-caught, so AI_MODE=api fails loudly until that adapter exists.
+The model is a port (AiModel). AiUnavailable / AiInvalidOutput -> fallback; any other exception is a bug in an
+adapter and is NOT caught (it must not be hidden behind a template).
 """
 from __future__ import annotations
 
@@ -259,7 +259,7 @@ class AiSuggestionService:
 
     def _ask_json(self, function: str, prompt: str, schema: dict, task: AiTask,
                   validate: Callable[[dict], Any]) -> Any | None:
-        """Model answer, validated; None = use the fallback. NotImplementedError propagates on purpose."""
+        """Model answer, validated; None = use the fallback. Errors other than AiUnavailable propagate."""
         if not self.model.available():
             return None
         try:

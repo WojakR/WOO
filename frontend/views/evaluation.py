@@ -794,13 +794,17 @@ def objection_panel(api: Api, ev: dict) -> None:
         with st.container(border=True):
             st.markdown("**:material/gavel: Rozstrzygnięcie sprzeciwu**")
             reason = st.text_area("Uzasadnienie rozstrzygnięcia", key=f"obj_dec_{eid}")
+            modes = {"ZMIANA_OCENY": "Zmiana oceny", "PONOWNE_SPORZADZENIE": "Ponowne sporządzenie oceny"}
+            mode = st.radio("Po uwzględnieniu sprzeciwu (art. 83 ust. 4)", list(modes), format_func=modes.get,
+                            key=f"obj_mode_{eid}", horizontal=True)
             a, b = st.columns(2)
             for col, upheld, label in ((a, True, "Uwzględnij sprzeciw"), (b, False, "Nie uwzględniaj")):
                 if col.button(label, key=f"obj_{upheld}_{eid}", type="primary" if upheld else "secondary",
                               use_container_width=True):
-                    _inline_action(api, eid, "ROZPATRZ_SPRZECIW", komentarz=reason.strip() or None, uwzglednij=upheld)
-            st.caption("Uwzględniony sprzeciw: oceniający sporządza ocenę ponownie. Nieuwzględniony: oceniany może "
-                       "odwołać się do sądu pracy.")
+                    _inline_action(api, eid, "ROZPATRZ_SPRZECIW", komentarz=reason.strip() or None, uwzglednij=upheld,
+                                   tryb=mode if upheld else None)
+            st.caption("Zmiana oceny: oceniający zastępuje kwestionowane fragmenty. Ponowne sporządzenie: ocena jest "
+                       "anulowana i wraca do rozmowy oceniającej. Nieuwzględniony: oceniany może odwołać się do sądu pracy.")
 
 
 # ---------------------------------------------------------------- side panel

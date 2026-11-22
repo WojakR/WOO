@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Callable, Protocol
 
+from app.application.notices import Notice
 from app.application.ports import Notifier
 from app.application.use_cases import EvaluationService, PlannedReminder
 from app.domain.reminder_schedule import ReminderSchedule, WorkingHours
@@ -27,6 +28,7 @@ class NotifyState(Protocol):
     sent_email_keys: set[str]
     email_off_for: set[str]
     notify_last_run: date | None
+    notices: list[Notice]  # one-off notices (objection decided, evaluation changed, invitations, ...)
 
     def schedule_for(self, user_id: str) -> ReminderSchedule: ...
 
@@ -65,6 +67,22 @@ def run(st: NotifyState, notifier: Notifier, now: datetime, hours: WorkingHours,
         notifier.send(address, _subject(r), r.message)
         st.sent_email_keys.add(r.key)
         out.sent.append((r.recipient_id, r.key))
+    # notices about events: everything not mailed yet (invitations with their .ics; with e-mails switched off the
+    # .ics is still in the app: GET /api/evaluations/{id}/zaproszenia/{n}.ics)
+    for n in sorted(getattr(st, "notices", []), key=lambda n: n.when):
+        key = f"powiadomienie:{n.key}"
+        if key in st.sent_email_keys or n.when > now:
+            continue
+        if n.recipient_id in st.email_off_for:
+            out.skipped_opted_out += 1
+            continue
+        address = email_of(n.recipient_id)
+        if not address:
+            out.skipped_no_email += 1
+            continue
+        notifier.send(address, n.subject, n.text, [n.attachment] if n.attachment else [])
+        st.sent_email_keys.add(key)
+        out.sent.append((n.recipient_id, key))
     st.notify_last_run = now.date()
     return out
 
@@ -79,11 +97,7 @@ def main() -> int:  # composition root: the app's state, SMTP from .env
     if isinstance(st.clock, FixedClock):  # demo: the demo clock's day, the real time of day
         now = datetime.combine(st.clock.today(), now.time())
 
-    def email_of(user_id: str) -> str | None:
-        e = st.directory.get(user_id)
-        return e.email if e else None
-
-    result = run(st, from_config(), now, st.settings.working_hours, email_of)
+    result = run(st, from_config(), now, st.settings.working_hours, st.email_of)
     save_state()
     if result.outside_hours:
         print("Poza godzinami pracy urzędu – nic nie wysłano.")

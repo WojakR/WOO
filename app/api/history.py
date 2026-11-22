@@ -69,6 +69,31 @@ def hr_tasks(x_user_id: str | None = Header(default=None), st: DemoState = Depen
         for sig in signals_for(st, e.id):
             out.append(HrTask(rodzaj=sig.kind, oceniany=_osoba(st, e), evaluation_id=int(sig.evaluation_id),
                               tresc=sig.message, podstawa=sig.basis, termin=sig.due))
+    out += promotion_requests(st)
+    return out
+
+
+def promotion_requests(st: DemoState) -> list[HrTask]:
+    """Requests for the next grade (part III, art. 89 ust. 1) in evaluations drawn up – HR prepares the decision.
+    The notice to HR goes out when the evaluation is drawn up (app/application/notices.py)."""
+    from app.domain.scoring import Outcome
+
+    from .evaluations import _osoba
+
+    out = []
+    for c in st.evaluations.cycles.list_all():
+        if not (c.promotion_request and c.result is not None and c.result.outcome is Outcome.POSITIVE
+                and c.status in (Status.EVALUATION_DONE, *_FINISHED)):
+            continue
+        e = st.directory.get(c.employee_id)
+        held = c.held_grade if c.held_grade is not None else (e.grade if e else None)
+        state = {Status.EVALUATION_DONE: "ocena czeka na zapoznanie", Status.OBJECTION: "od oceny wniesiono sprzeciw",
+                 Status.ACKNOWLEDGED: "ocena zapoznana"}[c.status]
+        grades = f" (stopień {held} → {held + 1})" if held is not None else ""
+        out.append(HrTask(rodzaj="WNIOSEK_O_STOPIEN", oceniany=_osoba(st, e), evaluation_id=int(c.id),
+                          tresc=f"Wniosek oceniającego o przyznanie kolejnego stopnia służbowego{grades} w ocenie z "
+                                f"{c.evaluated_on:%d.%m.%Y}; {state}.",
+                          podstawa="art. 89 ust. 1 ustawy o służbie cywilnej", termin=None))
     return out
 
 

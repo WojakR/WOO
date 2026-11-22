@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Iterator, Literal, Protocol
+from typing import Iterator, Literal, Protocol, Sequence
 
 from app.domain.cycle import EvaluationCycle
 from app.domain.employee import Employee
@@ -33,7 +33,9 @@ class Clock(Protocol):
 class Notifier(Protocol):
     """Sends a message outside the application (e-mail). Adapters: app/infrastructure/notifier.py."""
 
-    def send(self, to: str, subject: str, body: str) -> None: ...
+    def send(self, to: str, subject: str, body: str, attachments: Sequence = ()) -> None:
+        """`attachments`: app.application.notices.Attachment items (e.g. the .ics of an invitation)."""
+        ...
 
 
 # ---------------------------------------------------------------- AI model
@@ -81,3 +83,13 @@ class PersonnelFileExporter(Protocol):
     Raises any exception on failure – the export is then retried."""
 
     def export(self, document) -> str: ...
+
+
+# ---------------------------------------------------------------- document management (EZD)
+
+class DocumentRegistry(Protocol):
+    """Registers a document in the office's EZD (adapters: app/infrastructure/ezd.py).
+    `document` is app.application.ezd_registry.EzdDocument; returns its reference (number / location).
+    Raises any exception on failure – the registration is then retried."""
+
+    def register(self, document) -> str: ...

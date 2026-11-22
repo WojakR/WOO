@@ -12,7 +12,7 @@ from datetime import date
 from typing import Literal
 
 from .calendar import WorkingCalendar
-from .cycle import EvaluationCycle, Status
+from .cycle import CHANGE, EvaluationCycle, Status
 from .deadlines import Absence, criteria_deadline, evaluation_deadline
 from .rulebook import RuleBook
 
@@ -55,6 +55,14 @@ def deadlines_of(c: EvaluationCycle, rules: RuleBook, cal: WorkingCalendar, toda
     else:
         basis = "art. 81 ust. 4 i 7 ustawy"
         note = f"{rules.cycle_months} mies." + (" + nieobecności dłuższe niż miesiąc" if c.absences else "")
+    if c.objection_order_pending:
+        # upheld objection: the evaluator carries out the DG's decision within the 14 days (Poradnik KPRM)
+        due = c.objection_review_deadline(rules, cal)
+        label = ("Zmiana oceny po uwzględnieniu sprzeciwu" if c.objection_outcome == CHANGE
+                 else "Ponowne sporządzenie oceny po uwzględnieniu sprzeciwu")
+        out.append(DeadlineItem("OCENA", label, due, "art. 83 ust. 3–4 ustawy", _state(due, None, today), None,
+                                "14 dni od wniesienia sprzeciwu"))
+        return out
     out.append(DeadlineItem("OCENA", "Sporządzenie oceny", deadline, basis,
                             _state(deadline, c.evaluated_on, today), c.evaluated_on, note))
 

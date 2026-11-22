@@ -1,12 +1,14 @@
 // Screen 1 – one evaluation (evaluator's view; the evaluated person sees the same sheet read-only with their own actions).
 // Every rule (average, level, outcome, locks, allowed actions, validations) comes from the server.
-import { api, ApiError, currentUserId } from "../api.js";
+import { api, ApiError, currentUserId, download } from "../api.js";
 import { h, icon, replace, fmtDate, fmtNumber, avatar, daysBetween, daysLeftText, urgency, toast, loading, helpLink } from "../ui.js";
 import {
-  STAGES, stageIndex, STATUS_LABEL, LEVEL_LABEL, SCALE_SHORT, ACTION_LABEL, ACTION_DONE, EMPLOYMENT_LABEL, SIGNAL_LABEL, personName,
+  STAGES, stageIndex, STATUS_LABEL, LEVEL_LABEL, SCALE_SHORT, ACTION_LABEL, ACTION_DONE, EMPLOYMENT_LABEL, SIGNAL_LABEL, OBJECTION_MODE, INVITATION_KIND, personName,
 } from "../labels.js";
 
 const BLOCK_HINT = {
+  SPRZECIW_OBNIZENIE: "Po uwzględnieniu sprzeciwu oceny cząstkowe nie mogą być niższe niż przed nim",
+  SPRZECIW_BRAK_ZMIAN: "Zmień kwestionowane fragmenty oceny (oceny cząstkowe, uzasadnienie)",
   UZASADNIENIE_WYMAGANE: "Uzupełnij uzasadnienie oceny",
   IPRZ_WYMAGANE: "Uzupełnij wnioski do IPRZ",
   BRAK_OCENY: "Oceń wszystkie kryteria",
@@ -60,6 +62,7 @@ export async function renderEvaluation(view, id, ctx) {
     if (s.ev.status === "KRYTERIA_DO_WYZNACZENIA" && !s.criteriaDict) {
       tasks.push(api.criteria(s.ev.arkusz).then((x) => { s.criteriaDict = x; }));
     }
+    tasks.push(api.invitations(id).then((x) => { s.invitations = x; }).catch(() => { s.invitations = []; }));
     await Promise.all(tasks);
   }
 
@@ -84,7 +87,8 @@ export async function renderEvaluation(view, id, ctx) {
     const ev = s.ev;
     const done = ["OCENA_DO_ZAPOZNANIA", "ZAKONCZONA", "SPRZECIW"].includes(ev.status);
     const criteriaStage = ["KRYTERIA_DO_WYZNACZENIA", "KRYTERIA_DO_POTWIERDZENIA"].includes(ev.status);
-    const due = criteriaStage ? ev.czesc_i.termin_wyznaczenia_kryteriow : ev.czesc_i.termin_oceny;
+    const order = ev.sprzeciw?.termin_wykonania;  // upheld objection: the DG's decision is due, not the evaluation
+    const due = order || (criteriaStage ? ev.czesc_i.termin_wyznaczenia_kryteriow : ev.czesc_i.termin_oceny);
     const days = daysBetween(ctx.meta.dzis, due);
     const u = urgency(days);
     const cls = u === "PO_TERMINIE" ? "badge-bad" : u === "OK" ? "badge-idle" : "badge-warn";
@@ -101,7 +105,7 @@ export async function renderEvaluation(view, id, ctx) {
           ? h("div", { class: "deadline" }, "Ocena sporządzona",
             h("span", { class: "badge badge-ok" }, icon("circleCheck"), fmtDate(ev.czesc_ii.data_sporzadzenia)))
           : h("div", { class: "deadline" },
-            criteriaStage ? "Termin wyznaczenia kryteriów" : "Termin sporządzenia oceny",
+            order ? "Termin wykonania decyzji po sprzeciwie" : criteriaStage ? "Termin wyznaczenia kryteriów" : "Termin sporządzenia oceny",
             h("span", { class: `badge ${cls}` }, icon(u === "PO_TERMINIE" ? "alert" : "clock"),
               `${fmtDate(due)} · ${daysLeftText(days)}`))));
   }
@@ -214,9 +218,69 @@ export async function renderEvaluation(view, id, ctx) {
   // ------------------------------------------------------------ main panel (depends on the stage)
   function renderMain() {
     const st = s.ev.status;
-    if (st === "KRYTERIA_DO_WYZNACZENIA") return replace(R.main, sheetPanel(), criteriaSelection());
-    if (st === "KRYTERIA_DO_POTWIERDZENIA" || st === "OKRES_OCENY") return replace(R.main, criteriaOverview());
-    replace(R.main, scoringPanel(), wellbeingPanel(), paperPanel(), objectionPanel());
+    if (st === "KRYTERIA_DO_WYZNACZENIA") return replace(R.main, sheetPanel(), invitationPanel(), criteriaSelection());
+    if (st === "KRYTERIA_DO_POTWIERDZENIA" || st === "OKRES_OCENY") return replace(R.main, invitationPanel(), criteriaOverview());
+    replace(R.main, invitationPanel(), scoringPanel(), wellbeingPanel(), paperPanel(), objectionPanel());
+  }
+
+  // ------------------------------------------------------------ invitation to a meeting (.ics for the calendar)
+  const INVITE_STAGE = {
+    KRYTERIA_DO_WYZNACZENIA: "ROZMOWA_KRYTERIA", KRYTERIA_DO_POTWIERDZENIA: "ROZMOWA_KRYTERIA",
+    OKRES_OCENY: "ROZMOWA_OCENIAJACA", ROZMOWA_OCENIAJACA: "ROZMOWA_OCENIAJACA",
+  };
+
+  function invitationPanel() {
+    const list = (s.invitations || []).filter((i) => !i.odwolane);
+    const kind = INVITE_STAGE[s.ev.status];
+    const canInvite = isEvaluator() && kind;
+    if (!list.length && !canInvite) return null;
+    const ics = (i) => download(i.ics_url.replace(/^\/api/, ""), `zaproszenie-${i.rodzaj.toLowerCase()}.ics`)
+      .catch((err) => toast(err.message, "bad"));
+    const rows = list.map((i) => h("li", { class: "row", style: { gap: "8px", flexWrap: "wrap", alignItems: "center" } },
+      h("span", {}, h("strong", {}, INVITATION_KIND[i.rodzaj] || i.nazwa), ": ",
+        `${fmtDate(i.termin.slice(0, 10))}, godz. ${i.termin.slice(11, 16)}–${i.koniec.slice(11, 16)}, ${i.miejsce}`,
+        i.wersja ? h("span", { class: "small muted" }, ` (zmiana terminu nr ${i.wersja})`) : null),
+      h("button", { class: "btn btn-sm", type: "button", onclick: () => ics(i) }, icon("download"), "Dodaj do kalendarza (.ics)"),
+      isEvaluator() ? h("button", { class: "btn btn-sm", type: "button", onclick: async () => {
+        try { await api.cancelInvitation(id, i.id); toast("Spotkanie odwołane – oceniany dostał powiadomienie."); }
+        catch (err) { toast(err.message, "bad"); }
+        s.invitations = await api.invitations(id).catch(() => []); renderMain();
+      } }, "Odwołaj") : null));
+    let form = null;
+    if (canInvite) {
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const day = h("input", { type: "date", id: "inv-day", value: tomorrow });
+      const hour = h("input", { type: "time", id: "inv-hour", value: "10:00" });
+      const len = h("input", { type: "number", id: "inv-len", value: 60, min: 15, max: 240, step: 15, style: { width: "80px" } });
+      const place = h("input", { type: "text", id: "inv-place", placeholder: "Pokój albo link do spotkania" });
+      const note = h("input", { type: "text", "aria-label": "Uwagi do zaproszenia", placeholder: "Uwagi (opcjonalnie)", style: { flex: "1 1 220px" } });
+      const existing = list.find((i) => i.rodzaj === kind);
+      form = h("div", { class: "stack", style: { gap: "8px", marginTop: "8px" } },
+        h("div", { class: "row", style: { gap: "12px", flexWrap: "wrap", alignItems: "flex-end" } },
+          h("label", { for: "inv-day", class: "stack", style: { gap: "4px" } }, h("span", {}, "Dzień"), day),
+          h("label", { for: "inv-hour", class: "stack", style: { gap: "4px" } }, h("span", {}, "Godzina"), hour),
+          h("label", { for: "inv-len", class: "stack", style: { gap: "4px" } }, h("span", {}, "Minut"), len),
+          h("label", { for: "inv-place", class: "stack", style: { gap: "4px", flex: "1 1 220px" } }, h("span", {}, "Miejsce"), place)),
+        h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap" } }, note,
+          h("button", { class: "btn btn-primary", type: "button", onclick: async () => {
+            try {
+              await api.invite(id, { rodzaj: kind, termin: `${day.value}T${hour.value}:00`, czas_min: Number(len.value),
+                miejsce: place.value, uwagi: note.value });
+              toast(existing ? "Wysłano nowy termin – spotkanie w kalendarzu ocenianego zostanie zaktualizowane."
+                : "Zaproszenie wysłane – oceniany dostanie powiadomienie i e-mail z plikiem .ics.");
+              s.invitations = await api.invitations(id).catch(() => []);
+              renderMain();
+            } catch (err) {
+              const extra = err.walidacje?.length ? ` ${err.walidacje.map((w) => w.komunikat).join(" ")}` : "";
+              toast(`${err.message}${extra}`, "bad");
+            }
+          } }, icon("send"), existing ? "Zmień termin spotkania" : "Wyślij zaproszenie")));
+    }
+    return h("section", { class: "card card-pad", style: { marginBottom: "12px" }, "aria-labelledby": "inv-h" },
+      h("h2", { id: "inv-h" }, "Zaproszenie na rozmowę"),
+      canInvite ? h("p", { class: "small muted" }, `${INVITATION_KIND[kind]}: oceniany dostaje powiadomienie w systemie `
+        + "i e-mail z plikiem do kalendarza (Outlook, Thunderbird, Google). Zaproszenie jest opcjonalne.") : null,
+      rows.length ? h("ul", { class: "plain-list" }, rows) : null, form);
   }
 
   // ------------------------------------------------------------ burnout checklist (working material, never in the PDF)
@@ -361,7 +425,17 @@ export async function renderEvaluation(view, id, ctx) {
         h("dt", {}, "Złożony"), h("dd", {}, fmtDate(o.zlozony)),
         h("dt", {}, "Treść"), h("dd", {}, o.tresc),
         h("dt", {}, "Termin rozpatrzenia"), h("dd", {}, `${fmtDate(o.termin_rozpatrzenia)} (14 dni, art. 83 ust. 3)`),
-        decided ? [h("dt", {}, "Rozstrzygnięcie"), h("dd", {}, `${decided}, ${fmtDate(o.rozstrzygnieto)}: ${o.uzasadnienie_decyzji}`)] : null,
+        decided ? [h("dt", {}, "Rozstrzygnięcie"), h("dd", {}, `${decided}${o.tryb ? ` – ${OBJECTION_MODE[o.tryb]}` : ""}, `
+          + `${fmtDate(o.rozstrzygnieto)}: ${o.uzasadnienie_decyzji}`)] : null,
+        o.termin_wykonania ? [h("dt", {}, "Wykonanie decyzji"),
+          h("dd", {}, `oceniający do ${fmtDate(o.termin_wykonania)} (14 dni od wniesienia sprzeciwu)`)] : null,
+        o.wykonano ? [h("dt", {}, o.tryb === "ZMIANA_OCENY" ? "Ocena zmieniona" : "Sporządzona po raz drugi"),
+          h("dd", {}, fmtDate(o.wykonano))] : null,
+        o.przed_sprzeciwem ? [h("dt", {}, o.przed_sprzeciwem.anulowana ? "Ocena anulowana" : "Ocena przed zmianą"),
+          h("dd", {}, [o.przed_sprzeciwem.wynik === "POZYTYWNA" ? "pozytywna" : "negatywna",
+            o.przed_sprzeciwem.srednia != null ? `średnia ${o.przed_sprzeciwem.srednia}` : null,
+            o.przed_sprzeciwem.data_sporzadzenia ? `sporządzona ${fmtDate(o.przed_sprzeciwem.data_sporzadzenia)}` : null]
+            .filter(Boolean).join(", "))] : null,
         o.termin_odwolania_do_sadu ? [h("dt", {}, "Odwołanie do sądu pracy"),
           h("dd", {}, `do ${fmtDate(o.termin_odwolania_do_sadu)} (14 dni, art. 83 ust. 5)`)] : null));
     }
@@ -375,10 +449,22 @@ export async function renderEvaluation(view, id, ctx) {
     }
     if (can("ROZPATRZ_SPRZECIW")) {
       const ta = h("textarea", { rows: 3, "aria-label": "Uzasadnienie rozstrzygnięcia", placeholder: "Uzasadnienie rozstrzygnięcia" });
-      parts.push(ta, h("div", { class: "row", style: { gap: "8px", marginTop: "8px" } },
+      const mode = (value, label, help) => h("label", { class: "row", style: { gap: "8px", alignItems: "flex-start" } },
+        h("input", { type: "radio", name: "objection-mode", value, checked: value === "ZMIANA_OCENY" }),
+        h("span", {}, h("strong", {}, label), h("br"), h("span", { class: "small muted" }, help)));
+      const modes = h("fieldset", { class: "stack", style: { gap: "6px", margin: "8px 0", border: "0", padding: "0" } },
+        h("legend", { class: "small" }, "Po uwzględnieniu sprzeciwu (art. 83 ust. 4):"),
+        mode("ZMIANA_OCENY", "Zmiana oceny",
+          "Oceniający zastępuje kwestionowane fragmenty (np. oceny cząstkowe). Ocena pozostaje zapoznana, ocenianemu idzie powiadomienie o zmianie."),
+        mode("PONOWNE_SPORZADZENIE", "Ponowne sporządzenie oceny",
+          "Ocena zostaje anulowana i wraca do etapu rozmowy oceniającej. Od oceny sporządzonej po raz drugi przysługuje ponowny sprzeciw."));
+      const chosen = () => modes.querySelector("input[name=objection-mode]:checked")?.value;
+      parts.push(ta, modes, h("p", { class: "small muted" },
+        "Uwzględnienie sprzeciwu nie może pogorszyć oceny – system nie pozwoli obniżyć ocen cząstkowych."),
+      h("div", { class: "row", style: { gap: "8px", marginTop: "8px" } },
         h("button", { class: "btn btn-primary", type: "button",
-          onclick: () => objectionAction("ROZPATRZ_SPRZECIW", { uwzglednij: true, komentarz: ta.value }) },
-          "Uwzględnij – ocena wraca do oceniającego"),
+          onclick: () => objectionAction("ROZPATRZ_SPRZECIW", { uwzglednij: true, tryb: chosen(), komentarz: ta.value }) },
+          "Uwzględnij sprzeciw"),
         h("button", { class: "btn", type: "button",
           onclick: () => objectionAction("ROZPATRZ_SPRZECIW", { uwzglednij: false, komentarz: ta.value }) },
           "Nie uwzględniaj")));
@@ -751,7 +837,7 @@ export async function renderEvaluation(view, id, ctx) {
     const cur = currentStep();
     const stepNo = Math.min(cur + 1, STAGES.length);
     const done = ["ZAKONCZONA", "SPRZECIW"].includes(ev.status);
-    const days = daysBetween(ctx.meta.dzis, ev.czesc_i.termin_oceny);
+    const days = daysBetween(ctx.meta.dzis, ev.sprzeciw?.termin_wykonania || ev.czesc_i.termin_oceny);
     const blocks = blocking();
     const checks = [];
     if (ev.status === "ROZMOWA_OCENIAJACA" && isEvaluator()) {
@@ -888,6 +974,15 @@ export async function renderEvaluation(view, id, ctx) {
     return who[st] || "";
   }
 
+  // after an upheld objection the main button carries out the director general's order
+  function actionLabel(a) {
+    const o = s.ev.sprzeciw;
+    if (a === "ZATWIERDZ_OCENE" && o?.tryb && !o.wykonano) {
+      return o.tryb === "ZMIANA_OCENY" ? "Zapisz zmianę oceny (po sprzeciwie)" : "Zatwierdź ocenę sporządzoną po raz drugi";
+    }
+    return ACTION_LABEL[a] || a;
+  }
+
   function renderActions() {
     const actions = s.ev.dozwolone_akcje.filter((a) => !OBJECTION_ACTIONS.includes(a));
     const primaryAction = actions[0];
@@ -902,7 +997,7 @@ export async function renderEvaluation(view, id, ctx) {
         h("div", { class: "row", style: { gap: "8px" } },
           h("button", { class: "btn", type: "button", onclick: () => { s.confirming = false; renderActions(); } }, "Anuluj"),
           h("button", { class: "btn btn-primary", type: "button", onclick: () => runAction(primaryAction) },
-            icon("check"), `Potwierdź: ${ACTION_LABEL[primaryAction].toLowerCase()}`)),
+            icon("check"), `Potwierdź: ${actionLabel(primaryAction).toLowerCase()}`)),
         h("span", { class: "small muted" }, "Po zatwierdzeniu pola zostaną zablokowane."));
     } else {
       const hint = blocks.length ? BLOCK_HINT[blocks.find((b) => b.kod !== "BRAK_OCENY")?.kod || blocks[0].kod] || blocks[0].komunikat : null;
@@ -910,7 +1005,7 @@ export async function renderEvaluation(view, id, ctx) {
         h("button", { class: "btn btn-primary", type: "button", disabled: Boolean(blocks.length),
           "aria-describedby": hint ? "primary-hint" : false,
           onclick: () => { s.confirming = true; renderActions(); } },
-        icon(primaryAction === "ZATWIERDZ_OCENE" ? "send" : "check"), ACTION_LABEL[primaryAction] || primaryAction),
+        icon(primaryAction === "ZATWIERDZ_OCENE" ? "send" : "check"), actionLabel(primaryAction)),
         hint ? h("span", { class: "primary-hint", id: "primary-hint" }, icon("alert"), hint) : null);
     }
 

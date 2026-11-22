@@ -134,12 +134,12 @@ def current_user(st: DemoState, x_user_id: str | None) -> str:
         if user is None:
             raise ApiProblem(401, "BRAK_SESJI", "Sesja wygasła lub nie zalogowano się. Zaloguj się ponownie.")
         who = user.employee_id
-        if who != HR and st.directory.get(who) is None:
+        if who != HR and (st.directory.get(who) is None or st.directory.get(who).removed_on):
             raise ApiProblem(403, "NIEZNANY_UZYTKOWNIK", "Konto nie jest powiązane z pracownikiem z kadr.")
         return who
     if x_user_id is None or x_user_id == HR:
         return HR
-    if st.directory.get(x_user_id) is None:
+    if st.directory.get(x_user_id) is None or st.directory.get(x_user_id).removed_on:
         raise ApiProblem(403, "NIEZNANY_UZYTKOWNIK", "Nieznany użytkownik (nagłówek X-User-Id).")
     return x_user_id
 
