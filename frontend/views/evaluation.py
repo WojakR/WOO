@@ -592,6 +592,7 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
         out = _call(api.draft, eid, kind)
         if out:
             st.session_state[dkey] = out
+            st.session_state.pop(f"e{dkey}", None)
 
     for field, (title, kind) in TEXT_FIELDS.items():
         tkey = f"tx_{eid}_{field}"
@@ -611,20 +612,39 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
                 based = f" · na podstawie {len(d.get('oparte_na_notatkach') or [])} notatek" if d.get("oparte_na_notatkach") else ""
                 ui.html(f"{ui.badge(':material/auto_awesome: Propozycja asystenta AI', 'b-violet')} <span class='lock'>{src}{based} · nic nie "
                         f"zostanie zapisane bez Twojej decyzji.</span>")
-                st.markdown(d["tekst"])
-                a, b, c = st.columns(3)
+                # the text of the assistant is never taken as it is: the evaluator has to read and change it
+                ekey = f"e{dkey}"
+                if ekey not in st.session_state:
+                    st.session_state[ekey] = d["tekst"]
+                st.text_area("Tekst propozycji – przeczytaj i popraw", key=ekey, height=170)
+                st.caption("Zanim wstawisz, przeczytaj tekst i wprowadź choć jedną zmianę – to Twoja ocena, "
+                           "asystent tylko podpowiada.")
+                if st.session_state.get(f"err_{dkey}"):
+                    st.error(st.session_state[f"err_{dkey}"])
+                a, c = st.columns([2, 1])
 
-                def use(save: bool, field=field, tkey=tkey, dkey=dkey) -> None:
-                    st.session_state[tkey] = st.session_state[dkey]["tekst"]
+                def use(field=field, tkey=tkey, dkey=dkey, ekey=ekey) -> None:
+                    text = st.session_state[ekey].strip()
+                    if text == st.session_state[dkey]["tekst"].strip():
+                        st.session_state[f"err_{dkey}"] = ("Tekst propozycji jest bez zmian. Przeczytaj go i popraw, "
+                                                           "a potem kliknij „Wstaw”.")
+                        return
+                    if not text:
+                        st.session_state[f"err_{dkey}"] = "Tekst jest pusty."
+                        return
+                    st.session_state.pop(f"err_{dkey}", None)
+                    st.session_state[tkey] = text
                     st.session_state.pop(dkey, None)
-                    if save:
-                        fresh = api.evaluation(eid)
-                        _call(api.patch, fresh, **{field: st.session_state[tkey]}, ok="Wstawiono i zapisano.")
+                    st.session_state.pop(ekey, None)
+                    _call(api.patch, api.evaluation(eid), **{field: text}, ok="Wstawiono i zapisano.")
 
-                a.button("Wstaw", key=f"use_{dkey}", type="primary", use_container_width=True, on_click=use, args=(True,))
-                b.button(":material/edit: Edytuj", key=f"edit_{dkey}", use_container_width=True, on_click=use, args=(False,))
-                c.button("✖ Odrzuć", key=f"rej_{dkey}", use_container_width=True,
-                         on_click=lambda dkey=dkey: st.session_state.pop(dkey, None))
+                def reject(dkey=dkey, ekey=ekey) -> None:
+                    for k in (dkey, ekey, f"err_{dkey}"):
+                        st.session_state.pop(k, None)
+
+                a.button("Wstaw", key=f"use_{dkey}", type="primary", use_container_width=True,
+                         on_click=use)
+                c.button("✖ Odrzuć", key=f"rej_{dkey}", use_container_width=True, on_click=reject)
         st.text_area(title, key=tkey, height=170, disabled=not editable, label_visibility="collapsed",
                      placeholder=hints[field] if editable else "")
         ui.footnote("Pole wymagane." if field == "wnioski_iprz" else
@@ -645,15 +665,7 @@ def _stage_sheet(api: Api, ev: dict, me: dict, ai: bool, meta: dict) -> None:
             return True
         return _call(api.patch, api.evaluation(eid), **changes) is not None
 
-    st.markdown("#### Część III – wniosek o kolejny stopień służbowy")
-    c3 = ev.get("czesc_iii")
-    if ev["oceniany"].get("typ_zatrudnienia") != "URZEDNIK":
-        st.caption("Nie dotyczy – oceniany jest pracownikiem służby cywilnej (część III dotyczy urzędników).")
-    elif c3:
-        st.markdown(f"Wnioskowany stopień: **{c3.get('wnioskowany_stopien') or '—'}**"
-                    + (" · stopień obligatoryjny" if c3.get("stopien_obligatoryjny") else ""))
-    else:
-        st.caption(f"Wniosek o stopień: {ev['czesc_ii'].get('wniosek_o_stopien', 'NIE_DOTYCZY').replace('_', ' ').lower()}.")
+    _part_three(api, ev)
 
     st.divider()
     a, b = st.columns([1, 1.6], vertical_alignment="top")
@@ -762,6 +774,46 @@ def _paper(api: Api, ev: dict) -> None:
                 st.error("Wpisz adnotację o odmowie podpisu.")
             else:
                 _inline_action(api, eid, "FIKCJA_ZAPOZNANIA", komentarz=note.strip())
+
+
+def _part_three(api: Api, ev: dict) -> None:
+    """Part III (art. 89 ust. 1): a civil servant's evaluation may carry a request for the next grade – the evaluator
+    decides and gives the reasons; the server says whether it is allowed (negative result, grade 9) and when the
+    grade is obligatory (art. 89 ust. 2)."""
+    st.markdown("#### Część III – wniosek o kolejny stopień służbowy",
+                help="Tylko dla urzędników służby cywilnej (art. 89 ust. 1 ustawy). Wniosek musi być umotywowany; "
+                     "przy ocenie negatywnej i przy stopniu 9 nie jest możliwy.")
+    c3 = ev.get("czesc_iii")
+    if not c3:
+        st.caption("Nie dotyczy – oceniany jest pracownikiem służby cywilnej (część III dotyczy urzędników).")
+        return
+    eid = ev["id"]
+    held, wanted = c3.get("posiadany_stopien"), c3.get("wnioskowany_stopien")
+    ui.html(ui.kv([("Posiadany stopień", str(held or "—")), ("Wnioskowany stopień", str(wanted or "—"))]))
+    if c3.get("stopien_obligatoryjny"):
+        st.info("Stopień obligatoryjny: dwie kolejne oceny w dwóch najwyższych poziomach (art. 89 ust. 2) – kadry "
+                "dostały zadanie.", icon=":material/military_tech:")
+    current = ev["czesc_ii"].get("wniosek_o_stopien") or "NIE"
+    editable = "wniosek_o_stopien" in ev["edytowalne_pola"]
+    choice = st.radio("Wnioskuję o nadanie kolejnego stopnia", ["TAK", "NIE"], horizontal=True,
+                      index=0 if current == "TAK" else 1, key=f"p3_req_{eid}", disabled=not editable,
+                      format_func={"TAK": "tak", "NIE": "nie"}.get)
+    if choice != current and editable:
+        if _call(api.patch, api.evaluation(eid), wniosek_o_stopien=choice, ok="Zapisano wniosek o stopień.")                 is not None:
+            st.rerun()
+    if choice == "TAK":
+        mkey = f"p3_why_{eid}"
+        _sync(mkey, c3.get("umotywowanie_wniosku") or "")
+        st.text_area("Umotywowanie wniosku", key=mkey, height=110,
+                     disabled="umotywowanie_wniosku" not in ev["edytowalne_pola"],
+                     placeholder="Dlaczego oceniany zasługuje na kolejny stopień – konkretne osiągnięcia z okresu oceny.")
+        if "umotywowanie_wniosku" in ev["edytowalne_pola"] and st.button("Zapisz umotywowanie", key=f"p3_save_{eid}"):
+            if _call(api.patch, api.evaluation(eid), umotywowanie_wniosku=st.session_state[mkey].strip(),
+                     ok="Zapisano umotywowanie.") is not None:
+                st.rerun()
+    for w in ev["walidacje"]:
+        if w.get("pole") in ("wniosek_o_stopien", "umotywowanie_wniosku"):
+            (st.error if w["waga"] == "BLAD" else st.warning)(w["komunikat"])
 
 
 def _criteria_hint(api: Api, ev: dict, chosen: list[str], crit: dict) -> None:
