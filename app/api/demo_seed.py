@@ -135,5 +135,11 @@ def seed_scenario(st: DemoState) -> None:
         clock.set(start)
         s.start_cycle(person, start_date=start)
 
+    # Barbara Przełożona is evaluated too – by her director: criteria set, waiting for Barbara's confirmation
+    clock.set(date(2026, 5, 4))
+    bp = s.start_cycle("barbara.przelozona", start_date=date(2026, 5, 4))
+    clock.set(date(2026, 5, 21))
+    s.set_criteria(bp.id, "zofia.dyrektorska", [])
+
     # Roman Kowal – no cycle yet ("nierozpoczęte")
     clock.set(today)

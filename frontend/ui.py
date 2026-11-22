@@ -345,15 +345,20 @@ def _theme_type() -> str | None:
 
 HIDE_STALE = """<style>
 /* page switch only: hide the previous page – stale elements, and frames/columns left with only stale content
-   (otherwise their empty borders show up as doubled tiles for a moment) */
-[data-testid="stMain"] [data-stale="true"] { display: none !important; }
-[data-testid="stMain"] [data-testid="stLayoutWrapper"]:has([data-stale="true"]):not(:has([data-stale="false"])),
-[data-testid="stMain"] [data-testid="stHorizontalBlock"]:has([data-stale="true"]):not(:has([data-stale="false"])) {
+   (otherwise their empty borders show up as doubled tiles for a moment).
+   Active ONLY until the new page has been drawn to its end (marker `done_<page>`): this style stays in the page
+   until the next run replaces it, and on the first click on the new page it would hide everything for a moment –
+   the page shrinks and the browser jumps to the top. */
+[data-testid="stMain"]:not(:has(.st-key-done___PAGE__)) [data-stale="true"] { display: none !important; }
+[data-testid="stMain"]:not(:has(.st-key-done___PAGE__)) [data-testid="stLayoutWrapper"]:has([data-stale="true"]):not(:has([data-stale="false"])),
+[data-testid="stMain"]:not(:has(.st-key-done___PAGE__)) [data-testid="stHorizontalBlock"]:has([data-stale="true"]):not(:has([data-stale="false"])) {
   display: none !important; }
+[class*="st-key-done_"] { display: none !important; }
 </style>"""
 
 
-def inject_css(font_scale: float = 1.0, high_contrast: bool = False, page_switch: bool = False) -> None:
+def inject_css(font_scale: float = 1.0, high_contrast: bool = False, page_switch: bool = False,
+               page_key: str = "") -> None:
     """Base styles + accessibility settings (WCAG 2.1: 1.4.4 resize text, 1.4.3/1.4.6 contrast).
     Colours follow the app's own theme, so light text never lands on a light background."""
     theme = _theme_type()
@@ -372,7 +377,14 @@ def inject_css(font_scale: float = 1.0, high_contrast: bool = False, page_switch
     st.markdown(ACCESSIBILITY_CSS.format(px=round(17 * font_scale), contrast=HIGH_CONTRAST if high_contrast else ""),
                 unsafe_allow_html=True)
     # always the same element at this position: with the rule on a page switch, empty otherwise
-    st.markdown(HIDE_STALE if page_switch else "<style></style>", unsafe_allow_html=True)
+    st.markdown(HIDE_STALE.replace("__PAGE__", page_key) if page_switch else "<style></style>",
+                unsafe_allow_html=True)
+
+
+def page_done(page_key: str) -> None:
+    """The last element of a page: tells the style above that the new page is complete."""
+    with st.container(key=f"done_{page_key}"):  # an empty container is not drawn – give it an invisible span
+        st.markdown("<span></span>", unsafe_allow_html=True)
 
 
 def source_note(source: str) -> str:

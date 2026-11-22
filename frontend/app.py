@@ -29,8 +29,9 @@ st.session_state.setdefault("emp_view", "ocena")
 _page = (st.session_state.user_id, st.session_state.view, st.session_state.get("eval_id"), st.session_state.emp_view)
 _page_switch = st.session_state.get("_last_page") != _page
 st.session_state._last_page = _page
+_page_key = __import__("hashlib").md5(repr(_page).encode()).hexdigest()[:10]
 ui.inject_css(ui.FONT_SCALES.get(st.session_state.a11y_font, 1.0), st.session_state.get("a11y_contrast", False),
-              page_switch=_page_switch)
+              page_switch=_page_switch, page_key=_page_key)
 
 api = Api(st.session_state.user_id)
 try:
@@ -142,6 +143,13 @@ with st.sidebar:
         items = {"team": ("groups", "Mój zespół" if me["rola"] != "KADRY" else "Oceny w urzędzie"),
                  "reports": ("bar_chart", "Dashboard"), "archive": ("inventory_2", "Archiwum"),
                  "schedule": ("calendar_month", "Terminy"), "help": ("help", "Pomoc")}
+        if me["rola"] != "KADRY":  # an evaluator is evaluated too (by their own supervisor)
+            try:
+                has_own = bool(api.dashboard().get("moje"))
+            except ApiError:
+                has_own = False
+            if has_own:
+                items.update({"my_eval": ("person", "Moja ocena"), "my_requests": ("outgoing_mail", "Moje wnioski")})
         items.update({"admin": ("admin_panel_settings", "Panel administratora")} if me["rola"] == "KADRY"
                      else {"settings": ("settings", "Ustawienia")})
         current, nav_go = ("team" if st.session_state.view == "eval" else st.session_state.view), go
@@ -212,6 +220,10 @@ elif st.session_state.view == "eval" and st.session_state.get("eval_id"):
     evaluation.render(api, me, meta, st.session_state.eval_id, ai)
 elif st.session_state.view == "schedule":
     team.render_schedule(api, me)
+elif st.session_state.view == "my_eval":
+    employee.render(api, me, "ocena")
+elif st.session_state.view == "my_requests":
+    employee.render(api, me, "wnioski")
 elif st.session_state.view == "admin":
     admin.render(api, me, meta, users)
 elif st.session_state.view == "reports":
@@ -222,5 +234,4 @@ elif st.session_state.view == "help":
     guide.render(api)
 else:
     team.render(api, me, ai)
-
-
+ui.page_done(_page_key)

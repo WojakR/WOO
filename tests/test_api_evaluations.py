@@ -49,7 +49,7 @@ def test_dashboard_scope_and_seed():
     finished = {i["oceniany"]["id"] for i in everyone if i["status"] == "ZAKONCZONA"}
     assert finished and all(any(j["oceniany"]["id"] == p and j["status"] == "KRYTERIA_DO_WYZNACZENIA" for j in everyone)
                             for p in finished)
-    assert len(everyone) == 12 + len(finished)  # 8 KPRM sample people + Barbara Przełożona's team of 4
+    assert len(everyone) == 13 + len(finished)  # 8 KPRM sample people + Barbara Przełożona's team of 4 + Barbara
     assert {i["pilnosc"] for i in everyone} >= {"PO_TERMINIE", "WKROTCE"}
     assert {i["wynik"] for i in everyone} >= {"POZYTYWNA", "NEGATYWNA"}
 

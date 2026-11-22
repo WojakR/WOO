@@ -20,7 +20,7 @@ def test_document_markdown_and_headings():
     d = client.get("/api/knowledge/podrecznik").json()
     assert d["tytul"].startswith("Podręcznik użytkownika") and d["tresc"].startswith("# Podręcznik")
     anchors = {h["kotwica"] for h in d["naglowki"]}
-    assert "5-zapoznanie-na-papierze" in anchors and "administrator" in anchors
+    assert "6-zapoznanie-papier-i-fikcja-zapoznania" in anchors and "administrator" in anchors
     law = client.get("/api/knowledge/ustawa-sc-wyciag-oceny").json()
     assert "Art. 83" in law["tresc"]
 
@@ -61,4 +61,4 @@ def test_tutorial_walks_through_the_demo_and_links_the_manual():
     assert d["tytul"].startswith("Pierwsze kroki")
     anchors = [h["kotwica"] for h in d["naglowki"]]
     assert any(a.startswith("krok-0") for a in anchors) and any(a.startswith("krok-7") for a in anchors)
-    assert "(podrecznik.md)" in d["tresc"] and "liczy notatki, nie ich wagę" in d["tresc"]
+    assert "Podręczniku użytkownika" in d["tresc"] and "liczy notatki, nie ich wagę" in d["tresc"]

@@ -188,6 +188,27 @@ def _withheld_notes(api: Api) -> None:
                 st.rerun()
 
 
+def _direct_reports(api: Api, me: dict) -> set[int]:
+    """People I evaluate myself (their direct supervisor is me) – the server's employee list says who reports to whom."""
+    try:
+        rows = api.employees(na_strone=200)["pozycje"]
+    except ApiError:
+        return set(me.get("podwladni_ids") or [])
+    my_id = me["pracownik"]["id"]
+    return {r["pracownik"]["id"] for r in rows if (r["pracownik"].get("przelozony") or {}).get("id") == my_id}
+
+
+def _start(api: Api, employee_number: int) -> None:
+    """Start a cycle for a person who has none (the server picks the sheet, dates and evaluator) and open it."""
+    try:
+        ev = api.start(employee_number)
+    except ApiError as e:
+        st.session_state.setdefault("flash", []).append(("error", " ".join(e.messages)))
+        return
+    st.toast("Rozpoczęto ocenę okresową.")
+    open_evaluation(ev["id"])
+
+
 def _one_row_per_case(items: list[dict]) -> list[dict]:
     """After acknowledgement the server starts the next period at once, so a person can have two evaluations.
     A finished one next to a newer one goes to Archiwum; two open ones (e.g. an evaluation drawn up again after an
@@ -210,6 +231,8 @@ def _one_row_per_case(items: list[dict]) -> list[dict]:
 def render(api: Api, me: dict, ai: bool = True) -> None:
     items = _one_row_per_case(api.dashboard()["pozycje"])
     hr = me["rola"] == "KADRY"
+    for kind, text in st.session_state.pop("flash", []):
+        (st.error if kind == "error" else st.success)(text)
     st.subheader("Oceny okresowe – cały urząd" if hr else "Mój zespół",
                  help="Stan ocen okresowych w urzędzie (dane przykładowe)." if hr else
                  "Oceny osób, które oceniasz – termin, etap i to, kto ma teraz wykonać krok. Kliknij wiersz, "
@@ -222,6 +245,16 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
         _deadline_requests(api)
     else:
         _withheld_notes(api)
+    # a supervisor higher up also sees the evaluations of their managers' teams (office setting PODDRZEWO);
+    # by default only the people they evaluate themselves – the rest on demand
+    mine = _direct_reports(api, me)
+    others = [] if hr else [i for i in items if i["oceniany"]["id"] not in mine]
+    if others:
+        scope = st.segmented_control("Pokaż", ["mine", "all"], default="mine", key="team_scope",
+                                     format_func={"mine": f"Osoby, które oceniam ({len(items) - len(others)})",
+                                                  "all": f"Cały mój pion ({len(items)})"}.get)
+        if scope != "all":
+            items = [i for i in items if i["oceniany"]["id"] in mine]
 
     units = sorted({i.get("komorka") for i in items if i.get("komorka")})
     s1, s2, s3 = st.columns([1.4, 1.4, 0.6], vertical_alignment="bottom")
@@ -256,7 +289,7 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
     sort_col, asc = st.session_state.get("team_sort", ("pilnosc", True))
     view = sorted(view, key=SORT_KEYS[sort_col], reverse=not asc)
 
-    _attention(scoped)
+    _attention([i for i in scoped if hr or i["oceniany"]["id"] in mine])
     main = st.container()
     with main:
         widths = [1.1, 2.0, 1.3, 0.5, 1.7, 1.2, 1.0] + ([1.4] if ai else [])
@@ -273,7 +306,7 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
                              if key == "pilnosc" else "") + "Kliknij, aby posortować; ponownie – odwrotnie.")
         for i in view:
             eid = i["evaluation_id"]
-            with st.container(border=True, key=f"row_{eid}" if eid else None):
+            with st.container(border=True, key=f"row_{eid}" if eid else f"rowns_{i['oceniany']['id']}"):
                 if eid:  # the whole row is one button (CSS stretches it over the row)
                     st.button(f"Otwórz ocenę: {name(i['oceniany'])}", key=f"rowbtn_{eid}", on_click=open_evaluation,
                               args=(eid,))
@@ -281,7 +314,8 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
                 c[0].markdown(ui.urgency_badge(_urgency(i)), unsafe_allow_html=True)
                 c[1].markdown(f"**{name(i['oceniany'])}**" + (" →" if eid else ""))
                 c[1].caption((i["oceniany"].get("stanowisko") or "")
-                             + (f" · {i['_label']}" if i.get("_label") else ""))
+                             + (f" · {i['_label']}" if i.get("_label") else "")
+                             + (" · ocenia Twój podwładny" if others and i["oceniany"]["id"] not in mine else ""))
                 c[2].markdown(i.get("komorka") or "—")
                 c[3].markdown(i["arkusz"])
                 status = STATUS_LABEL.get(i["status"], "Nierozpoczęta") if i["status"] else "Nierozpoczęta"
@@ -294,7 +328,11 @@ def render(api: Api, me: dict, ai: bool = True) -> None:
                     c[7].markdown(ui.icons("<span class='ai-text'>" + "<br>".join(sig) + "</span>") if sig
                                   else "<span class='lock'>—</span>", unsafe_allow_html=True)
                 w = WYNIK.get(i.get("wynik"))
-                c[6].markdown(ui.badge(*w) if w else "<span class='lock'>—</span>", unsafe_allow_html=True)
+                if eid is None and (hr or i["oceniany"]["id"] in mine):
+                    c[6].button("Rozpocznij ocenę", key=f"start_{i['oceniany']['id']}", type="primary",
+                                on_click=_start, args=(api, i["oceniany"]["id"]), use_container_width=True)
+                else:
+                    c[6].markdown(ui.badge(*w) if w else "<span class='lock'>—</span>", unsafe_allow_html=True)
         if not view:
             st.caption("Brak pozycji spełniających wybrane filtry.")
 
@@ -312,6 +350,9 @@ def calendar_button(api: Api, key: str) -> None:
 
 def render_schedule(api: Api, me: dict) -> None:
     items = api.dashboard()["pozycje"]
+    if me["rola"] != "KADRY":
+        mine = _direct_reports(api, me)
+        items = [i for i in items if i["oceniany"]["id"] in mine] or items
     head, btn = st.columns([3, 1.1], vertical_alignment="bottom")
     head.subheader(":material/calendar_month: Terminy", help="Terminy liczone przez system (24 miesiące, dni wolne, "
                    "nieobecności), od najbliższego. Kliknij pozycję, aby przejść do oceny.")

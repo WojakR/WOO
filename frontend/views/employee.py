@@ -41,6 +41,8 @@ def _my_evaluations(api: Api, me: dict) -> list[dict]:
 
 def _open_requests() -> None:
     st.session_state.emp_view = "wnioski"
+    if st.session_state.get("view") == "my_eval":  # an evaluator looking at their own evaluation
+        st.session_state.view = "my_requests"
 
 
 def _requests(api: Api, me: dict) -> None:

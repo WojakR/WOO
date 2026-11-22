@@ -53,7 +53,7 @@ def test_endpoint_matches_the_users_deadlines_and_has_no_scores(scenario):
 
 def test_scope_follows_the_dashboard(scenario):
     count = lambda uid: client.get("/api/me/terminy.ics", headers={"X-User-Id": uid}).text.count("BEGIN:VEVENT")  # noqa: E731
-    assert count("barbara.przelozona") == 4  # her four people at the criteria stage
+    assert count("barbara.przelozona") == 5  # her four people at the criteria stage + her own evaluation
     assert count("kadry") > count("barbara.przelozona")
     own = _unfold(client.get("/api/me/terminy.ics", headers={"X-User-Id": "adam.kowalik"}).text)
     assert "SUMMARY:Moja ocena okresowa: Potwierdzenie kryteriów" in own  # the evaluated person's own step
