@@ -30,6 +30,7 @@ export async function renderEvaluation(view, id, ctx) {
     ev: await api.evaluation(id),
     evidence: null, notes: [], hr: null, hrError: null, criteriaDict: null,
     drafts: {}, open: new Set(), text: {}, dirty: new Set(), confirming: false, busy: false,
+    critSug: null, critSugBusy: false, critDesc: "", prep: null, prepBusy: false, prepOpen: false,
   };
   const meId = ctx.me.pracownik.id;
   // the server decides (evaluator or their active deputy – app/domain/access.py); ID check is the fallback
@@ -218,9 +219,9 @@ export async function renderEvaluation(view, id, ctx) {
   // ------------------------------------------------------------ main panel (depends on the stage)
   function renderMain() {
     const st = s.ev.status;
-    if (st === "KRYTERIA_DO_WYZNACZENIA") return replace(R.main, sheetPanel(), invitationPanel(), criteriaSelection());
-    if (st === "KRYTERIA_DO_POTWIERDZENIA" || st === "OKRES_OCENY") return replace(R.main, invitationPanel(), criteriaOverview());
-    replace(R.main, invitationPanel(), scoringPanel(), wellbeingPanel(), paperPanel(), objectionPanel());
+    if (st === "KRYTERIA_DO_WYZNACZENIA") return replace(R.main, sheetPanel(), invitationPanel(), prepPanel(), criteriaSelection());
+    if (st === "KRYTERIA_DO_POTWIERDZENIA" || st === "OKRES_OCENY") return replace(R.main, invitationPanel(), prepPanel(), criteriaOverview());
+    replace(R.main, invitationPanel(), prepPanel(), scoringPanel(), wellbeingPanel(), paperPanel(), objectionPanel());
   }
 
   // ------------------------------------------------------------ invitation to a meeting (.ics for the calendar)
@@ -505,10 +506,104 @@ export async function renderEvaluation(view, id, ctx) {
             h("option", { value: "" }, "— brak —"),
             optional.filter((c) => c.kod === val || !slots.includes(c.kod))
               .map((c) => h("option", { value: c.kod, selected: c.kod === val }, c.nazwa)))))),
+      can && isEvaluator() ? criteriaSuggestions(slots, choose) : null,
       h("div", { class: "field" },
         h("div", { class: "field-head" }, h("span", { style: { fontWeight: 650 } }, "Termin sporządzenia oceny"),
           h("span", { class: "small muted" }, "wyliczony: 24 miesiące od początku cyklu, z pominięciem dni wolnych")),
         h("strong", { class: "num" }, fmtDate(ev.czesc_i.termin_oceny))));
+  }
+
+  // UC1: the assistant proposes additional criteria (AI or keywords from the position) – nothing is set on its own
+  function criteriaSuggestions(slots, choose) {
+    const desc = h("input", { type: "text", id: "crit-desc", value: s.critDesc, style: { flex: "1 1 260px" },
+      placeholder: "Opis obowiązków (opcjonalnie), np. obsługa interesantów, korespondencja",
+      oninput: (e) => { s.critDesc = e.target.value; } });
+    async function ask() {
+      s.critSugBusy = true; renderMain();
+      try { s.critSug = await api.suggestCriteria(id, s.critDesc); } catch (e) { toast(e.message, "bad"); }
+      s.critSugBusy = false; renderMain();
+    }
+    const free = slots.indexOf("");
+    const sug = s.critSug;
+    let list = null;
+    if (sug && sug.sugestie.length) {
+      list = h("ul", { class: "plain-list" }, sug.sugestie.map((x) => {
+        const taken = slots.includes(x.kod);
+        return h("li", { class: "row", style: { gap: "10px", alignItems: "flex-start" } },
+          h("div", { style: { flex: "1" } }, h("strong", {}, x.nazwa), h("div", { class: "small muted" }, x.uzasadnienie)),
+          taken ? h("span", { class: "badge badge-ok" }, icon("check"), "wybrane")
+            : h("button", { class: "btn btn-sm", type: "button", disabled: free < 0,
+              title: free < 0 ? "Wszystkie miejsca na kryteria dodatkowe są zajęte" : "",
+              onclick: () => choose(free, x.kod) }, "Dodaj"));
+      }));
+    } else if (sug) {
+      list = h("p", { class: "small muted" }, "Brak podpowiedzi dla tego stanowiska. Opisz obowiązki pracownika i spróbuj ponownie.");
+    }
+    const source = sug ? h("p", { class: "small muted", style: { marginTop: "6px" } },
+      (sug.zrodlo === "AI" ? "Propozycja modelu AI" : "Na podstawie stanowiska i opisu obowiązków (model niedostępny)")
+      + " · nic nie zostanie dodane bez Twojej decyzji.") : null;
+    return h("div", { class: "pick-list", style: { borderTop: "1px solid var(--border)" } },
+      h("h3", { style: { fontSize: "11.5px", textTransform: "uppercase", letterSpacing: ".05em", color: "var(--text-3)" } },
+        "Podpowiedź asystenta"),
+      h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap", alignItems: "center" } },
+        h("label", { for: "crit-desc", class: "sr-only" }, "Opis obowiązków"), desc,
+        h("button", { class: "btn btn-sm", type: "button", disabled: s.critSugBusy, onclick: ask },
+          s.critSugBusy ? "Szukam…" : sug ? "Podpowiedz ponownie" : "Podpowiedz kryteria")),
+      list, source);
+  }
+
+  // UC4: the evaluator's one-page note before the starting or the evaluating conversation (no scores in it)
+  function prepPanel() {
+    if (!isEvaluator() || !["KRYTERIA_DO_WYZNACZENIA", "OKRES_OCENY", "ROZMOWA_OCENIAJACA"].includes(s.ev.status)) return null;
+    async function load() {
+      s.prepBusy = true; s.prepOpen = true; renderMain();
+      try { s.prep = await api.conversationPrep(id); } catch (e) { toast(e.message, "bad"); s.prepOpen = false; }
+      s.prepBusy = false; renderMain();
+    }
+    const p = s.prep;
+    const bullets = (title, items) => (items && items.length ? h("div", { style: { marginTop: "10px" } },
+      h("h3", { style: { fontSize: "13px" } }, title),
+      h("ul", { style: { margin: "4px 0 0 18px" } }, items.map((x) => h("li", {}, x)))) : null);
+    let body = null;
+    if (s.prepOpen && p) {
+      const prev = p.poprzednia_ocena;
+      body = h("div", { class: "stack", style: { gap: "4px", marginTop: "8px" } },
+        h("p", {}, h("strong", {}, "Cel rozmowy: "), p.cel_rozmowy),
+        prev ? h("p", { class: "small muted" }, `Poprzednia ocena: ${(prev.wynik || "").toLowerCase()}`
+          + (prev.data ? ` (${fmtDate(prev.data)})` : "") + ".") : null,
+        p.plan_minuty && p.plan_minuty.length ? h("p", { class: "small" }, h("strong", {}, "Plan: "),
+          p.plan_minuty.map(([t, m]) => `${t} (${m} min)`).join(" → ")) : null,
+        bullets("Mocne strony", p.mocne_strony),
+        bullets("Trudne tematy", p.trudne_tematy),
+        bullets("Ustalone cele", p.cele),
+        h("div", { style: { marginTop: "10px" } }, h("h3", { style: { fontSize: "13px" } }, "Kryteria – o co zapytać"),
+          h("ul", { class: "plain-list" }, p.kryteria.map((k) => h("li", { class: "stack", style: { gap: "4px", alignItems: "stretch" } },
+            h("div", { class: "row", style: { gap: "8px" } }, h("strong", {}, k.nazwa),
+              p.rodzaj === "OCENIAJACA" ? evidenceCounts(k.plus, k.minus) : null),
+            k.przyklady && k.przyklady.length ? h("div", { class: "small muted" },
+              k.przyklady.slice(0, 2).map((x) => h("div", {}, `${fmtDate(x.data)}: „${x.tresc}”`))) : null,
+            k.pytania && k.pytania.length ? h("ul", { style: { margin: "0 0 0 18px" } }, k.pytania.map((q) => h("li", {}, q))) : null)))),
+        bullets("Sygnały HR partnera", (p.sygnaly_hr || []).map((x) => x.opis)),
+        bullets("Propozycje rozwoju", p.propozycje_rozwoju),
+        h("p", { class: "small muted", style: { marginTop: "8px" } },
+          (p.zrodlo_tekstow === "AI" ? "Teksty od modelu AI" : "Szablon z danych (model niedostępny)")
+          + " · notatka tylko dla Ciebie – nie trafia do arkusza ani do pracownika."));
+    }
+    const kind = s.ev.status === "KRYTERIA_DO_WYZNACZENIA" ? "rozpoczynającą" : "oceniającą";
+    let button;
+    if (p && s.prepOpen) {
+      button = h("button", { class: "btn btn-sm", type: "button", onclick: () => { s.prepOpen = false; renderMain(); } }, "Zwiń");
+    } else {
+      button = h("button", { class: "btn btn-sm", type: "button", disabled: s.prepBusy,
+        onclick: p ? () => { s.prepOpen = true; renderMain(); } : load },
+      icon("sparkles"), s.prepBusy ? "Przygotowuję…" : p ? "Pokaż notatkę" : "Przygotuj notatkę na rozmowę");
+    }
+    return h("section", { class: "card card-pad", style: { marginBottom: "12px" }, "aria-labelledby": "prep-h" },
+      h("div", { class: "row", style: { justifyContent: "space-between", gap: "8px", flexWrap: "wrap" } },
+        h("div", {}, h("h2", { id: "prep-h" }, "Przygotowanie do rozmowy"),
+          h("p", { class: "small muted" }, `Notatka na rozmowę ${kind}: cel, pytania do kryteriów i przykłady z notatek. Bez ocen.`)),
+        button),
+      body);
   }
 
   function criteriaOverview() {

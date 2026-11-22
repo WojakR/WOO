@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api")
 # AI buttons the UI may show (contract rule 8). True = endpoint implemented; it also works with AI off (templates).
 AI_FEATURES = {
     "przygotowanie_rozmowy": True,
-    "podpowiedz_kryteriow": False,
+    "podpowiedz_kryteriow": True,  # POST /api/evaluations/{id}/ai/suggest-criteria
     "szkic_uzasadnienia": True,
     "klasyfikacja_notatek": True,
     "hr_partner": True,  # GET /api/evaluations/{id}/hr-partner (app/api/evaluations.py)
@@ -69,6 +69,26 @@ def meta(x_user_id: str | None = Header(default=None), st: DemoState = Depends(g
         progi_poziomow=bands,
         maks_kryteriow_dodatkowych=rules.max_additional_criteria,
     )
+
+
+@router.post("/evaluations/{evaluation_id}/ai/suggest-criteria", response_model=s.SuggestCriteriaOut,
+             tags=["asystent"])
+def suggest_criteria(
+    evaluation_id: int,
+    body: s.SuggestCriteriaIn | None = None,
+    x_user_id: str | None = Header(default=None),
+    st: DemoState = Depends(get_state),
+) -> s.SuggestCriteriaOut:
+    """UC1: up to the maximum number of additional criteria for the cycle's sheet, with a reason each.
+    Nothing is set automatically; works with AI off (keywords from the position and the duties)."""
+    cycle = _evaluation(st, evaluation_id)
+    _evaluator_only(st, cycle, x_user_id, "Podpowiedzi kryteriów")
+    employee = st.directory.get(cycle.employee_id)
+    if employee is None:
+        raise NotFound(f"Nie ma pracownika {cycle.employee_id}.")
+    out = st.assistant_for(_actor(st, x_user_id)).suggest_criteria(
+        employee, sheet=cycle.sheet, description=body.opis if body else "")
+    return m.to_suggest_criteria_out(out)
 
 
 @router.post("/evaluations/{evaluation_id}/ai/conversation-prep", response_model=s.ConversationPrepOut,

@@ -34,7 +34,7 @@ Nazwy pól i wartości enumów są zgodne z modelem danych (`model-danych.md`), 
 | 🟢 `GET /api/me` | – | `UserContext` | kto jest „zalogowany” (X-User-Id) |
 | 🟢 `GET /api/meta` | – | `MetaOut` | data z zegara, tryb AI, skala, progi |
 | 🟢 `GET /api/criteria?arkusz=C` | – | `CriterionOut[]` | słownik kryteriów ze wskaźnikami; `typ_dla_arkusza` przy `?arkusz` |
-| 🟢 `GET /api/dashboard` | – | `DashboardOut` | oceniający: podwładni; KADRY/DG: cały urząd; pilność i następny krok |
+| 🟢 `GET /api/dashboard` | – | `DashboardOut` | oceniający: podwładni; KADRY/DG: cały urząd; pilność i następny krok; `moje` = własne oceny zalogowanej osoby (jako ocenianego) |
 | 🟢 `GET /api/employees?zakres=podwladni` | – | `EmployeeOut[]` | |
 | 🟢 `GET /api/employees/{id}` | – | `EmployeeOut` | |
 | 🟡 `GET /api/notifications` | – | `NotificationOut[]` | |
@@ -174,7 +174,7 @@ Zaproszony dostaje powiadomienie `ZAPROSZENIE` / `ZAPROSZENIE_ODWOLANE`, a `noti
 
 | Metoda i ścieżka | Wejście | Wyjście | Uwagi |
 |---|---|---|---|
-| 🟢 `POST /api/evaluations/{id}/ai/suggest-criteria` | – | `SuggestCriteriaOut` | maks. 3, nic nie ustawia samo |
+| 🟢 `POST /api/evaluations/{id}/ai/suggest-criteria` | `SuggestCriteriaIn` (opcjonalnie: `opis` obowiązków) | `SuggestCriteriaOut` | maks. 3, nic nie ustawia samo |
 | 🟢 `POST /api/evaluations/{id}/ai/conversation-prep` | `?rodzaj=OCENIAJACA` | `ConversationPrepOut` | notatka na rozmowę; bez punktów |
 | 🟢 `POST /api/evaluations/{id}/ai/draft` | `DraftIn` | `DraftOut` albo strumień SSE | `Accept: text/event-stream` = tekst po kawałku (`event: delta`, na końcu `event: done` z `DraftOut`) |
 | 🟢 `GET /api/evaluations/{id}/hr-partner` | – | `HrPartnerOut` | podpowiedzi dla przełożonego; także sygnały z historii (staż, trend ocen) z `dzialania_rozwojowe` – docs/asystent.md |
