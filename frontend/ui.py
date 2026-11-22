@@ -127,6 +127,39 @@ section[data-testid="stSidebar"] [data-stale="true"] button[data-testid="stBaseB
           display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; }
 /* ---- identity: navy side band, navy primary actions (instead of Streamlit's default red) ---- */
 section[data-testid="stSidebar"] { background: var(--band) !important; }
+/* side menu = one radio drawn as tiles */
+section[data-testid="stSidebar"] .st-key-nav, section[data-testid="stSidebar"] .st-key-nav [data-testid="stRadio"],
+section[data-testid="stSidebar"] .st-key-nav [data-testid="stRadio"] > div { width: 100% !important; }
+section[data-testid="stSidebar"] .st-key-nav [data-testid="stRadioGroup"] { align-items: stretch !important; width: 100%; }
+section[data-testid="stSidebar"] .st-key-nav [data-testid="stRadioGroup"] > div { width: 100% !important; }
+section[data-testid="stSidebar"] .st-key-nav [role="radiogroup"] { gap: .4rem; width: 100%; display: flex;
+  flex-direction: column; align-items: stretch; }
+section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"] {
+  width: 100%; margin: 0; padding: .65rem .85rem; border-radius: 8px; min-height: 2.8rem; cursor: pointer;
+  border: 1px solid var(--band-line); align-items: center; }
+section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"] > div > div:first-child:not([data-testid]) {
+  display: none !important; }
+section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"] p {
+  color: var(--band-ink) !important; font-weight: 600; margin: 0; white-space: nowrap; }
+section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"]:hover { background: rgba(255,255,255,.10); }
+section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"]:has(input:checked) {
+  background: #ffffff; border-color: #ffffff; }
+section[data-testid="stSidebar"] .st-key-nav label[data-testid="stRadioOption"]:has(input:checked) p { color: #1c3460 !important; }
+section[data-testid="stSidebar"] .st-key-nav label:has(input:focus-visible) { outline: 3px solid #ffbf47; }
+/* folded side menu: a narrow rail with the icons stays on the left (click an icon to change the page) */
+section[data-testid="stSidebar"][data-collapsed="true"] {
+  width: 4.4rem !important; min-width: 4.4rem !important; max-width: 4.4rem !important;
+  margin-left: 0 !important; transform: none !important; left: 0 !important; visibility: visible !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] > div { width: 4.4rem !important; transform: none !important;
+  left: 0 !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarHeader"],
+section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarUserContent"] [data-testid="stElementContainer"]:not(.st-key-nav) {
+  display: none !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] [data-testid="stSidebarUserContent"] { padding: 4rem .45rem 1rem !important; }
+section[data-testid="stSidebar"][data-collapsed="true"] .st-key-nav label[data-testid="stRadioOption"] {
+  padding: .55rem 0; justify-content: center; }
+section[data-testid="stSidebar"][data-collapsed="true"] .st-key-nav label[data-testid="stRadioOption"] p {
+  width: 1.45em; overflow: hidden; font-size: 1.25rem; text-align: center; }
 section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
 section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] b,
 section[data-testid="stSidebar"] .app-title, section[data-testid="stSidebar"] label,

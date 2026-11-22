@@ -90,10 +90,6 @@ def open_notification(nid: int, eid: int | None) -> None:
         team.open_evaluation(eid)
 
 
-def menu_item(label: str, active: bool, on_click, args=()) -> None:
-    st.button(label, use_container_width=True, type="primary" if active else "secondary", on_click=on_click, args=args)
-
-
 def accessibility_panel() -> None:
     st.radio("Wielkość tekstu", list(ui.FONT_SCALES), key="a11y_font",
              help="Zgodnie z WCAG 2.1 (1.4.4). Stronę można też powiększyć skrótem Ctrl i +.")
@@ -140,24 +136,20 @@ with st.sidebar:
     ui.html('<p class="app-title">🏛️ Asystent Ocen Okresowych</p>')
     st.caption("Ocena okresowa w służbie cywilnej")
     st.markdown("**Menu**")
+    # one radio widget instead of one button per item: on a click only its value changes, so Streamlit never
+    # shows the old and the new menu side by side (no doubled tiles while the page reruns)
     if evaluator_ui:
-        view = st.session_state.view
-        menu_item("👥 Mój zespół" if me["rola"] != "KADRY" else "👥 Oceny w urzędzie", view in ("team", "eval"), go,
-                  ("team",))
-        menu_item("📊 Dashboard", view == "reports", go, ("reports",))
-        menu_item("🗄️ Archiwum", view == "archive", go, ("archive",))
-        menu_item("🗓️ Terminy", view == "schedule", go, ("schedule",))
-        menu_item("❓ Pomoc", view == "help", go, ("help",))
-        if me["rola"] == "KADRY":
-            menu_item("🛠️ Panel administratora", view == "admin", go, ("admin",))
-        else:
-            menu_item("⚙️ Ustawienia", view == "settings", go, ("settings",))
+        items = {"team": "👥 Mój zespół" if me["rola"] != "KADRY" else "👥 Oceny w urzędzie",
+                 "reports": "📊 Dashboard", "archive": "🗄️ Archiwum", "schedule": "🗓️ Terminy", "help": "❓ Pomoc"}
+        items.update({"admin": "🛠️ Panel administratora"} if me["rola"] == "KADRY" else {"settings": "⚙️ Ustawienia"})
+        current = "team" if st.session_state.view == "eval" else st.session_state.view
     else:
-        menu_item("📄 Moja ocena", st.session_state.emp_view == "ocena", go_employee, ("ocena",))
-        menu_item("📨 Moje wnioski", st.session_state.emp_view == "wnioski", go_employee, ("wnioski",))
-        menu_item("🗄️ Archiwum", st.session_state.emp_view == "archive", go_employee, ("archive",))
-        menu_item("❓ Pomoc", st.session_state.emp_view == "help", go_employee, ("help",))
-        menu_item("⚙️ Ustawienia", st.session_state.emp_view == "settings", go_employee, ("settings",))
+        items = {"ocena": "📄 Moja ocena", "wnioski": "📨 Moje wnioski", "archive": "🗄️ Archiwum", "help": "❓ Pomoc",
+                 "settings": "⚙️ Ustawienia"}
+        current = st.session_state.emp_view
+    st.session_state.nav = current if current in items else next(iter(items))
+    st.radio("Menu", list(items), format_func=items.get, key="nav", label_visibility="collapsed",
+             on_change=lambda: (go if evaluator_ui else go_employee)(st.session_state.nav))
 
     st.divider()
     mode = meta["tryb_ai"]

@@ -176,7 +176,7 @@ def _prep(api: Api, ev: dict, kind: str) -> None:
         ui.html(f"<p><b>Plan ({total} min):</b> " + " → ".join(
             f"{escape(p)} <span class='lock'>{m}′</span>" for p, m in prep["plan_minuty"]) + "</p>")
     if prep.get("cele"):
-        ui.html("<b>Cele z rozmowy rozpoczynającej:</b>" + ui.ul(prep["cele"]))
+        ui.html("<b>Cele z rozmowy inicjującej:</b>" + ui.ul(prep["cele"]))
     for c in prep["kryteria"]:
         with st.expander(f"{c['nazwa']}{'' if c.get('obowiazkowe', True) else ' (dodatkowe)'} · "
                          f"+{c['plus']} / −{c['minus']}"):
@@ -258,11 +258,11 @@ def _stage_criteria(api: Api, ev: dict, ai: bool, today: date) -> None:
                 st.rerun()
 
     if ev["jako_oceniajacy"] and current_stage(ev) == 1:
-        with st.expander("📅 Zaproszenie na rozmowę rozpoczynającą"):
-            _invite(ev, today, 1, "Rozmowa rozpoczynająca ocenę okresową", 45)
+        with st.expander("📅 Zaproszenie na rozmowę inicjującą"):
+            _invite(ev, today, 1, "Rozmowa inicjująca ocenę okresową", 45)
         if ai:
             with st.container(key="aiprep_start"):
-                with st.expander("🤖 Wskazówki asystenta AI do rozmowy rozpoczynającej"):
+                with st.expander("🤖 Wskazówki asystenta AI do rozmowy inicjującej"):
                     _prep(api, ev, "ROZPOCZYNAJACA")
     if ev["status"] == "KRYTERIA_DO_POTWIERDZENIA":
         st.info("⏳ Kryteria przekazane ocenianemu – czeka na potwierdzenie rozmowy i zapoznania się z kryteriami.")
