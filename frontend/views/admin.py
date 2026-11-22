@@ -502,32 +502,40 @@ def render(api: Api, me: dict, meta: dict, users: list[dict]) -> None:
         st.info("Panel administratora jest dostępny dla działu kadr.")
         return
     today = to_date(meta["dzis"])
-    tabs = st.tabs([":material/policy: Terminy", ":material/checklist: Kryteria i etapy", ":material/apartment: Urząd i przypomnienia", ":material/person: Pracownicy", ":material/event_busy: Nieobecności", ":material/upload_file: Import pracowników",
-                    ":material/badge: Zmiana stanowiska", ":material/supervisor_account: Zmiana oceniającego", ":material/inventory_2: Archiwum kadr", ":material/timer: RCP, e-Akt i EZD"])
+    # five groups; each one has its own sub-tabs, so the bar fits on a laptop screen
+    tabs = st.tabs([":material/group: Pracownicy", ":material/policy: Przepisy", ":material/apartment: Urząd",
+                    ":material/inventory_2: Archiwum kadr", ":material/hub: Integracje"])
     with tabs[0]:
-        _terms(api, today)
+        sub = st.tabs([":material/person: Dane pracowników", ":material/event_busy: Nieobecności",
+                       ":material/badge: Zmiana stanowiska", ":material/supervisor_account: Zmiana oceniającego",
+                       ":material/upload_file: Import z systemu kadrowego"])
+        with sub[0]:
+            _people_admin(api, today)
+        with sub[1]:
+            _absences(api, today)
+        with sub[2]:
+            _staff_changes(api, today, "stanowisko")
+        with sub[3]:
+            _staff_changes(api, today, "oceniajacy")
+        with sub[4]:
+            _people(api)
     with tabs[1]:
-        _criteria(api, today)
+        sub = st.tabs([":material/schedule: Terminy", ":material/checklist: Kryteria i etapy"])
+        with sub[0]:
+            _terms(api, today)
+        with sub[1]:
+            _criteria(api, today)
     with tabs[2]:
         _office(api, me, users, today)
     with tabs[3]:
-        _people_admin(api, today)
-    with tabs[4]:
-        _absences(api, today)
-    with tabs[5]:
-        _people(api)
-    with tabs[6]:
-        _staff_changes(api, today, "stanowisko")
-    with tabs[7]:
-        _staff_changes(api, today, "oceniajacy")
-    with tabs[8]:
-        inner = st.tabs([":material/ac_unit: Zamrożone oceny", ":material/hourglass_top: Okresy przechowywania", ":material/upload_file: Import starych ocen"])
-        with inner[0]:
+        sub = st.tabs([":material/ac_unit: Zamrożone oceny", ":material/hourglass_top: Okresy przechowywania",
+                       ":material/upload_file: Import starych ocen"])
+        with sub[0]:
             archive._frozen(api)
-        with inner[1]:
+        with sub[1]:
             archive._retention(api)
-        with inner[2]:
+        with sub[2]:
             archive._legacy(api)
-    with tabs[9]:
+    with tabs[4]:
         _rcp_eakt(api)
         _ezd(api)
