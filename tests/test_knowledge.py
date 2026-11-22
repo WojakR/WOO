@@ -7,9 +7,10 @@ from backend.main import app
 client = TestClient(app)
 
 
-def test_list_starts_with_the_manual_and_has_the_regulations():
+def test_list_starts_with_the_tutorial_then_the_manual_and_has_the_regulations():
     docs = client.get("/api/knowledge").json()
-    assert docs[0]["slug"] == "podrecznik" and docs[0]["rodzaj"] == "PODRECZNIK"
+    assert [d["slug"] for d in docs[:2]] == ["samouczek", "podrecznik"]
+    assert {d["rodzaj"] for d in docs[:2]} == {"PODRECZNIK"}
     slugs = {d["slug"]: d for d in docs}
     assert slugs["rozporzadzenie-oceny-okresowe-2016"]["rodzaj"] == "PRZEPISY"
     assert "ustawa-sc-wyciag-oceny" in slugs and all(d["tytul"] for d in docs)
@@ -53,3 +54,11 @@ def test_unknown_document_is_404():
 def test_slugify_matches_the_ui_rule():
     assert slugify("5. Zapoznanie na papierze") == "5-zapoznanie-na-papierze"
     assert slugify("Dział kadr – raporty") == "dzial-kadr-raporty"
+
+
+def test_tutorial_walks_through_the_demo_and_links_the_manual():
+    d = client.get("/api/knowledge/samouczek").json()
+    assert d["tytul"].startswith("Pierwsze kroki")
+    anchors = [h["kotwica"] for h in d["naglowki"]]
+    assert any(a.startswith("krok-0") for a in anchors) and any(a.startswith("krok-7") for a in anchors)
+    assert "(podrecznik.md)" in d["tresc"] and "liczy notatki, nie ich wagę" in d["tresc"]

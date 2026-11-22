@@ -24,6 +24,7 @@ from app.domain.timeline import deadlines_of
 from . import assistant_mapping as m
 from . import schemas as s
 from .errors import ApiProblem
+from .history import history_of
 from .access import actor as _actor
 from .access import require_read, require_working_material
 from . import auth
@@ -719,6 +720,7 @@ def evidence(evaluation_id: int, x_user_id: str | None = Header(default=None),
             criterion_kod=m.criterion_code(cid), nazwa=rules.criterion_name(cid), plus=len(e.positive),
             neutralne=len(e.neutral), minus=len(e.negative), notatki_ids=[int(n.id) for n in tagged],
             sugerowane_punkty=hint.points if hint else None, uzasadnienie_sugestii=hint.reason if hint else None,
+            sugerowane_od=hint.low if hint else None, sugerowane_do=hint.high if hint else None,
         ))
     records = st.notes_of(evaluation_id)
     return s.EvidenceOut(kryteria=out, notatki_do_przypisania=sum(1 for r in records if not r.note.criterion_id),
@@ -739,12 +741,13 @@ def hr_partner(evaluation_id: int, x_user_id: str | None = Header(default=None),
     notes = _notes(st, c)
     ai_on = st.ai_enabled_for(actor)
     extra = st.hr_extra_evidence(c)  # wellbeing checklist + RCP indicators (aggregated, no raw hours)
+    history = history_of(st, c.employee_id, exclude_cycle=c.id)  # tenure + trend -> personalised hints
     key = (tuple(n.id for n in notes), tuple(sorted(c.scores.items())), st.clock.today(), ai_on,
-           tuple((k, tuple(v)) for k, v in sorted(extra.items())))
+           tuple((k, tuple(v)) for k, v in sorted(extra.items())), tuple(history))
     cached = st.hr_reports.get(c.id)
     if cached is None or cached[0] != key:
         report = st.assistant_for(actor).hr_partner(c, st.directory.get(c.employee_id), notes, c.absences,
-                                                    st.clock.today(), extra=extra)
+                                                    st.clock.today(), extra=extra, history=history)
         st.hr_reports[c.id] = (key, report)
     out = m.to_hr_partner_out(st.hr_reports[c.id][1])
     for sig in out.sygnaly:  # stable ids per (cycle, kind), so decisions survive recomputation

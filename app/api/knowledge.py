@@ -21,9 +21,11 @@ from backend import kprm
 
 router = APIRouter(prefix="/api/knowledge", tags=["pomoc"])
 
-MANUAL = Path(__file__).resolve().parents[2] / "docs" / "podrecznik.md"
+DOCS = Path(__file__).resolve().parents[2] / "docs"
+MANUAL = DOCS / "podrecznik.md"
+TUTORIAL = DOCS / "samouczek.md"  # "Pierwsze kroki" – first in the help list
 KIND = {  # document -> group shown in the help list
-    "podrecznik": "PODRECZNIK",
+    "samouczek": "PODRECZNIK", "podrecznik": "PODRECZNIK",
     "rozporzadzenie-oceny-okresowe-2016": "PRZEPISY", "ustawa-o-sluzbie-cywilnej": "PRZEPISY",
     "ustawa-sc-wyciag-oceny": "PRZEPISY",
 }
@@ -49,15 +51,16 @@ class Doc:
 @lru_cache
 def _docs() -> tuple[Doc, ...]:
     raw = []
-    if MANUAL.is_file():
-        raw.append(("podrecznik", MANUAL.read_text(encoding="utf-8")))
+    for slug, path in (("samouczek", TUTORIAL), ("podrecznik", MANUAL)):
+        if path.is_file():
+            raw.append((slug, path.read_text(encoding="utf-8")))
     raw += [(Path(name).stem, text) for name, text in kprm.knowledge_docs()]
     out = []
     for slug, text in raw:
         first = next((line[2:].strip() for line in text.splitlines() if line.startswith("# ")), slug)
         out.append(Doc(slug, first, KIND.get(slug, "MATERIALY"), text))
     order = {"PODRECZNIK": 0, "PRZEPISY": 1, "MATERIALY": 2}
-    return tuple(sorted(out, key=lambda d: (order[d.kind], d.title)))
+    return tuple(sorted(out, key=lambda d: (order[d.kind], d.slug != "samouczek", d.title)))
 
 
 def _doc(slug: str) -> Doc:

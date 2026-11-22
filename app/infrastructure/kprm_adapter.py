@@ -15,6 +15,15 @@ def kprm_rulebook() -> RuleBook:
     return RuleBook.from_kprm(kprm.rules(), kprm.sheets(), kprm.criteria())
 
 
+def _previous(raw: dict) -> PreviousEvaluation:
+    return PreviousEvaluation(
+        outcome=raw.get("ocena"),
+        level=raw.get("poziom"),
+        date=date.fromisoformat(raw["data"]) if raw.get("data") else None,
+        acknowledged=date.fromisoformat(raw["data_zapoznania"]) if raw.get("data_zapoznania") else None,
+    )
+
+
 def _employee(raw: dict) -> Employee:
     prev = raw.get("poprzednia_ocena")
     return Employee(
@@ -33,12 +42,9 @@ def _employee(raw: dict) -> Employee:
         is_office_head=raw.get("kierownik_urzedu"),
         email=raw.get("email"),
         employment_end=date.fromisoformat(raw["data_ustania_zatrudnienia"]) if raw.get("data_ustania_zatrudnienia") else None,
-        previous_evaluation=PreviousEvaluation(
-            outcome=prev.get("ocena"),
-            level=prev.get("poziom"),
-            date=date.fromisoformat(prev["data"]) if prev.get("data") else None,
-            acknowledged=date.fromisoformat(prev["data_zapoznania"]) if prev.get("data_zapoznania") else None,
-        ) if prev else None,
+        employment_start=date.fromisoformat(raw["data_zatrudnienia"]) if raw.get("data_zatrudnienia") else None,
+        earlier_evaluations=tuple(_previous(x) for x in raw.get("wczesniejsze_oceny") or []),
+        previous_evaluation=_previous(prev) if prev else None,
     )
 
 

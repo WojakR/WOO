@@ -14,6 +14,7 @@ from . import schemas as s
 from .access import actor as _actor
 from .access import require_working_material
 from .auth import session_mode
+from .history import history_of
 from .state import DemoState, get_state, is_production
 
 router = APIRouter(prefix="/api")
@@ -86,7 +87,8 @@ def conversation_prep(
     prep = st.assistant_for(_actor(st, x_user_id)).conversation_prep(
         cycle, st.directory.get(cycle.employee_id), st.directory.get(cycle.evaluator_id),
         notes=[r.note for r in st.notes_of(evaluation_id)],
-        today=st.clock.today(), kind=kind, absences=cycle.absences)
+        today=st.clock.today(), kind=kind, absences=cycle.absences,
+        history=history_of(st, cycle.employee_id, exclude_cycle=cycle.id))
     return m.to_conversation_prep_out(prep)
 
 
@@ -113,5 +115,6 @@ def draft(
             raise FieldLocked("Wniosek o kolejny stopień służbowy można umotywować tylko przy ocenie pozytywnej "
                               "(§ 11 ust. 5) – najpierw wpisz wszystkie oceny cząstkowe.")
     d = st.assistant_for(_actor(st, x_user_id)).draft(body.rodzaj, cycle, st.directory.get(cycle.employee_id),
-                           notes=[r.note for r in st.notes_of(evaluation_id)])
+                           notes=[r.note for r in st.notes_of(evaluation_id)],
+                           history=history_of(st, cycle.employee_id, exclude_cycle=cycle.id), today=st.clock.today())
     return m.to_draft_out(d)

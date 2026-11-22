@@ -74,6 +74,12 @@ export const SIGNAL_LABEL = {
   ZMIANA_OBOWIAZKOW: "Zmiana zakresu obowiązków",
   SPADEK_OCEN: "Wynik niższy niż poprzednio",
   DO_DOCENIENIA: "Warto docenić",
+  SPADEK_PRZY_STAZU: "Spadek wyników u doświadczonego pracownika",
+  SPADEK_TRENDU: "Wyniki spadają z oceny na ocenę",
+  STAGNACJA: "Ten sam poziom od kilku ocen",
+  STABILNIE_WYSOKO: "Stabilnie wysokie wyniki",
+  WZROST: "Wynik wyższy niż poprzednio",
+  NOWY_PRACOWNIK: "Nowy pracownik",
 };
 
 export const ABSENCE_LABEL = {
