@@ -12,7 +12,7 @@ Priorytet: **P1** przed prezentacją · **P2** wdrożenie pilotażowe · **P3** 
 PR #37 usunął `frontend/web`; razem z nim zniknęły ekrany dodane w PR #36. Serwer je obsługuje, w Streamlicie
 trzeba je dobudować albo sprawdzić:
 
-- [ ] **P1** UC1 „AI podpowiada kryteria” – endpoint `POST /api/evaluations/{id}/ai/suggest-criteria` działa (także bez
+- [x] UC1 „AI podpowiada kryteria” – jest w Streamlicie (`frontend/views/evaluation.py`, `api.suggest_criteria`). Wcześniej: endpoint `POST /api/evaluations/{id}/ai/suggest-criteria` działa (także bez
   AI), w Streamlicie nie ma przycisku ani metody w `frontend/api_client.py`. Pozycja z listy MVP w `docs/task.md`.
 - [x] Oceniany w Streamlicie dociera do swoich kroków – sprawdzone: „Potwierdzam rozmowę i zapoznanie się
   z kryteriami”, „Potwierdzam zapoznanie się z oceną” (`frontend/views/employee.py`).
