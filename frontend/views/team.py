@@ -241,3 +241,10 @@ def render_schedule(api: Api, me: dict) -> None:
                       key=f"sched_{k}", type="tertiary", on_click=open_evaluation, args=(i["evaluation_id"],))
         if not rows:
             st.caption("Brak terminów do pilnowania.")
+    if rows:
+        st.download_button(":material/event: Dodaj terminy do kalendarza (.ics)", api.deadlines_ics,
+                           file_name="terminy-ocen.ics", mime="text/calendar", on_click="ignore",
+                           key="sched_ics")
+        st.caption("Plik otworzysz w Outlooku, Thunderbirdzie albo Kalendarzu Google – każdy termin dostaje "
+                   "przypomnienie 7 dni i 1 dzień wcześniej. Gdy termin się zmieni, pobierz plik ponownie: "
+                   "wydarzenia zostaną zaktualizowane, a nie zdublowane.")

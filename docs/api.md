@@ -107,6 +107,7 @@ Przypomnienia tylko w dni robocze (termin w dzień wolny → poprzedni dzień ro
 | Metoda i ścieżka | Wejście | Wyjście | Uwagi |
 |---|---|---|---|
 | `GET /api/me/przypomnienia` | – | `UstawieniaPrzypomnienOut` | własne albo domyślne urzędu (`wlasne`) |
+| `GET /api/me/terminy.ics` | – | `text/calendar` | terminy z pulpitu (bieżący krok każdej oceny + własna ocena) jako wydarzenia całodniowe z przypomnieniem 7 i 1 dzień wcześniej; stały UID na ocenę – ponowny import aktualizuje; bez ocen |
 | `PUT /api/me/przypomnienia` | `UstawieniaPrzypomnienIn` | `UstawieniaPrzypomnienOut` | niewysłane etapy bez zmian |
 | `DELETE /api/me/przypomnienia` | – | 204 | powrót do domyślnych urzędu |
 | `GET/PUT /api/ustawienia/przypomnienia` | `UstawieniaPrzypomnienIn` | `UstawieniaPrzypomnienOut` | domyślne urzędu; zmienia tylko kadry |
