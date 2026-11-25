@@ -5,6 +5,8 @@
 
 Python + FastAPI (API) + Streamlit (interfejs) + SQLite + asystent AI (model lokalny przez Ollamę, z wersją bez AI).
 
+![Demo: Cyfrowy Asystent Ocen Okresowych](docs/asystent-ocen-demo.gif)
+
 **Najprościej (mały urząd, jeden komputer, bez Dockera i bez IT):** zainstaluj
 [Pythona 3.10+](https://www.python.org/downloads/) (Windows: zaznacz „Add python.exe to PATH”), pobierz repozytorium
 (`git clone` albo „Code → Download ZIP” i rozpakuj) i uruchom:
