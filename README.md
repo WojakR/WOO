@@ -76,8 +76,8 @@ pracę na zadania, przeglądali i scalali zmiany oraz weryfikowali logikę z prz
 | **Franek** ([Franio2018](https://github.com/Franio2018)) | Rdzeń domeny i kontrakt API, asystent AI (podpowiedzi, personalizacja z historii pracownika), cykl oceny i terminy, ustawienia administratora i wersjonowanie przepisów, funkcje wdrożeniowe (tryb produkcyjny, dziennik zmian, import kadr, skutki ocen), sprzeciw i integracja z EZD; infrastruktura pracy agentów na wielu komputerach |
 | **Wojtek** ([WojakR](https://github.com/WojakR)) | Zgodność terminów z przepisami (przykłady KPRM jako testy), pseudonimizacja danych dla AI, API przygotowania rozmowy i szkiców, uprawnienia według struktury podległości i zastępstwa, przypomnienia, sprzeciw (art. 83), logowanie, uruchamianie jednym poleceniem, Docker i CI |
 | **Nikola** ([Neonaaq](https://github.com/Neonaaq)) | Interfejs użytkownika (Streamlit): ekrany oceny, zespołu i pracownika, dashboard, archiwum, pomoc, panel administratora, wygląd i dane demo |
-| **TODO: imię** | Konsulting: TODO – np. analiza wymagań KPRM, konsultacje z mentorami, prezentacja |
-| **TODO: imię** | Konsulting: TODO |
+| **Amelia** | Konsulting i analiza biznesowa: analiza potrzeb klienta (rozmowy z pracownikami i kierownictwem), projekt działania systemu i jego funkcjonalności, dostosowanie konfiguracji do wymagań, testy zgodności z wymaganiami formalnymi i prawnymi, przekazywanie wymagań programistom |
+| **Mateusz** | Konsulting i analiza biznesowa: analiza potrzeb klienta (rozmowy z pracownikami i kierownictwem), projekt działania systemu i jego funkcjonalności, dostosowanie konfiguracji do wymagań, testy zgodności z wymaganiami formalnymi i prawnymi, przekazywanie wymagań programistom |
 
 ## Szybki start
 
